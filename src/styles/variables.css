@@ -1,0 +1,60 @@
+:root {
+  /* Colors */
+  --primary-blue: #0047AB;
+  /* Approximation of the deep blue in screenshots */
+  --primary-light: #E6F0FF;
+  /* Light blue background for active states */
+  --text-dark: #1F2937;
+  --text-medium: #4B5563;
+  --text-light: #9CA3AF;
+  --bg-main: #F3F4F6;
+  --bg-white: #FFFFFF;
+  --success-green: #10B981;
+  --danger-red: #EF4444;
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  /* Borders */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --border-color: #E5E7EB;
+}
+
+[data-theme="dark"] {
+  /* Colors - Dark Mode Override */
+  --primary-blue: #3B82F6;
+  /* Lighter blue for dark mode visibility */
+  --primary-light: rgba(59, 130, 246, 0.15);
+  /* Transparent blue for active states */
+  --text-dark: #F9FAFB;
+  /* Almost white */
+  --text-medium: #D1D5DB;
+  /* Light gray */
+  --text-light: #9CA3AF;
+  /* Medium gray */
+  --bg-main: #111827;
+  /* Very dark gray (almost black) background */
+  --bg-white: #1F2937;
+  /* Dark gray for cards/sidebar */
+  --border-color: #374151;
+  /* Dark border */
+
+  /* Update Shadows for Dark Mode (optional, often subtle borders are better) */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+}

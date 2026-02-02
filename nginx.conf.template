@@ -1,0 +1,37 @@
+server {
+    listen 80;
+    server_name SEU_DOMINIO_OU_IP;
+
+    # Frontend (Vite Build)
+    location / {
+        proxy_pass http://localhost:5173; # Se rodar como dev, ou aponte para a pasta dist se for estático
+        # Para produção real com build estático:
+        # root /var/www/promp-agent/dist;
+        # try_files $uri $uri/ /index.html;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Backend API
+    location /api {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Webhook
+    location /webhook {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
