@@ -549,7 +549,7 @@ const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
 // MUST be set in .env on the server
 const PROMP_ADMIN_TOKEN = process.env.PROMP_ADMIN_TOKEN;
 
-const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => {
+const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, productCaption) => {
     if (!config.prompUuid || !config.prompToken) {
         console.log('[Promp] Skipping external API execution (Credentials missing).');
         return false;
@@ -961,7 +961,7 @@ app.post('/webhook/:companyId', async (req, res) => {
         // --- REPLY STRATEGY ---
         let sentViaApi = false;
         if (config.prompUuid && config.prompToken) {
-            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl);
+            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption);
             console.log(`[Webhook] Sent via API: ${sentViaApi}`);
         } else {
             console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
