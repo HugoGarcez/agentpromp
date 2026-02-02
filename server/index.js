@@ -118,6 +118,107 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
 });
 
 
+
+// --- Admin Routes ---
+
+const authenticateAdmin = (req, res, next) => {
+    authenticateToken(req, res, () => {
+        if (req.user.role !== 'ADMIN') {
+            return res.status(403).json({ message: 'Acesso negado' });
+        }
+        next();
+    });
+};
+
+app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
+    try {
+        const [users, companies, configs] = await Promise.all([
+            prisma.user.count(),
+            prisma.company.count(),
+            prisma.agentConfig.count()
+        ]);
+        res.json({ users, companies, configs });
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao buscar estatísticas' });
+    }
+});
+
+app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
+    try {
+        const users = await prisma.user.findMany({
+            orderBy: { createdAt: 'desc' },
+            select: {
+                id: true,
+                email: true,
+                role: true,
+                createdAt: true,
+                company: { select: { id: true, name: true } }
+            }
+        });
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao buscar usuários' });
+    }
+});
+
+app.post('/api/admin/users', authenticateAdmin, async (req, res) => {
+    const { email, password, companyName, role } = req.body;
+
+    try {
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+        if (existingUser) return res.status(400).json({ message: 'Email já cadastrado' });
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        const company = await prisma.company.create({ data: { name: companyName || 'Nova Empresa' } });
+
+        const user = await prisma.user.create({
+            data: {
+                email,
+                password: hashedPassword,
+                role: role || 'USER',
+                companyId: company.id
+            }
+        });
+
+        res.json({ success: true, user: { id: user.id, email: user.email } });
+    } catch (error) {
+        console.error('Create user error:', error);
+        res.status(500).json({ message: 'Erro ao criar usuário' });
+    }
+});
+
+app.put('/api/admin/users/:id', authenticateAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { password, role, companyName } = req.body;
+
+    try {
+        const updates = {};
+        if (password) updates.password = await bcrypt.hash(password, 10);
+        if (role) updates.role = role;
+
+        if (Object.keys(updates).length > 0) {
+            await prisma.user.update({
+                where: { id },
+                data: updates
+            });
+        }
+
+        if (companyName) {
+            const user = await prisma.user.findUnique({ where: { id } });
+            await prisma.company.update({
+                where: { id: user.companyId },
+                data: { name: companyName }
+            });
+        }
+
+        res.json({ success: true, message: 'Usuário atualizado' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao atualizar usuário' });
+    }
+});
+
+
 // --- Configuration Routes (Protected) ---
 
 // Helper to get config from DB
