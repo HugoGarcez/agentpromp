@@ -580,7 +580,8 @@ const sendPrompMessage = async (config, number, text, audioBase64) => {
 };
 
 app.post('/api/promp/connect', authenticateToken, async (req, res) => {
-    const { identity } = req.body;
+    // SessionID manual input support
+    const { identity, sessionId } = req.body;
     const companyId = req.user.companyId;
 
     if (!PROMP_ADMIN_TOKEN) {
@@ -588,7 +589,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
     }
 
     try {
-        console.log(`[Promp] Auto-connecting for identity: ${identity}`);
+        console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
 
         // 1. List Tenants to get IDs
         const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
@@ -640,7 +641,11 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
         // 3. Create API (Best Effort)
         const apiName = "Agente IA Auto";
 
-        // Try creating API key - Using Tenant ID as Session ID fallback if unknown
+        // Priority: Manual Session ID > Tenant ID (Fallback)
+        // If manual sessionId is provided, use it blindly.
+        // If not, use tenant.id (which failed before, but is the best guess if no other option).
+        const finalSessionId = sessionId || targetTenant.id;
+
         const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
             method: 'POST',
             headers: {
@@ -649,7 +654,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             },
             body: JSON.stringify({
                 name: apiName,
-                sessionId: targetTenant.id,
+                sessionId: finalSessionId,
                 userId: targetTenant.adminId || 1,
                 authToken: Math.random().toString(36).substring(7),
                 tenant: targetTenant.id
@@ -660,7 +665,9 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
 
         if (!createApiRes.ok || !apiData.id) {
             console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
-            return res.status(400).json({ message: 'Tenant encontrado, mas falha ao criar API Key. Verifique sessões.' });
+            return res.status(400).json({
+                message: `Falha ao criar API Key (Sessão inválida?). Tente informar o ID da Sessão/Conexão manualmente no campo ao lado.`
+            });
         }
 
         // SAVE TO DB

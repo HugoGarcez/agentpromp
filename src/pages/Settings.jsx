@@ -482,9 +482,24 @@ DIRETRIZES:
                                         }}
                                     />
                                 </div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>ID da Conexão (Opcional)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="ID ou Nome da Sessão"
+                                        id="prompSessionInput"
+                                        style={{
+                                            width: '100%', padding: '10px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid #10B981',
+                                            background: 'white'
+                                        }}
+                                    />
+                                </div>
                                 <button
                                     onClick={async () => {
                                         const identity = document.getElementById('prompIdentityInput').value;
+                                        const sessionId = document.getElementById('prompSessionInput').value;
                                         if (!identity) return alert('Digite a identidade');
 
                                         try {
@@ -495,7 +510,7 @@ DIRETRIZES:
                                                     'Content-Type': 'application/json',
                                                     'Authorization': `Bearer ${token}`
                                                 },
-                                                body: JSON.stringify({ identity })
+                                                body: JSON.stringify({ identity, sessionId })
                                             });
                                             const data = await res.json();
                                             if (res.ok) {
