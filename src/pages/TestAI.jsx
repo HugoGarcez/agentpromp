@@ -14,14 +14,28 @@ const TestAI = () => {
 
     const [products, setProducts] = useState([]);
 
-    // Load config from localStorage
+    // Load config from API
     React.useEffect(() => {
-        const savedIntegrations = localStorage.getItem('promp_ai_integrations');
-        // Load products for image rendering
-        const savedProducts = localStorage.getItem('promp_ai_products');
-        if (savedProducts) {
-            setProducts(JSON.parse(savedProducts));
-        }
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const fetchConfig = async () => {
+            try {
+                const response = await fetch('/api/config', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.products && Array.isArray(data.products)) {
+                        setProducts(data.products);
+                    }
+                }
+            } catch (error) {
+                console.error("Error fetching config for chat:", error);
+            }
+        };
+
+        fetchConfig();
     }, []);
 
     const handleSendMessage = async (e) => {
@@ -51,11 +65,6 @@ const TestAI = () => {
                     message: userText,
                     systemPrompt: systemPrompt || undefined,
                     useConfigPrompt: !advancedMode // If advanced mode is off, rely on backend config. But if on, use the prompt from state.
-                    // Actually, if Advanced Mode is on, the user sees the 'PromptTab'.
-                    // PromptTab calls 'setSystemPrompt' on change.
-                    // So 'systemPrompt' state HERE in TestAI holds the current draft.
-                    // We should pass it if we want adjustments to take effect immediately.
-                    // Let's always pass 'systemPrompt' if it's set, so live edits work.
                 })
             });
 

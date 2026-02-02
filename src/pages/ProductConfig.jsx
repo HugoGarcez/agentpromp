@@ -1,24 +1,91 @@
-import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, Package, Image as ImageIcon } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Edit2, Trash2, Package, Image as ImageIcon, Save, Loader2 } from 'lucide-react';
 
 const ProductConfig = () => {
     const [showForm, setShowForm] = useState(false);
-    const [products, setProducts] = useState(() => {
-        const saved = localStorage.getItem('promp_ai_products');
-        return saved ? JSON.parse(saved) : [];
-    });
+    const [products, setProducts] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false); // Global saving state
+    const [config, setConfig] = useState(null); // Store full config to preserve other fields
 
-    React.useEffect(() => {
-        try {
-            localStorage.setItem('promp_ai_products', JSON.stringify(products));
-        } catch (error) {
-            console.error("Erro ao salvar produtos:", error);
-            if (error.name === 'QuotaExceededError') {
-                alert('Erro Crítico: Limite de armazenamento excedido! Sua última alteração não pôde ser salva. Tente remover produtos antigos ou usar imagens menores.');
-                // Optional: Revert state if needed, but alert is first step.
+    const token = localStorage.getItem('token');
+
+    // Fetch Products from API (and migrate if needed)
+    useEffect(() => {
+        if (!token) return;
+
+        const fetchConfig = async () => {
+            try {
+                const response = await fetch('/api/config', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    setConfig(data);
+
+                    let serverProducts = data.products || [];
+
+                    // --- MIGRATION START ---
+                    // If server is empty but we have local products, migrate them!
+                    const localProducts = localStorage.getItem('promp_ai_products');
+                    if (serverProducts.length === 0 && localProducts) {
+                        try {
+                            const parsedLocal = JSON.parse(localProducts);
+                            if (parsedLocal.length > 0) {
+                                console.log('Migrating local products to server...');
+                                await saveProductsToApi(parsedLocal, data); // Save immediately
+                                serverProducts = parsedLocal; // Update DB used in state
+                                localStorage.removeItem('promp_ai_products'); // Clear after migration
+                            }
+                        } catch (e) {
+                            console.error("Migration error:", e);
+                        }
+                    }
+                    // --- MIGRATION END ---
+
+                    setProducts(serverProducts);
+                }
+            } catch (error) {
+                console.error("Error loading config:", error);
+            } finally {
+                setLoading(false);
             }
+        };
+
+        fetchConfig();
+    }, [token]);
+
+    const saveProductsToApi = async (newProducts, currentConfig = config) => {
+        setSaving(true);
+        try {
+            const payload = {
+                ...currentConfig, // Preserve systemPrompt, persona, etc.
+                products: newProducts
+            };
+
+            const response = await fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error('Failed to save to server');
+
+            // Update local state ONLY on success
+            setProducts(newProducts);
+            setConfig(payload);
+            return true;
+        } catch (error) {
+            console.error("Error saving products:", error);
+            alert("Erro ao salvar no servidor. Verifique sua conexão.");
+            return false;
+        } finally {
+            setSaving(false);
         }
-    }, [products]);
+    };
 
     const [formData, setFormData] = useState({
         name: '',
@@ -37,9 +104,8 @@ const ProductConfig = () => {
     const handleImageChange = (e) => {
         const file = e.target.files[0];
         if (file) {
-            // Limit image size to 300KB to be safe
             if (file.size > 300 * 1024) {
-                alert('A imagem é muito grande! Por favor, escolha uma imagem com menos de 300KB para evitar problemas de memória.');
+                alert('A imagem é muito grande! Por favor, escolha uma imagem com menos de 300KB.');
                 return;
             }
 
@@ -51,10 +117,9 @@ const ProductConfig = () => {
         }
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // Calculate potential new state size
         const productsCopy = [...products];
         const newProduct = { ...formData, id: formData.id || Date.now() };
 
@@ -65,18 +130,11 @@ const ProductConfig = () => {
             newProductsState = [...productsCopy, newProduct];
         }
 
-        // ESTIMATE SIZE: JSON string length. 5MB approx 5,242,880 chars (1 byte/char approx for UTF-16 in JS string, but localStorage is usually char count limit)
-        // Safe limit: 4.5 million characters
-        const estimatedSize = JSON.stringify(newProductsState).length;
-
-        if (estimatedSize > 4500000) {
-            alert(`Atenção: O armazenamento está quase cheio (${Math.round(estimatedSize / 1024)}KB). Não é possível salvar este produto. Tente remover imagens ou produtos antigos.`);
-            return;
+        const success = await saveProductsToApi(newProductsState);
+        if (success) {
+            setFormData({ name: '', price: '', description: '', variations: '', colors: '', image: null });
+            setShowForm(false);
         }
-
-        setProducts(newProductsState);
-        setFormData({ name: '', price: '', description: '', variations: '', colors: '', image: null });
-        setShowForm(false);
     };
 
     const handleEdit = (product) => {
@@ -84,20 +142,25 @@ const ProductConfig = () => {
         setShowForm(true);
     };
 
-    const deleteProduct = (id) => {
-        setProducts(products.filter(p => p.id !== id));
+    const deleteProduct = async (id) => {
+        if (!confirm("Tem certeza que deseja excluir este produto?")) return;
+        const newProductsState = products.filter(p => p.id !== id);
+        await saveProductsToApi(newProductsState);
     };
+
+    if (loading) return <div style={{ padding: 24, textAlign: 'center' }}><Loader2 className="animate-spin" /> Carregando produtos...</div>;
 
     return (
         <div style={{ background: 'var(--bg-white)', padding: '24px', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Produtos</h2>
+                <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Produtos ({products.length})</h2>
                 {!showForm && (
                     <button
                         onClick={() => {
                             setFormData({ name: '', price: '', description: '', variations: '', colors: '', image: null });
                             setShowForm(true);
                         }}
+                        disabled={saving}
                         style={{
                             backgroundColor: 'var(--primary-blue)',
                             color: 'white',
@@ -106,7 +169,9 @@ const ProductConfig = () => {
                             fontSize: '14px',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '8px'
+                            gap: '8px',
+                            opacity: saving ? 0.7 : 1,
+                            cursor: saving ? 'not-allowed' : 'pointer'
                         }}
                     >
                         <Plus size={18} />
@@ -114,6 +179,10 @@ const ProductConfig = () => {
                     </button>
                 )}
             </div>
+
+            {/* Saving Indicator */}
+            {saving && <div style={{ color: 'var(--primary-blue)', marginBottom: 10, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}> <Loader2 size={14} className="animate-spin" /> Salvando alterações...</div>}
+
 
             {showForm ? (
                 <form onSubmit={handleSubmit} style={{ marginBottom: '24px', padding: '24px', border: '1px solid #E5E7EB', borderRadius: 'var(--radius-md)' }}>
@@ -212,21 +281,25 @@ const ProductConfig = () => {
                         <button
                             type="button"
                             onClick={() => setShowForm(false)}
-                            style={{ padding: '10px 16px', color: 'var(--text-medium)', fontWeight: 500 }}
+                            disabled={saving}
+                            style={{ padding: '10px 16px', color: 'var(--text-medium)', fontWeight: 500, cursor: 'pointer' }}
                         >
                             Cancelar
                         </button>
                         <button
                             type="submit"
+                            disabled={saving}
                             style={{
                                 backgroundColor: 'var(--primary-blue)',
                                 color: 'white',
                                 padding: '10px 24px',
                                 borderRadius: 'var(--radius-md)',
-                                fontWeight: 500
+                                fontWeight: 500,
+                                opacity: saving ? 0.7 : 1,
+                                cursor: 'pointer'
                             }}
                         >
-                            {formData.id ? 'Salvar Alterações' : 'Salvar Produto'}
+                            {saving ? 'Salvando...' : (formData.id ? 'Salvar Alterações' : 'Salvar Produto')}
                         </button>
                     </div>
                 </form>
@@ -282,8 +355,8 @@ const ProductConfig = () => {
                                         </div>
                                     </div>
                                     <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
-                                        <button onClick={() => handleEdit(product)} style={{ color: 'var(--text-light)', cursor: 'pointer' }}><Edit2 size={18} /></button>
-                                        <button onClick={() => deleteProduct(product.id)} style={{ color: 'var(--text-light)', cursor: 'pointer' }}><Trash2 size={18} /></button>
+                                        <button onClick={() => handleEdit(product)} disabled={saving} style={{ color: 'var(--text-light)', cursor: 'pointer' }}><Edit2 size={18} /></button>
+                                        <button onClick={() => deleteProduct(product.id)} disabled={saving} style={{ color: 'var(--text-light)', cursor: 'pointer' }}><Trash2 size={18} /></button>
                                     </div>
                                 </div>
                             ))}
