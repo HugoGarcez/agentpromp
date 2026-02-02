@@ -14,28 +14,48 @@ const TestAI = () => {
 
     const [products, setProducts] = useState([]);
 
-    // Load config from API
+    // Load config and history
     React.useEffect(() => {
         const token = localStorage.getItem('token');
         if (!token) return;
 
-        const fetchConfig = async () => {
+        const fetchData = async () => {
             try {
-                const response = await fetch('/api/config', {
+                // Config
+                const resConfig = await fetch('/api/config', {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                if (response.ok) {
-                    const data = await response.json();
+                if (resConfig.ok) {
+                    const data = await resConfig.json();
                     if (data.products && Array.isArray(data.products)) {
                         setProducts(data.products);
                     }
                 }
+
+                // History
+                const resHistory = await fetch('/api/chat/history', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (resHistory.ok) {
+                    const historyData = await resHistory.json();
+                    if (historyData.length > 0) {
+                        setMessages(historyData.map(h => ({
+                            id: h.id,
+                            sender: h.sender,
+                            text: h.text
+                        })));
+                    } else {
+                        // Default welcome if no history
+                        setMessages([{ id: 1, sender: 'ai', text: 'Olá! Como posso ajudar você hoje?' }]);
+                    }
+                }
+
             } catch (error) {
-                console.error("Error fetching config for chat:", error);
+                console.error("Error loading chat data:", error);
             }
         };
 
-        fetchConfig();
+        fetchData();
     }, []);
 
     const handleSendMessage = async (e) => {
@@ -44,7 +64,10 @@ const TestAI = () => {
 
         const userText = inputText;
         const newUserMsg = { id: Date.now(), sender: 'user', text: userText };
-        setMessages(prev => [...prev, newUserMsg]);
+
+        // Optimistic update
+        const updatedMessages = [...messages, newUserMsg];
+        setMessages(updatedMessages);
         setInputText('');
         setIsLoading(true);
 
@@ -54,6 +77,12 @@ const TestAI = () => {
                 throw new Error('Usuário não autenticado');
             }
 
+            // Prepare history for API (Role mapping)
+            const history = updatedMessages.map(msg => ({
+                role: msg.sender === 'user' ? 'user' : 'assistant',
+                content: msg.text
+            })).filter(msg => msg.content !== '...'); // simple filter
+
             // Call backend API
             const response = await fetch('/api/chat', {
                 method: 'POST',
@@ -62,9 +91,10 @@ const TestAI = () => {
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    message: userText,
+                    message: userText, // Still send current message for convenience/logging
+                    history: history,  // Send full history for memory
                     systemPrompt: systemPrompt || undefined,
-                    useConfigPrompt: !advancedMode // If advanced mode is off, rely on backend config. But if on, use the prompt from state.
+                    useConfigPrompt: !advancedMode
                 })
             });
 
@@ -76,7 +106,16 @@ const TestAI = () => {
             const data = await response.json();
             const aiText = data.response;
 
-            const newAiMsg = { id: Date.now() + 1, sender: 'ai', text: aiText };
+            // Handle Audio
+            // We now store the audio in the message state to render a player
+            // The <audio autoPlay> element will handle playback
+
+            const newAiMsg = {
+                id: Date.now() + 1,
+                sender: 'ai',
+                text: aiText,
+                audio: data.audio
+            };
             setMessages(prev => [...prev, newAiMsg]);
 
         } catch (error) {
@@ -191,6 +230,16 @@ const TestAI = () => {
                                         return part;
                                     })}
                                 </p>
+                                {msg.audio && (
+                                    <div style={{ marginTop: '8px' }}>
+                                        <audio
+                                            controls
+                                            autoPlay
+                                            src={`data:audio/mpeg;base64,${msg.audio}`}
+                                            style={{ width: '100%', height: '32px' }}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         </div>
                     ))}

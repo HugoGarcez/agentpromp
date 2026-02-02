@@ -154,8 +154,9 @@ DIRETRIZES:
                 },
                 body: JSON.stringify({
                     persona,
-                    integrations,
-                    voice,
+                    // FORCE MERGE: Send voice settings INSIDE integrations to ensure backend saves them
+                    integrations: { ...integrations, ...voice },
+                    voice, // Keep for backward compat if needed
                     systemPrompt: finalSystemPrompt,
                     products: JSON.parse(localStorage.getItem('promp_ai_products') || '[]')
                 }),

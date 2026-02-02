@@ -243,15 +243,21 @@ app.post('/api/config', authenticateToken, async (req, res) => {
     const newConfig = req.body;
 
     try {
-        // Fetch current config to check for changes
         const currentConfig = await prisma.agentConfig.findUnique({ where: { companyId } });
 
-        // Upsert config
+        // Merge Voice settings into Integrations for storage
+        // The frontend sends 'integrations' (LLM keys) and 'voice' (Audio settings) separately.
+        // We store them together in the 'integrations' JSON column.
+        let combinedIntegrations = newConfig.integrations || {};
+        if (newConfig.voice) {
+            combinedIntegrations = { ...combinedIntegrations, ...newConfig.voice };
+        }
+
         const data = {
             companyId,
             systemPrompt: newConfig.systemPrompt,
             persona: newConfig.persona ? JSON.stringify(newConfig.persona) : undefined,
-            integrations: newConfig.integrations ? JSON.stringify(newConfig.integrations) : undefined,
+            integrations: JSON.stringify(combinedIntegrations),
             products: newConfig.products ? JSON.stringify(newConfig.products) : undefined,
         };
 
@@ -266,7 +272,7 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             await prisma.promptHistory.create({
                 data: {
                     agentConfigId: updatedConfig.id,
-                    systemPrompt: currentConfig.systemPrompt // Save the OLD prompt as history
+                    systemPrompt: currentConfig.systemPrompt
                 }
             });
         }
@@ -315,7 +321,6 @@ app.post('/api/config/restore', authenticateToken, async (req, res) => {
         const historyItem = await prisma.promptHistory.findUnique({ where: { id: historyId } });
         if (!historyItem) return res.status(404).json({ message: 'Versão não encontrada' });
 
-        // Update current config with history content
         await prisma.agentConfig.update({
             where: { companyId },
             data: { systemPrompt: historyItem.systemPrompt }
@@ -343,7 +348,7 @@ app.get('/api/config', authenticateToken, async (req, res) => {
 // --- Chat Endpoint (Protected) ---
 app.post('/api/chat', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
-    const { message, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
+    const { message, history, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
 
     if (!message) return res.status(400).json({ error: 'Message required' });
 
@@ -357,35 +362,137 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
         const openai = new OpenAI({ apiKey: config.integrations.openaiKey });
 
         let systemPrompt = config.systemPrompt;
-
-        // Allow frontend to override for testing (Advanced Mode edits not yet saved)
         if (!useConfigPrompt && overridePrompt) {
             systemPrompt = overridePrompt;
         }
-
-        // Fallback default
         if (!systemPrompt) {
             systemPrompt = "Você é um assistente virtual útil.";
         }
 
-        // Inject Products
         if (config.products && config.products.length > 0) {
             const productList = config.products.map(p =>
                 `- ${p.name}: R$ ${p.price} (ID: ${p.id}). ${p.description || ''} ${p.image ? '[TEM_IMAGEM]' : ''}`
             ).join('\n');
-            // Append product instruction
             systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO IMPORTANTE: Se o usuário pedir para ver uma foto ou imagem de um produto e ele tiver a flag [TEM_IMAGEM], responda EXATAMENTE com a tag: [SHOW_IMAGE: ID_DO_PRODUTO]. Exemplo: [SHOW_IMAGE: 12345]. Não invente links.`;
         }
 
+        systemPrompt += `\n\nDIRETRIZES DE HUMANIZAÇÃO (CRÍTICO):
+        1. NATURALIDADE: Aja como um humano. NÃO inicie todas as respostas com cumprimentos (Olá, Tudo bem, etc) se a conversa já está fluindo. Seja direto.
+        2. MEMÓRIA: Você tem acesso ao histórico da conversa. Use-o para manter a continuidade.
+        3. CONCISÃO: Evite textos longos e robóticos, a menos que necessário.`;
+
+        let messages = [{ role: "system", content: systemPrompt }];
+        if (Array.isArray(history) && history.length > 0) {
+            const cleanHistory = history.map(h => ({
+                role: h.role === 'user' || h.role === 'assistant' ? h.role : 'user',
+                content: h.content || ''
+            }));
+            messages = [...messages, ...cleanHistory];
+        } else {
+            messages.push({ role: "user", content: message });
+        }
+
         const completion = await openai.chat.completions.create({
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: message }
-            ],
+            messages: messages,
             model: "gpt-3.5-turbo",
         });
 
-        res.json({ response: completion.choices[0].message.content });
+        const aiResponse = completion.choices[0].message.content;
+
+        // Persist Chat
+        try {
+            await prisma.testMessage.create({
+                data: { companyId, sender: 'user', text: message }
+            });
+            await prisma.testMessage.create({
+                data: { companyId, sender: 'ai', text: aiResponse }
+            });
+        } catch (dbError) {
+            console.error('Failed to save chat history:', dbError);
+        }
+
+        let audioBase64 = null;
+
+        // --- Audio Generation Logic ---
+        const integrator = config.integrations || {};
+        const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
+
+        if (isVoiceEnabled && integrator.elevenLabsKey) {
+            let shouldGenerate = true;
+
+            // Probability Check
+            if (integrator.responseType === 'percentage') {
+                const probability = parseInt(integrator.responsePercentage || 50, 10);
+                const randomVal = Math.random() * 100;
+                if (randomVal > probability) {
+                    shouldGenerate = false;
+                    console.log(`Audio skipped by probability: ${randomVal.toFixed(0)} > ${probability}`);
+                }
+            } else if (integrator.responseType === 'audio_only') {
+                // If the user didn't send audio (which we can't detect yet properly in this text endpoint, assumes text input),
+                // we might skip. But for now, let's treat "audio_only" as "Always" for text chats or implement logic if we had audio input.
+                // Re-reading Settings.jsx: "Responder em áudio apenas quando o cliente enviar áudio".
+                // Since our input is text, we should probably SKIP if this mode is on.
+                // But typically users testing want to hear it. Let's strictly follow the rule:
+                // If input was text, do not generate.
+                // However, the test interface sends text.
+                // Let's assume for TEST AI we force generation or respect the rule?
+                // Stick to the rule: if audio_only, skip.
+                shouldGenerate = false;
+                console.log('Audio skipped: Mode is Audio Only and input was Text.');
+            }
+
+            // Correction: For TestAI, maybe we want to force it?
+            // The user said "100% of messages". That's the percentage slider.
+
+            if (shouldGenerate) {
+                console.log('Attempting ElevenLabs generation...');
+                try {
+                    let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
+
+                    // Fallback for Agent IDs (which don't work with TTS)
+                    if (voiceId.startsWith('agent_')) {
+                        console.warn(`Invalid Voice ID for TTS detected (${voiceId}). Falling back to default 'Rachel'.`);
+                        voiceId = '21m00Tcm4TlvDq8ikWAM';
+                    }
+
+                    const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+                        method: 'POST',
+                        headers: {
+                            'xi-api-key': integrator.elevenLabsKey,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            text: aiResponse.replace(/\[SHOW_IMAGE:\s*\d+\]/g, ''),
+                            model_id: "eleven_multilingual_v2", // Updated for Portuguese support
+                            voice_settings: {
+                                stability: 0.5,
+                                similarity_boost: 0.75
+                            }
+                        })
+                    });
+
+                    if (responseStream.ok) {
+                        const arrayBuffer = await responseStream.arrayBuffer();
+                        audioBase64 = Buffer.from(arrayBuffer).toString('base64');
+                        console.log('Audio generated successfully.');
+                    } else {
+                        const errorText = await responseStream.text();
+                        console.error('ElevenLabs API Error:', errorText);
+                    }
+                } catch (audioError) {
+                    console.error('Audio Generation Error:', audioError);
+                }
+            }
+        } else {
+            if (!isVoiceEnabled) console.log('Audio disabled in settings.');
+            else if (!integrator.elevenLabsKey) console.log('ElevanLabs Key missing.');
+        }
+
+        res.json({
+            response: aiResponse,
+            audio: audioBase64
+        });
 
     } catch (error) {
         console.error('Chat API Error:', error);
@@ -393,10 +500,32 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
     }
 });
 
+app.get('/api/chat/history', authenticateToken, async (req, res) => {
+    try {
+        const history = await prisma.testMessage.findMany({
+            where: { companyId: req.user.companyId },
+            orderBy: { createdAt: 'asc' }, // Oldest first
+            take: 50 // Limit to last 50
+        });
+
+        // Map to frontend format
+        const formatted = history.map(h => ({
+            id: h.id, // String UUID
+            sender: h.sender,
+            text: h.text
+        }));
+
+        res.json(formatted);
+    } catch (error) {
+        console.error('Error fetching chat history:', error);
+        res.status(500).json({ message: 'Failed to fetch history' });
+    }
+});
+
 
 // --- Webhook Endpoint ---
 
-// Webhook currently needs a way to identify the company. 
+// Webhook currently needs a way to identify the company.
 // For now, I'll allow passing ?companyId=... or assume a single user scenario for simplicity if not provided,
 // BUT since we mandated multi-tenancy, we must know the company.
 // Option: Pass API Key or Company ID in payload.
