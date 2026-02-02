@@ -295,6 +295,112 @@ app.get('/api/config', authenticateToken, async (req, res) => {
     }
 });
 
+// --- REUSABLE CHAT LOGIC ---
+const processChatResponse = async (config, message, history, sessionId = null) => {
+    if (!config || !config.integrations?.openaiKey) {
+        throw new Error('OpenAI API Key not configured');
+    }
+
+    const openai = new OpenAI({ apiKey: config.integrations.openaiKey });
+
+    let systemPrompt = config.systemPrompt || "Você é um assistente virtual útil.";
+
+    // Inject Products
+    if (config.products && config.products.length > 0) {
+        const productList = config.products.map(p =>
+            `- ${p.name}: R$ ${p.price} (ID: ${p.id}). ${p.description || ''} ${p.image ? '[TEM_IMAGEM]' : ''}`
+        ).join('\n');
+        systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO IMPORTANTE: Se o usuário pedir para ver uma foto ou imagem de um produto e ele tiver a flag [TEM_IMAGEM], responda EXATAMENTE com a tag: [SHOW_IMAGE: ID_DO_PRODUTO]. Exemplo: [SHOW_IMAGE: 12345]. Não invente links.`;
+    }
+
+    // Humanization & Memory Control
+    systemPrompt += `\n\nDIRETRIZES DE HUMANIZAÇÃO (CRÍTICO):
+        1. NATURALIDADE: Aja como um humano. NÃO inicie todas as respostas com cumprimentos (Olá, Tudo bem, etc) se a conversa já está fluindo. Seja direto.
+        2. MEMÓRIA: Você tem acesso ao histórico da conversa. Use-o para manter a continuidade.
+        3. CONCISÃO: Evite textos longos e robóticos, a menos que necessário.`;
+
+    // Prepare Messages (History + System)
+    let messages = [{ role: "system", content: systemPrompt }];
+
+    if (Array.isArray(history) && history.length > 0) {
+        const cleanHistory = history.map(h => ({
+            role: h.role === 'user' || h.role === 'assistant' ? h.role : 'user',
+            content: h.content || ''
+        }));
+        messages = [...messages, ...cleanHistory];
+    } else {
+        messages.push({ role: "user", content: message });
+    }
+
+    const completion = await openai.chat.completions.create({
+        messages: messages,
+        model: "gpt-3.5-turbo",
+    });
+
+    const aiResponse = completion.choices[0].message.content;
+
+    // --- Audio Generation Logic ---
+    let audioBase64 = null;
+    const integrator = config.integrations || {};
+    const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
+
+    if (isVoiceEnabled && integrator.elevenLabsKey) {
+        let shouldGenerate = true;
+
+        // Probability Check
+        if (integrator.responseType === 'percentage') {
+            const probability = parseInt(integrator.responsePercentage || 50, 10);
+            const randomVal = Math.random() * 100;
+            if (randomVal > probability) {
+                shouldGenerate = false;
+                console.log(`Audio skipped by probability: ${randomVal.toFixed(0)} > ${probability}`);
+            }
+        } else if (integrator.responseType === 'audio_only') {
+            shouldGenerate = false; // Simplified logic for now
+        }
+
+        if (shouldGenerate) {
+            try {
+                let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
+
+                // Fallback for Agent IDs
+                if (voiceId.startsWith('agent_')) {
+                    console.warn(`Invalid Voice ID for TTS detected (${voiceId}). Falling back to default 'Rachel'.`);
+                    voiceId = '21m00Tcm4TlvDq8ikWAM';
+                }
+
+                const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+                    method: 'POST',
+                    headers: {
+                        'xi-api-key': integrator.elevenLabsKey,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: aiResponse.replace(/\[SHOW_IMAGE:\s*\d+\]/g, ''),
+                        model_id: "eleven_multilingual_v2", // Updated for Portuguese support
+                        voice_settings: {
+                            stability: 0.5,
+                            similarity_boost: 0.75
+                        }
+                    })
+                });
+
+                if (responseStream.ok) {
+                    const arrayBuffer = await responseStream.arrayBuffer();
+                    audioBase64 = Buffer.from(arrayBuffer).toString('base64');
+                } else {
+                    console.error('ElevenLabs API Error:', await responseStream.text());
+                }
+            } catch (audioError) {
+                console.error('Audio Generation Error:', audioError);
+            }
+        }
+    }
+
+    return { aiResponse, audioBase64 };
+};
+
+// --- Config History Routes ---
 app.get('/api/config/history', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
     try {
@@ -345,7 +451,7 @@ app.get('/api/config', authenticateToken, async (req, res) => {
 
 
 
-// --- Chat Endpoint (Protected) ---
+// --- Chat Endpoint (Protected - Panel Test) ---
 app.post('/api/chat', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
     const { message, history, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
@@ -355,144 +461,22 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
     try {
         const config = await getCompanyConfig(companyId);
 
-        if (!config || !config.integrations?.openaiKey) {
-            return res.status(400).json({ error: 'OpenAI API Key not configured' });
-        }
-
-        const openai = new OpenAI({ apiKey: config.integrations.openaiKey });
-
-        let systemPrompt = config.systemPrompt;
+        // Allow override for Test Panel
         if (!useConfigPrompt && overridePrompt) {
-            systemPrompt = overridePrompt;
-        }
-        if (!systemPrompt) {
-            systemPrompt = "Você é um assistente virtual útil.";
+            config.systemPrompt = overridePrompt;
         }
 
-        if (config.products && config.products.length > 0) {
-            const productList = config.products.map(p =>
-                `- ${p.name}: R$ ${p.price} (ID: ${p.id}). ${p.description || ''} ${p.image ? '[TEM_IMAGEM]' : ''}`
-            ).join('\n');
-            systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO IMPORTANTE: Se o usuário pedir para ver uma foto ou imagem de um produto e ele tiver a flag [TEM_IMAGEM], responda EXATAMENTE com a tag: [SHOW_IMAGE: ID_DO_PRODUTO]. Exemplo: [SHOW_IMAGE: 12345]. Não invente links.`;
-        }
+        const { aiResponse, audioBase64 } = await processChatResponse(config, message, history, null);
 
-        systemPrompt += `\n\nDIRETRIZES DE HUMANIZAÇÃO (CRÍTICO):
-        1. NATURALIDADE: Aja como um humano. NÃO inicie todas as respostas com cumprimentos (Olá, Tudo bem, etc) se a conversa já está fluindo. Seja direto.
-        2. MEMÓRIA: Você tem acesso ao histórico da conversa. Use-o para manter a continuidade.
-        3. CONCISÃO: Evite textos longos e robóticos, a menos que necessário.`;
-
-        let messages = [{ role: "system", content: systemPrompt }];
-        if (Array.isArray(history) && history.length > 0) {
-            const cleanHistory = history.map(h => ({
-                role: h.role === 'user' || h.role === 'assistant' ? h.role : 'user',
-                content: h.content || ''
-            }));
-            messages = [...messages, ...cleanHistory];
-        } else {
-            messages.push({ role: "user", content: message });
-        }
-
-        const completion = await openai.chat.completions.create({
-            messages: messages,
-            model: "gpt-3.5-turbo",
-        });
-
-        const aiResponse = completion.choices[0].message.content;
-
-        // Persist Chat
+        // Persist Chat (Test Mode - No Session)
         try {
-            await prisma.testMessage.create({
-                data: { companyId, sender: 'user', text: message }
-            });
-            await prisma.testMessage.create({
-                data: { companyId, sender: 'ai', text: aiResponse }
-            });
+            await prisma.testMessage.create({ data: { companyId, sender: 'user', text: message } });
+            await prisma.testMessage.create({ data: { companyId, sender: 'ai', text: aiResponse } });
         } catch (dbError) {
             console.error('Failed to save chat history:', dbError);
         }
 
-        let audioBase64 = null;
-
-        // --- Audio Generation Logic ---
-        const integrator = config.integrations || {};
-        const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
-
-        if (isVoiceEnabled && integrator.elevenLabsKey) {
-            let shouldGenerate = true;
-
-            // Probability Check
-            if (integrator.responseType === 'percentage') {
-                const probability = parseInt(integrator.responsePercentage || 50, 10);
-                const randomVal = Math.random() * 100;
-                if (randomVal > probability) {
-                    shouldGenerate = false;
-                    console.log(`Audio skipped by probability: ${randomVal.toFixed(0)} > ${probability}`);
-                }
-            } else if (integrator.responseType === 'audio_only') {
-                // If the user didn't send audio (which we can't detect yet properly in this text endpoint, assumes text input),
-                // we might skip. But for now, let's treat "audio_only" as "Always" for text chats or implement logic if we had audio input.
-                // Re-reading Settings.jsx: "Responder em áudio apenas quando o cliente enviar áudio".
-                // Since our input is text, we should probably SKIP if this mode is on.
-                // But typically users testing want to hear it. Let's strictly follow the rule:
-                // If input was text, do not generate.
-                // However, the test interface sends text.
-                // Let's assume for TEST AI we force generation or respect the rule?
-                // Stick to the rule: if audio_only, skip.
-                shouldGenerate = false;
-                console.log('Audio skipped: Mode is Audio Only and input was Text.');
-            }
-
-            // Correction: For TestAI, maybe we want to force it?
-            // The user said "100% of messages". That's the percentage slider.
-
-            if (shouldGenerate) {
-                console.log('Attempting ElevenLabs generation...');
-                try {
-                    let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
-
-                    // Fallback for Agent IDs (which don't work with TTS)
-                    if (voiceId.startsWith('agent_')) {
-                        console.warn(`Invalid Voice ID for TTS detected (${voiceId}). Falling back to default 'Rachel'.`);
-                        voiceId = '21m00Tcm4TlvDq8ikWAM';
-                    }
-
-                    const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-                        method: 'POST',
-                        headers: {
-                            'xi-api-key': integrator.elevenLabsKey,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            text: aiResponse.replace(/\[SHOW_IMAGE:\s*\d+\]/g, ''),
-                            model_id: "eleven_multilingual_v2", // Updated for Portuguese support
-                            voice_settings: {
-                                stability: 0.5,
-                                similarity_boost: 0.75
-                            }
-                        })
-                    });
-
-                    if (responseStream.ok) {
-                        const arrayBuffer = await responseStream.arrayBuffer();
-                        audioBase64 = Buffer.from(arrayBuffer).toString('base64');
-                        console.log('Audio generated successfully.');
-                    } else {
-                        const errorText = await responseStream.text();
-                        console.error('ElevenLabs API Error:', errorText);
-                    }
-                } catch (audioError) {
-                    console.error('Audio Generation Error:', audioError);
-                }
-            }
-        } else {
-            if (!isVoiceEnabled) console.log('Audio disabled in settings.');
-            else if (!integrator.elevenLabsKey) console.log('ElevanLabs Key missing.');
-        }
-
-        res.json({
-            response: aiResponse,
-            audio: audioBase64
-        });
+        res.json({ response: aiResponse, audio: audioBase64 });
 
     } catch (error) {
         console.error('Chat API Error:', error);
@@ -523,99 +507,65 @@ app.get('/api/chat/history', authenticateToken, async (req, res) => {
 });
 
 
-// --- Webhook Endpoint ---
+// --- Webhook Integration (Public) ---
+app.post('/webhook/:companyId', async (req, res) => {
+    const { companyId } = req.params;
+    const payload = req.body; // n8n payload
 
-// Webhook currently needs a way to identify the company.
-// For now, I'll allow passing ?companyId=... or assume a single user scenario for simplicity if not provided,
-// BUT since we mandated multi-tenancy, we must know the company.
-// Option: Pass API Key or Company ID in payload.
-// Let's assume the webhook URL is /webhook?key=COMPANY_ID or similar.
-// Actually, let's use the 'User' contact info or just try to find ANY config if we want to be lax, but that's bad.
-// Proper way: /webhook/:companyId
-app.post('/webhook/:companyId?', async (req, res) => {
+    console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload));
+
+    // Validate Payload Structure (n8n message)
+    if (!payload.content || !payload.content.text) {
+        return res.status(400).json({ error: 'Invalid payload structure. content.text missing.' });
+    }
+
+    const userMessage = payload.content.text;
+    const sessionId = payload.ticket?.id ? String(payload.ticket.id) : null;
+    const metadata = JSON.stringify(payload);
+
     try {
-        const companyIdParam = req.params.companyId;
+        const config = await getCompanyConfig(companyId);
+        if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
 
-        // Validation: If no companyId in URL, we can't serve.
-        // However, for backward compatibility with the user's previous "single tenant" setup, 
-        // we might fallback to the first company found? No, better to be strict.
-
-        let targetCompanyId = companyIdParam;
-
-        if (!targetCompanyId) {
-            // Fallback for demo: Try to find the "Promp Admin" company
-            const adminCo = await prisma.company.findFirst({ where: { name: 'Promp Admin' } });
-            if (adminCo) targetCompanyId = adminCo.id;
+        // Fetch History for this Session
+        let history = [];
+        if (sessionId) {
+            const storedMessages = await prisma.testMessage.findMany({
+                where: { companyId, sessionId },
+                orderBy: { createdAt: 'asc' },
+                take: 20 // Limit context
+            });
+            history = storedMessages.map(m => ({
+                role: m.sender === 'user' ? 'user' : 'assistant',
+                content: m.text
+            }));
         }
 
-        if (!targetCompanyId) {
-            return res.status(400).json({ error: 'Company ID required in URL: /webhook/:companyId' });
+        // Process Chat
+        const { aiResponse, audioBase64 } = await processChatResponse(config, userMessage, history, sessionId);
+
+        // Persist Chat (Webhook Mode - With Session)
+        try {
+            await prisma.testMessage.create({
+                data: { companyId, sender: 'user', text: userMessage, sessionId, metadata }
+            });
+            await prisma.testMessage.create({
+                data: { companyId, sender: 'ai', text: aiResponse, sessionId }
+            });
+        } catch (dbError) {
+            console.error('[Webhook] Failed to save chat:', dbError);
         }
 
-        console.log(`Webhook received for company: ${targetCompanyId}`);
-        console.log('Webhook Body:', JSON.stringify(req.body, null, 2));
-
-        const payload = Array.isArray(req.body) ? req.body[0] : req.body;
-        const body = payload.body || {};
-        const content = body.content || {};
-        const contact = body.contact || {};
-
-        const userMessage = content.text;
-
-        if (!userMessage) {
-            return res.status(400).json({ error: 'No message text found' });
-        }
-
-        // Load Company Config
-        const config = await getCompanyConfig(targetCompanyId);
-
-        if (!config || !config.integrations?.openaiKey) {
-            console.error('OpenAI Key not configured for this company');
-            return res.status(500).json({ error: 'OpenAI API Key not configured for this company' });
-        }
-
-        // Initialize OpenAI
-        const openai = new OpenAI({
-            apiKey: config.integrations.openaiKey,
-        });
-
-        // Construct System Prompt
-        let systemPrompt = config.systemPrompt;
-
-        if (!systemPrompt) {
-            const persona = config.persona || {};
-            systemPrompt = `Você é ${persona.name || 'Assistente'}, um ${persona.role || 'assistente helpful'}.`;
-        }
-
-        // Inject Products
-        if (config.products && config.products.length > 0) {
-            const productList = config.products.map(p =>
-                `- ${p.name}: R$ ${p.price} (ID: ${p.id}). ${p.description || ''}`
-            ).join('\n');
-            systemPrompt += `\n\nPRODUTOS DISPONÍVEIS:\n${productList}`;
-        }
-
-        console.log('Calling OpenAI...');
-
-        const completion = await openai.chat.completions.create({
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userMessage }
-            ],
-            model: "gpt-3.5-turbo",
-        });
-
-        const aiResponse = completion.choices[0].message.content;
-        console.log('AI Response:', aiResponse);
-
+        // Return Standardized Response
         res.json({
-            response: aiResponse,
-            original_message: userMessage
+            text: aiResponse,
+            audio: audioBase64, // Base64 Audio
+            sessionId: sessionId
         });
 
     } catch (error) {
-        console.error('Webhook Error:', error);
-        res.status(500).json({ error: error.message });
+        console.error('[Webhook] Error:', error);
+        res.status(500).json({ error: error.message || 'Processing failed' });
     }
 });
 
