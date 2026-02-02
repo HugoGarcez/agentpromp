@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { promises as fs } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -574,52 +575,35 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
         console.error('[Promp] Text Exception:', e);
     }
 
-    // 2. Send Image (Hybrid: URL or Base64)
+    // 2. Send Image (Hybrid: URL vs Base64 vs Local File)
     if (imageUrl) {
         try {
-            const isDataUri = imageUrl.startsWith('data:');
-            console.log(`[Promp] Sending Image to ${number}. Type: ${isDataUri ? 'Base64' : 'URL'}`);
+            let finalImageUrl = imageUrl.trim();
+            const isDataUri = finalImageUrl.startsWith('data:');
+            const isHttpUrl = finalImageUrl.startsWith('http://') || finalImageUrl.startsWith('https://');
+
+            console.log(`[Promp] Processing Image. Type: ${isDataUri ? 'Base64' : (isHttpUrl ? 'Remote URL' : 'Local File')}`);
+            console.log(`[Promp] Raw Image String (First 50 chars): ${finalImageUrl.substring(0, 50)}...`);
 
             if (isDataUri) {
-                // Handle Base64 Data URI
-                const matches = imageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                // --- CASE A: Base64 Data URI ---
+                const matches = finalImageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
                 if (matches && matches.length === 3) {
                     const mimeType = matches[1];
                     const base64Data = matches[2];
                     const ext = mimeType.split('/')[1] || 'jpg';
                     const fileName = `image_${Date.now()}.${ext}`;
 
-                    console.log(`[Promp] Sending via /base64 endpoint. Mime: ${mimeType}, Size: ${base64Data.length}`);
+                    console.log(`[Promp] Sending via /base64 endpoint (Data URI). Mime: ${mimeType}`);
 
-                    const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${config.prompToken}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            number: number,
-                            body: "",
-                            base64Data: base64Data,
-                            mimeType: mimeType,
-                            fileName: fileName,
-                            externalKey: `ai_img_${Date.now()}`,
-                            isClosed: false
-                        })
-                    });
-
-                    if (!imgResponse.ok) {
-                        const errRes = await imgResponse.text();
-                        console.error('[Promp] Base64 Image Send Failed:', errRes);
-                    } else {
-                        console.log('[Promp] SUCCESS: Image sent via Base64 endpoint.');
-                    }
+                    await sendBase64Image(config, number, base64Data, mimeType, fileName);
                 } else {
                     console.error('[Promp] Invalid Data URI format.');
                 }
-            } else {
-                // Handle Remote URL
-                console.log(`[Promp] Sending via /url endpoint: ${imageUrl}`);
+
+            } else if (isHttpUrl) {
+                // --- CASE B: Remote URL ---
+                console.log(`[Promp] Sending via /url endpoint: ${finalImageUrl}`);
                 const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/url`, {
                     method: 'POST',
                     headers: {
@@ -629,7 +613,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
                     body: JSON.stringify({
                         number: number,
                         body: "",
-                        mediaUrl: imageUrl,
+                        mediaUrl: finalImageUrl,
                         externalKey: `ai_img_${Date.now()}`
                     })
                 });
@@ -640,9 +624,72 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
                 } else {
                     console.log('[Promp] SUCCESS: Image sent via URL endpoint.');
                 }
+
+            } else {
+                // --- CASE C: Local File Path ---
+                // Try to resolve path relative to project root or use absolute path
+                // config/index.js is in 'server', so project root is '..'
+                // But better to check absolute first.
+
+                try {
+                    let filePath = finalImageUrl;
+                    // If relative, assume relative to project root NOT server dir 
+                    // (images usually in stored in public or uploads at root)
+                    if (!path.isAbsolute(filePath)) {
+                        filePath = path.join(__dirname, '..', filePath);
+                    }
+
+                    console.log(`[Promp] Handling Local File: ${filePath}`);
+
+                    // define mimeType mapping
+                    const ext = path.extname(filePath).toLowerCase().replace('.', '');
+                    const mimeTypes = {
+                        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+                        'png': 'image/png', 'gif': 'image/gif',
+                        'webp': 'image/webp'
+                    };
+                    const mimeType = mimeTypes[ext] || 'application/octet-stream';
+
+                    const fileBuffer = await fs.readFile(filePath);
+                    const base64Data = fileBuffer.toString('base64');
+                    const fileName = path.basename(filePath);
+
+                    console.log(`[Promp] Local file read success. Size: ${base64Data.length}. Sending via /base64...`);
+                    await sendBase64Image(config, number, base64Data, mimeType, fileName);
+
+                } catch (readErr) {
+                    console.error('[Promp] Failed to read local image file:', readErr);
+                }
             }
         } catch (e) {
             console.error('[Promp] Image Send Exception:', e);
+        }
+    }
+
+    // Helper function for Base64 sending
+    async function sendBase64Image(config, number, base64Data, mimeType, fileName) {
+        const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.prompToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                number: number,
+                body: "",
+                base64Data: base64Data,
+                mimeType: mimeType,
+                fileName: fileName,
+                externalKey: `ai_img_${Date.now()}`,
+                isClosed: false
+            })
+        });
+
+        if (!imgResponse.ok) {
+            const errRes = await imgResponse.text();
+            console.error('[Promp] Base64 Image Send Failed:', errRes);
+        } else {
+            console.log('[Promp] SUCCESS: Image sent via Base64 endpoint.');
         }
     }
 
