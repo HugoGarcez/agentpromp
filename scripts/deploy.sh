@@ -3,7 +3,7 @@
 # Configurações
 VPS_USER="root"
 VPS_IP="162.243.230.13"
-PROJECT_DIR="~/agente-promp" # <--- VERIFIQUE SE O NOME DA PASTA ESTÁ CORRETO
+PROJECT_DIR="~/promp-ia" # <--- VERIFIQUE SE O NOME DA PASTA ESTÁ CORRETO
 
 echo "🚀 Iniciando Deploy na VPS ($VPS_IP)..."
 
