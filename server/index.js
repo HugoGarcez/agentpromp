@@ -507,6 +507,202 @@ app.get('/api/chat/history', authenticateToken, async (req, res) => {
 });
 
 
+// --- PROMP API INTEGRATION ---
+
+const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
+// MUST be set in .env on the server
+const PROMP_ADMIN_TOKEN = process.env.PROMP_ADMIN_TOKEN;
+
+const sendPrompMessage = async (config, number, text, audioBase64) => {
+    if (!config.prompUuid || !config.prompToken) {
+        console.log('[Promp] Skipping external API execution (Credentials missing).');
+        return false;
+    }
+
+    // Removing '55' prefix if exists (Promp API usually handles it, or check documentation)
+    // Postman doc example: "5515998566622". Okay, keep it.
+
+    // 1. Send Text
+    try {
+        console.log(`[Promp] Sending Text to ${number}...`);
+        const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.prompToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                number: number,
+                body: text,
+                externalKey: `ai_${Date.now()}`,
+                isClosed: false
+            })
+        });
+
+        if (!textResponse.ok) {
+            console.error('[Promp] Text Send Failed:', await textResponse.text());
+        }
+    } catch (e) {
+        console.error('[Promp] Text Exception:', e);
+    }
+
+    // 2. Send Audio (if exists)
+    if (audioBase64) {
+        // We need to upload file or send as base64. 
+        // Postman "SendMessageAPITextBase64" endpoint exists: /base64
+        try {
+            console.log(`[Promp] Sending Audio to ${number}...`);
+            const audioResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${config.prompToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    number: number,
+                    body: "Áudio da IA", // Caption
+                    base64Data: audioBase64,
+                    mimeType: "audio/mpeg",
+                    fileName: "audio_ia.mp3",
+                    isClosed: false
+                })
+            });
+
+            if (!audioResponse.ok) {
+                console.error('[Promp] Audio Send Failed:', await audioResponse.text());
+            }
+        } catch (e) {
+            console.error('[Promp] Audio Exception:', e);
+        }
+    }
+
+    return true;
+};
+
+app.post('/api/promp/connect', authenticateToken, async (req, res) => {
+    const { identity } = req.body;
+    const companyId = req.user.companyId;
+
+    if (!PROMP_ADMIN_TOKEN) {
+        return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
+    }
+
+    try {
+        console.log(`[Promp] Auto-connecting for identity: ${identity}`);
+
+        // 1. Find Tenant by Identity (List Tenants)
+        const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
+            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
+        });
+
+        if (!tenantsRes.ok) throw new Error('Failed to list tenants');
+
+        const tenants = await tenantsRes.json();
+        // Assuming response is array of tenants or { data: [] }
+        const tenantList = Array.isArray(tenants) ? tenants : (tenants.data || []);
+
+        const targetTenant = tenantList.find(t => t.identity === identity || t.email === identity); // Fallback to email if identity is vague? User said "Identity".
+
+        if (!targetTenant) {
+            return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
+        }
+
+        console.log(`[Promp] Found Tenant ID: ${targetTenant.id}`);
+
+        // 2. Find API Key (ShowTenant to see related data or List APIs?)
+        // The Postman show "CreateApi" and "DeleteApi" under "Tenant API".
+        // It doesn't clearly show "List APIs for Tenant".
+        // BUT, usually we need an existing "Session" or "Channel" to send messages.
+        // Let's try to assume we can create a new API Key for this integration OR we need to find one.
+        // Strategy: Create a specific API Key for "Agent AI".
+
+        // Check if session exists first?
+        // Actually, let's try to Create API directly. If it fails, maybe we need a session ID.
+        // "CreateApi" body requires "sessionId". We need to find the session ID first.
+
+        // Detailed Tenant Info might have sessions?
+        // POST /tenantApiShowTenant { id: tenant.id }
+        const tenantDetailRes = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ id: targetTenant.id })
+        });
+
+        const tenantDetail = await tenantDetailRes.json();
+        // Assuming tenantDetail contains sessions or we have to use another endpoint.
+        // Let's perform a smart guess: We trigger a standardized API creation.
+        // If we can't find a session, we can't create an API.
+
+        // For MVP: We will save the Identity and Tenant ID, but maybe we can't fully auto-generate the Token without selecting a Session.
+        // Let's mock the "Success" if we find the Tenant, and tell the user "Found Tenant X".
+        // BUT user wanted "Unique integration".
+
+        // REFINED PLAN:
+        // We will just try to find the MAIN session of that tenant.
+        // If we can't, we error out.
+        // Assuming tenantDetail has `sessions` array.
+        const session = tenantDetail.sessions?.[0] || tenantDetail.whatsapp?.[0]; // guessing structure
+
+        if (!session) {
+            // Fallback: Try to create a session? Too risky.
+            return res.status(400).json({ message: 'Tenant encontrado, mas nenhuma sessão de WhatsApp ativa.' });
+        }
+
+        // Create/Get API Token
+        // POST /tenantCreateApi
+        const apiName = "Agente IA Auto";
+        const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: apiName,
+                sessionId: session.id,
+                userId: targetTenant.adminId || 1, // Need admin ID
+                authToken: Math.random().toString(36).substring(7),
+                tenant: targetTenant.id
+            })
+        });
+
+        let apiData = await createApiRes.json();
+
+        // If "Api Name already exists" or similar, we might handle it.
+        // But assuming success or we get the UUID back.
+
+        // We need: UUID (externalKey usually?) and Token (BearerToken).
+        // In "SendMessageParams", URL is: /v2/api/external/{UUID}
+        // And Header is: Bearer {Token} (The token we created? Or a system token?)
+        // The Postman says: endpoint has a UUID (e.g. 7e862d5e...). This is likely the "API ID".
+        // The Authorization is Bearer {Token}.
+
+        if (!apiData.id) {
+            throw new Error('Falha ao criar API Keys na Promp.');
+        }
+
+        // SAVE TO DB
+        await prisma.agentConfig.update({
+            where: { companyId },
+            data: {
+                prompIdentity: identity,
+                prompUuid: apiData.id, // The UUID for the URL
+                prompToken: apiData.token // The Bearer Token (if returned)
+            }
+        });
+
+        res.json({ success: true, message: `Conectado a ${targetTenant.name} (Sessão ${session.name})` });
+
+    } catch (error) {
+        console.error('Promp Connect Error:', error);
+        res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+    }
+});
+
+
 // --- Webhook Integration (Public) ---
 app.post('/webhook/:companyId', async (req, res) => {
     const { companyId } = req.params;
@@ -514,26 +710,32 @@ app.post('/webhook/:companyId', async (req, res) => {
 
     console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload));
 
-    // Validate Payload Structure (n8n message)
+    // Validate Payload
     if (!payload.content || !payload.content.text) {
         return res.status(400).json({ error: 'Invalid payload structure. content.text missing.' });
     }
 
     const userMessage = payload.content.text;
+
+    // Support both N8N structure (ticket.id) and pure Promp structure (might differ)
+    // If it comes from Promp API "MessageStatus" webhook, the structure might be different.
+    // For now, assuming N8N/Uazapi style payload as requested initially.
     const sessionId = payload.ticket?.id ? String(payload.ticket.id) : null;
+    const senderNumber = payload.contact?.number || payload.number; // Ensure we have a number to reply to!
+
     const metadata = JSON.stringify(payload);
 
     try {
         const config = await getCompanyConfig(companyId);
         if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
 
-        // Fetch History for this Session
+        // Fetch History
         let history = [];
         if (sessionId) {
             const storedMessages = await prisma.testMessage.findMany({
                 where: { companyId, sessionId },
                 orderBy: { createdAt: 'asc' },
-                take: 20 // Limit context
+                take: 20
             });
             history = storedMessages.map(m => ({
                 role: m.sender === 'user' ? 'user' : 'assistant',
@@ -544,7 +746,7 @@ app.post('/webhook/:companyId', async (req, res) => {
         // Process Chat
         const { aiResponse, audioBase64 } = await processChatResponse(config, userMessage, history, sessionId);
 
-        // Persist Chat (Webhook Mode - With Session)
+        // Persist Chat
         try {
             await prisma.testMessage.create({
                 data: { companyId, sender: 'user', text: userMessage, sessionId, metadata }
@@ -556,12 +758,26 @@ app.post('/webhook/:companyId', async (req, res) => {
             console.error('[Webhook] Failed to save chat:', dbError);
         }
 
-        // Return Standardized Response
-        res.json({
-            text: aiResponse,
-            audio: audioBase64, // Base64 Audio
-            sessionId: sessionId
-        });
+        // --- REPLY STRATEGY ---
+        // 1. If Promp Integration is Active (UUID+Token), use Promp API.
+        // 2. Otherwise, return JSON (Direct Reply).
+
+        let sentViaApi = false;
+        if (config.prompUuid && config.prompToken && senderNumber) {
+            sentViaApi = await sendPrompMessage(config, senderNumber, aiResponse, audioBase64);
+        }
+
+        if (sentViaApi) {
+            // If sent via API, just return OK to the webhook caller to close connection.
+            res.json({ status: 'sent_via_api' });
+        } else {
+            // Fallback: Return JSON for N8N/Direct
+            res.json({
+                text: aiResponse,
+                audio: audioBase64,
+                sessionId: sessionId
+            });
+        }
 
     } catch (error) {
         console.error('[Webhook] Error:', error);

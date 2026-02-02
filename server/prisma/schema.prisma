@@ -35,6 +35,12 @@ model AgentConfig {
   persona      String?  // JSON
   integrations String?  // JSON
   products     String?  // JSON
+  
+  // Promp API Integration
+  prompIdentity String?
+  prompUuid     String?
+  prompToken    String?
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   history      PromptHistory[]

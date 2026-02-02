@@ -459,8 +459,72 @@ DIRETRIZES:
                             <Globe size={24} color="var(--primary-blue)" />
                             Integração Webhook
                         </h2>
+
+                        {/* PROMP API INTEGRATION CARD */}
+                        <div style={{ padding: '24px', border: '1px solid #10B981', borderRadius: 'var(--radius-md)', background: '#F0FDF4', marginBottom: '32px' }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#059669', marginBottom: '8px' }}>Integração Automática Promp</h3>
+                            <p style={{ color: '#047857', fontSize: '14px', marginBottom: '16px' }}>
+                                Conecte-se automaticamente à infraestrutura da Promp para enviar respostas pelo WhatsApp oficial.
+                            </p>
+
+                            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>Identidade do Tenant (CPF/CNPJ)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="000.000.000-00"
+                                        id="prompIdentityInput"
+                                        style={{
+                                            width: '100%', padding: '10px',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '1px solid #10B981',
+                                            background: 'white'
+                                        }}
+                                    />
+                                </div>
+                                <button
+                                    onClick={async () => {
+                                        const identity = document.getElementById('prompIdentityInput').value;
+                                        if (!identity) return alert('Digite a identidade');
+
+                                        try {
+                                            const token = localStorage.getItem('token');
+                                            const res = await fetch('/api/promp/connect', {
+                                                method: 'POST',
+                                                headers: {
+                                                    'Content-Type': 'application/json',
+                                                    'Authorization': `Bearer ${token}`
+                                                },
+                                                body: JSON.stringify({ identity })
+                                            });
+                                            const data = await res.json();
+                                            if (res.ok) {
+                                                alert('Sucesso: ' + data.message);
+                                            } else {
+                                                alert('Erro: ' + data.message);
+                                            }
+                                        } catch (e) {
+                                            alert('Erro de conexão');
+                                        }
+                                    }}
+                                    style={{
+                                        padding: '10px 20px',
+                                        height: '42px',
+                                        background: '#10B981',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: 'var(--radius-md)',
+                                        fontWeight: 600,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Conectar Automaticamente
+                                </button>
+                            </div>
+                        </div>
+
                         <p style={{ color: 'var(--text-medium)', marginBottom: '24px' }}>
-                            Utilize este URL para integrar o Agente Promp com sua plataforma. As mensagens enviadas para este endpoint serão processadas pela IA.
+                            Ou utilize este URL para integrar manualmente (Webhook Genérico):
                         </p>
 
                         <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--bg-main)' }}>
