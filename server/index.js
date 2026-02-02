@@ -694,33 +694,50 @@ app.post('/webhook/:companyId', async (req, res) => {
     const { companyId } = req.params;
     const payload = req.body; // n8n payload
 
-    console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload));
+    console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
 
-    // Validate Payload
     // Validate Payload & Ignore "fromMe" (Sent by us/AI)
-    if (payload.key?.fromMe || payload.fromMe) {
+    // Common patterns for fromMe: 
+    // 1. payload.key.fromMe (Baileys/Wuzapi)
+    // 2. payload.fromMe (Some Wuzapi versions)
+    // 3. payload.data.key.fromMe (Evolution API wrapper)
+    const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe;
+
+    if (isFromMe) {
         console.log('[Webhook] Ignoring message sent by me (fromMe=true).');
         return res.json({ status: 'ignored_from_me' });
     }
 
     // Check for Status Updates (Delivery, Read) - Ignore them
-    if (payload.type === 'message_status' || payload.status) {
-        console.log('[Webhook] Ignoring status update.');
-        return res.json({ status: 'ignored_status_update' });
+    if (payload.type === 'message_status' || payload.status || (payload.messageType && payload.messageType !== 'conversation' && payload.messageType !== 'extendedTextMessage')) {
+        // Be careful not to ignore text if type is missing, but usually type='message_status' is clear.
+        if (payload.type === 'message_status') {
+            console.log('[Webhook] Ignoring status update.');
+            return res.json({ status: 'ignored_status_update' });
+        }
     }
 
     // Safety Check for Content
-    if (!payload.content?.text) {
+    // Wuzapi: payload.data.message.conversation OR payload.content.text
+    let userMessage = payload.content?.text || payload.data?.message?.conversation || payload.data?.message?.extendedTextMessage?.text;
+
+    if (!userMessage) {
         // If it's a media message or something else we don't support yet, ignore gracefully
         console.log('[Webhook] Payload missing text content. Ignoring.');
         return res.json({ status: 'ignored_no_text' });
     }
 
-    const userMessage = payload.content.text;
+    // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
+    const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
+    const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid;
 
-    // Support both N8N structure (ticket.id) and pure Promp structure
-    const sessionId = payload.ticket?.id ? String(payload.ticket.id) : null;
-    const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number;
+    // Clean Sender Number if it has @s.whatsapp.net
+    const cleanNumber = senderNumber ? String(senderNumber).replace('@s.whatsapp.net', '') : null;
+
+    if (!cleanNumber) {
+        console.log('[Webhook] No specific sender number found. Ignoring.');
+        return res.json({ status: 'ignored_no_number' });
+    }
 
     const metadata = JSON.stringify(payload);
 
@@ -728,11 +745,13 @@ app.post('/webhook/:companyId', async (req, res) => {
         const config = await getCompanyConfig(companyId);
         if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
 
+        console.log(`[Webhook] Processing message for ${cleanNumber}: "${userMessage.substring(0, 50)}..."`);
+
         // Fetch History
         let history = [];
         if (sessionId) {
             const storedMessages = await prisma.testMessage.findMany({
-                where: { companyId, sessionId },
+                where: { companyId, sessionId: String(sessionId) },
                 orderBy: { createdAt: 'asc' },
                 take: 20
             });
@@ -745,13 +764,15 @@ app.post('/webhook/:companyId', async (req, res) => {
         // Process Chat
         const { aiResponse, audioBase64 } = await processChatResponse(config, userMessage, history, sessionId);
 
+        console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
+
         // Persist Chat
         try {
             await prisma.testMessage.create({
-                data: { companyId, sender: 'user', text: userMessage, sessionId, metadata }
+                data: { companyId, sender: 'user', text: userMessage, sessionId: sessionId ? String(sessionId) : null, metadata }
             });
             await prisma.testMessage.create({
-                data: { companyId, sender: 'ai', text: aiResponse, sessionId }
+                data: { companyId, sender: 'ai', text: aiResponse, sessionId: sessionId ? String(sessionId) : null }
             });
         } catch (dbError) {
             console.error('[Webhook] Failed to save chat:', dbError);
@@ -762,8 +783,11 @@ app.post('/webhook/:companyId', async (req, res) => {
         // 2. Otherwise, return JSON (Direct Reply).
 
         let sentViaApi = false;
-        if (config.prompUuid && config.prompToken && senderNumber) {
-            sentViaApi = await sendPrompMessage(config, senderNumber, aiResponse, audioBase64);
+        if (config.prompUuid && config.prompToken) {
+            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64);
+            console.log(`[Webhook] Sent via API: ${sentViaApi}`);
+        } else {
+            console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
         }
 
         if (sentViaApi) {
