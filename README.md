@@ -1,6 +1,6 @@
-# PrompIA 🚀
+# Promp IA 🚀
 
-**PrompIA** é uma plataforma avançada de Agentes de IA para empresas, permitindo criar, personalizar e integrar assistentes virtuais inteligentes focados em conversão e vendas.
+**Promp IA** é uma plataforma avançada de Agentes de IA para empresas, permitindo criar, personalizar e integrar assistentes virtuais inteligentes focados em conversão e vendas.
 
 O sistema oferece controle total sobre a personalidade da IA, catálogo de produtos, e integrações (como ElevenLabs para voz), tudo através de uma interface intuitiva.
 
