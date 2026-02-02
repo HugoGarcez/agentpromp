@@ -352,6 +352,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     // --- Image Detection Logic ---
     let productImageUrl = null;
+    let productCaption = ""; // Initialize caption
     const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*([a-zA-Z0-9_-]+)\]/); // Support alphanum IDs
     if (imageMatch && config.products) {
         const targetId = imageMatch[1];
@@ -360,7 +361,13 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
         if (product && product.image) {
             productImageUrl = product.image;
+            // Create Caption: "Nome - Variação - R$ Preço"
+            productCaption = `${product.name || 'Produto'} - ${product.variation || ''} - R$ ${product.price || '0,00'}`;
+            // Clean up double dashes if variation is empty
+            productCaption = productCaption.replace(' -  -', ' -').trim();
+
             console.log(`[Chat] Found Product Image for ID ${targetId}: ${productImageUrl}`);
+            console.log(`[Chat] Generated Caption: ${productCaption}`);
         } else {
             console.log(`[Chat] AI requested image for ID ${targetId}, but distinct product not found or no image.`);
         }
@@ -426,7 +433,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         }
     }
 
-    return { aiResponse, audioBase64, productImageUrl };
+    return { aiResponse, audioBase64, productImageUrl, productCaption };
 };
 
 // --- Config History Routes ---
@@ -612,7 +619,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
                     },
                     body: JSON.stringify({
                         number: number,
-                        body: "",
+                        body: productCaption || "",
                         mediaUrl: finalImageUrl,
                         externalKey: `ai_img_${Date.now()}`
                     })
@@ -676,7 +683,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
             },
             body: JSON.stringify({
                 number: number,
-                body: "",
+                body: productCaption || "",
                 base64Data: base64Data,
                 mimeType: mimeType,
                 fileName: fileName,
