@@ -337,7 +337,21 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         model: "gpt-3.5-turbo",
     });
 
-    const aiResponse = completion.choices[0].message.content;
+    let aiResponse = completion.choices[0].message.content;
+
+    // --- Image Detection Logic ---
+    let productImageUrl = null;
+    const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*(\d+)\]/);
+    if (imageMatch && config.products) {
+        const productId = parseInt(imageMatch[1]);
+        const product = config.products.find(p => parseInt(p.id) === productId);
+        if (product && product.image) {
+            productImageUrl = product.image;
+            console.log(`[Chat] Found Product Image for ID ${productId}: ${productImageUrl}`);
+        }
+        // Remove the tag from the text displayed to user
+        aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*\d+\]/g, '').trim();
+    }
 
     // --- Audio Generation Logic ---
     let audioBase64 = null;
@@ -376,7 +390,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        text: aiResponse.replace(/\[SHOW_IMAGE:\s*\d+\]/g, ''),
+                        text: aiResponse,
                         model_id: "eleven_multilingual_v2", // Updated for Portuguese support
                         voice_settings: {
                             stability: 0.5,
@@ -397,7 +411,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         }
     }
 
-    return { aiResponse, audioBase64 };
+    return { aiResponse, audioBase64, productImageUrl };
 };
 
 // --- Config History Routes ---
@@ -466,7 +480,7 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
             config.systemPrompt = overridePrompt;
         }
 
-        const { aiResponse, audioBase64 } = await processChatResponse(config, message, history, null);
+        const { aiResponse, audioBase64, productImageUrl } = await processChatResponse(config, message, history, null);
 
         // Persist Chat (Test Mode - No Session)
         try {
@@ -476,7 +490,7 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
             console.error('Failed to save chat history:', dbError);
         }
 
-        res.json({ response: aiResponse, audio: audioBase64 });
+        res.json({ response: aiResponse, audio: audioBase64, image: productImageUrl });
 
     } catch (error) {
         console.error('Chat API Error:', error);
@@ -513,7 +527,7 @@ const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
 // MUST be set in .env on the server
 const PROMP_ADMIN_TOKEN = process.env.PROMP_ADMIN_TOKEN;
 
-const sendPrompMessage = async (config, number, text, audioBase64) => {
+const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => {
     if (!config.prompUuid || !config.prompToken) {
         console.log('[Promp] Skipping external API execution (Credentials missing).');
         return false;
@@ -546,7 +560,50 @@ const sendPrompMessage = async (config, number, text, audioBase64) => {
         console.error('[Promp] Text Exception:', e);
     }
 
-    // 2. Send Audio (if exists)
+    // 2. Send Image (if exists)
+    if (imageUrl) {
+        try {
+            console.log(`[Promp] Fetching and Sending Image to ${number}: ${imageUrl}`);
+
+            // Fetch Remote Image
+            const imgFetch = await fetch(imageUrl);
+            if (imgFetch.ok) {
+                const imgBuf = await imgFetch.arrayBuffer();
+                const imgBase64 = Buffer.from(imgBuf).toString('base64');
+                const mimeType = imgFetch.headers.get('content-type') || 'image/jpeg';
+                const fileName = `image_${Date.now()}.jpg`;
+
+                const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${config.prompToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        number: number,
+                        body: "Imagem do Produto", // Caption
+                        base64Data: imgBase64,
+                        mimeType: mimeType,
+                        fileName: fileName,
+                        isClosed: false
+                    })
+                });
+
+                if (!imgResponse.ok) {
+                    console.error('[Promp] Image Send Failed:', await imgResponse.text());
+                } else {
+                    console.log('[Promp] Image Sent Successfully');
+                }
+            } else {
+                console.error('[Promp] Failed to download image from URL:', imageUrl);
+            }
+        } catch (e) {
+            console.error('[Promp] Image Exception:', e);
+        }
+    }
+
+
+    // 3. Send Audio (if exists)
     if (audioBase64) {
         // We need to upload file or send as base64. 
         // Postman "SendMessageAPITextBase64" endpoint exists: /base64
@@ -762,7 +819,7 @@ app.post('/webhook/:companyId', async (req, res) => {
         }
 
         // Process Chat
-        const { aiResponse, audioBase64 } = await processChatResponse(config, userMessage, history, sessionId);
+        const { aiResponse, audioBase64, productImageUrl } = await processChatResponse(config, userMessage, history, sessionId);
 
         console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
 
@@ -784,7 +841,7 @@ app.post('/webhook/:companyId', async (req, res) => {
 
         let sentViaApi = false;
         if (config.prompUuid && config.prompToken) {
-            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64);
+            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl);
             console.log(`[Webhook] Sent via API: ${sentViaApi}`);
         } else {
             console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
@@ -798,6 +855,7 @@ app.post('/webhook/:companyId', async (req, res) => {
             res.json({
                 text: aiResponse,
                 audio: audioBase64,
+                image: productImageUrl,
                 sessionId: sessionId
             });
         }
