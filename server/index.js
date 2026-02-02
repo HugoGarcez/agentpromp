@@ -308,9 +308,9 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     // Inject Products
     if (config.products && config.products.length > 0) {
         const productList = config.products.map(p =>
-            `- ${p.name}: R$ ${p.price} (ID: ${p.id}). ${p.description || ''} ${p.image ? '[TEM_IMAGEM]' : ''}`
+            `- ${p.image ? '[TEM_IMAGEM] ' : ''}ID: ${p.id} | Nome: ${p.name} | Preço: R$ ${p.price}. ${p.description || ''}`
         ).join('\n');
-        systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO IMPORTANTE: Se o usuário pedir para ver uma foto ou imagem de um produto e ele tiver a flag [TEM_IMAGEM], responda EXATAMENTE com a tag: [SHOW_IMAGE: ID_DO_PRODUTO]. Exemplo: [SHOW_IMAGE: 12345]. Não invente links.`;
+        systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO DE IMAGEM (PRIORIDADE MÁXIMA): Se o usuário pedir foto de um produto que tenha a flag [TEM_IMAGEM], você DEVE responder EXATAMENTE assim: "[SHOW_IMAGE: ID_DO_PRODUTO] Aqui está a foto que pediu!". Não invente desculpas.`;
     }
 
     // Humanization & Memory Control
@@ -318,13 +318,15 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         1. NATURALIDADE EXTREMA: Aja como um humano conversando no WhatsApp. Use linguagem fluida, pode abreviar (vc, tbm) se o tom permitir.
         2. PROIBIDO ROBOTISMO: JAMAIS termine frases com 'Posso ajudar em algo mais?', 'Se precisar estou aqui'. ISSO É PROIBIDO.
         3. DIRETO AO PONTO: Responda a pergunta e pronto. Não enrole.
-        4. IMAGENS: Se o usuário pedir foto, USE A TAG [SHOW_IMAGE: ID]. Se não tiver foto, diga que não tem.`;
+        4. IMAGENS: Se tiver [TEM_IMAGEM], Mande a tag [SHOW_IMAGE: ID].`;
 
     // Strict Anti-Repetition logic if history exists
     if (history && history.length > 0) {
         systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente.
         CRÍTICO: Não ofereça ajuda extra no final da mensagem. Apenas responda.`;
     }
+
+    console.log('[Chat] System Prompt Context:', systemPrompt); // DEBUG
 
     // Prepare Messages (History + System)
     let messages = [{ role: "system", content: systemPrompt }];
@@ -342,7 +344,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     const completion = await openai.chat.completions.create({
         messages: messages,
-        model: "gpt-3.5-turbo",
+        model: "gpt-4o-mini", // Better & Cheaper than 3.5-turbo
     });
 
     let aiResponse = completion.choices[0].message.content;
