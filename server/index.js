@@ -317,7 +317,13 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     systemPrompt += `\n\nDIRETRIZES DE HUMANIZAÇÃO (CRÍTICO):
         1. NATURALIDADE: Aja como um humano. NÃO inicie todas as respostas com cumprimentos (Olá, Tudo bem, etc) se a conversa já está fluindo. Seja direto.
         2. MEMÓRIA: Você tem acesso ao histórico da conversa. Use-o para manter a continuidade.
-        3. CONCISÃO: Evite textos longos e robóticos, a menos que necessário.`;
+        3. CONCISÃO: Evite textos longos e robóticos, a menos que necessário. Responda apenas o que foi perguntado.
+        4. IMAGENS: Se o usuário pedir foto, USE A TAG [SHOW_IMAGE: ID]. Se não tiver foto, diga que não tem.`;
+
+    // Strict Anti-Repetition logic if history exists
+    if (history && history.length > 0) {
+        systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente. Responda diretamente à pergunta dele.`;
+    }
 
     // Prepare Messages (History + System)
     let messages = [{ role: "system", content: systemPrompt }];
@@ -328,9 +334,10 @@ const processChatResponse = async (config, message, history, sessionId = null) =
             content: h.content || ''
         }));
         messages = [...messages, ...cleanHistory];
-    } else {
-        messages.push({ role: "user", content: message });
     }
+
+    // Add current user message
+    messages.push({ role: "user", content: message });
 
     const completion = await openai.chat.completions.create({
         messages: messages,
@@ -341,16 +348,20 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     // --- Image Detection Logic ---
     let productImageUrl = null;
-    const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*(\d+)\]/);
+    const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*([a-zA-Z0-9_-]+)\]/); // Support alphanum IDs
     if (imageMatch && config.products) {
-        const productId = parseInt(imageMatch[1]);
-        const product = config.products.find(p => parseInt(p.id) === productId);
+        const targetId = imageMatch[1];
+        // Weak comparison (String vs ID)
+        const product = config.products.find(p => String(p.id) === String(targetId));
+
         if (product && product.image) {
             productImageUrl = product.image;
-            console.log(`[Chat] Found Product Image for ID ${productId}: ${productImageUrl}`);
+            console.log(`[Chat] Found Product Image for ID ${targetId}: ${productImageUrl}`);
+        } else {
+            console.log(`[Chat] AI requested image for ID ${targetId}, but distinct product not found or no image.`);
         }
         // Remove the tag from the text displayed to user
-        aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*\d+\]/g, '').trim();
+        aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
     }
 
     // --- Audio Generation Logic ---
@@ -754,10 +765,6 @@ app.post('/webhook/:companyId', async (req, res) => {
     console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
 
     // Validate Payload & Ignore "fromMe" (Sent by us/AI)
-    // Common patterns for fromMe: 
-    // 1. payload.key.fromMe (Baileys/Wuzapi)
-    // 2. payload.fromMe (Some Wuzapi versions)
-    // 3. payload.data.key.fromMe (Evolution API wrapper)
     const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe;
 
     if (isFromMe) {
@@ -806,9 +813,33 @@ app.post('/webhook/:companyId', async (req, res) => {
 
         // Fetch History
         let history = [];
-        if (sessionId) {
+
+        // STRATEGY: Try fetching by sessionId. If fails (or sessionId null), try fetching by senderNumber (via metadata or new field... but metadata is lazy).
+        // Let's rely on sessionId first. If sessionId is missing, we MIGHT lose history.
+        // However, if the webhook provides ticket.id (which it seems to), we are good.
+        // Issue: Previous logs show ticket.id changing.
+        // Fallback: Query by metadata contains senderNumber? No, too slow.
+        // Fix: Use sessionId (ticket.id) if available. If ticket.id IS available, trust it.
+        // If ticket.id changes, it might be a new ticket/support case.
+        // BUT, for a persistent AI, we might want to fetch history by 'sender' NOT 'sessionId'.
+        // Let's Try: Find messages where companyId matches and metadata CONTAINS cleanNumber. (Slow regex)
+        // BETTER: Use 'sessionId' field in DB to store 'cleanNumber' as a fallback identifier if ticket ID is unstable?
+        // NO, 'sessionId' is for ticket grouping.
+        // Let's stick to sessionId for now but improve the lookup debugging.
+
+        let lookupId = sessionId ? String(sessionId) : null;
+
+        // Hack for Promp/Uazapi: If ticket ID changes effectively, maybe we should use the phone number as the session ID for the AI memory?
+        // If we use cleanNumber as sessionId, memory persists across tickets!
+        // This solves "New Ticket = Context Loss".
+        // Let's try using cleanNumber as the memory key primarily, OR combine them.
+        // DECISION: Use cleanNumber as the 'sessionId' for AI memory purposes (DB storage).
+        // This ensures the AI remembers the user regardless of the support ticket status.
+        const dbSessionId = cleanNumber; // Using Phone Number as Session ID for persistence
+
+        if (dbSessionId) {
             const storedMessages = await prisma.testMessage.findMany({
-                where: { companyId, sessionId: String(sessionId) },
+                where: { companyId, sessionId: String(dbSessionId) },
                 orderBy: { createdAt: 'asc' },
                 take: 20
             });
@@ -816,29 +847,28 @@ app.post('/webhook/:companyId', async (req, res) => {
                 role: m.sender === 'user' ? 'user' : 'assistant',
                 content: m.text
             }));
+            console.log(`[Webhook] Fetched ${history.length} msgs of history for ${dbSessionId}`);
         }
 
         // Process Chat
-        const { aiResponse, audioBase64, productImageUrl } = await processChatResponse(config, userMessage, history, sessionId);
+        // Pass dbSessionId to processChatResponse if needed, but we don't really use it there except for logging.
+        const { aiResponse, audioBase64, productImageUrl } = await processChatResponse(config, userMessage, history, dbSessionId);
 
         console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
 
         // Persist Chat
         try {
             await prisma.testMessage.create({
-                data: { companyId, sender: 'user', text: userMessage, sessionId: sessionId ? String(sessionId) : null, metadata }
+                data: { companyId, sender: 'user', text: userMessage, sessionId: String(dbSessionId), metadata }
             });
             await prisma.testMessage.create({
-                data: { companyId, sender: 'ai', text: aiResponse, sessionId: sessionId ? String(sessionId) : null }
+                data: { companyId, sender: 'ai', text: aiResponse, sessionId: String(dbSessionId) }
             });
         } catch (dbError) {
             console.error('[Webhook] Failed to save chat:', dbError);
         }
 
         // --- REPLY STRATEGY ---
-        // 1. If Promp Integration is Active (UUID+Token), use Promp API.
-        // 2. Otherwise, return JSON (Direct Reply).
-
         let sentViaApi = false;
         if (config.prompUuid && config.prompToken) {
             sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl);
@@ -848,10 +878,8 @@ app.post('/webhook/:companyId', async (req, res) => {
         }
 
         if (sentViaApi) {
-            // If sent via API, just return OK to the webhook caller to close connection.
             res.json({ status: 'sent_via_api' });
         } else {
-            // Fallback: Return JSON for N8N/Direct
             res.json({
                 text: aiResponse,
                 audio: audioBase64,
