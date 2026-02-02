@@ -142,9 +142,28 @@ const Dashboard = () => {
                     </div>
                     <div style={{ marginBottom: '16px' }}>
                         <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-medium)', marginBottom: '8px' }}>Integrações</h3>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', color: 'var(--text-dark)' }}>
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: isVoiceActive ? '#10B981' : '#E5E7EB' }}></div>
-                            ElevenLabs (Voz): <strong>{isVoiceActive ? 'ON' : 'OFF'}</strong>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '14px', color: 'var(--text-dark)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ width: 8, height: 8, borderRadius: '50%', background: isVoiceActive ? '#10B981' : '#E5E7EB' }}></div>
+                                ElevenLabs (Voz): <strong>{isVoiceActive ? 'ON' : 'OFF'}</strong>
+                            </div>
+
+                            {/* Webhook URL Display */}
+                            <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-main)', borderRadius: '6px', border: '1px dashed var(--border-color)' }}>
+                                <span style={{ fontSize: '12px', color: 'var(--text-medium)', display: 'block', marginBottom: '4px' }}>Seu Link de Webhook (WhatsApp):</span>
+                                <code style={{
+                                    display: 'block',
+                                    width: '100%',
+                                    wordBreak: 'break-all',
+                                    fontSize: '11px',
+                                    background: '#fff',
+                                    padding: '4px',
+                                    borderRadius: '4px',
+                                    border: '1px solid var(--border-color)'
+                                }}>
+                                    {`${window.location.protocol}//${window.location.hostname}/webhook/${user.companyId || '...'}`}
+                                </code>
+                            </div>
                         </div>
                     </div>
 
