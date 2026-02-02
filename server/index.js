@@ -315,14 +315,15 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     // Humanization & Memory Control
     systemPrompt += `\n\nDIRETRIZES DE HUMANIZAÇÃO (CRÍTICO):
-        1. NATURALIDADE: Aja como um humano. NÃO inicie todas as respostas com cumprimentos (Olá, Tudo bem, etc) se a conversa já está fluindo. Seja direto.
-        2. MEMÓRIA: Você tem acesso ao histórico da conversa. Use-o para manter a continuidade.
-        3. CONCISÃO: Evite textos longos e robóticos, a menos que necessário. Responda apenas o que foi perguntado.
+        1. NATURALIDADE EXTREMA: Aja como um humano conversando no WhatsApp. Use linguagem fluida, pode abreviar (vc, tbm) se o tom permitir.
+        2. PROIBIDO ROBOTISMO: JAMAIS termine frases com 'Posso ajudar em algo mais?', 'Se precisar estou aqui'. ISSO É PROIBIDO.
+        3. DIRETO AO PONTO: Responda a pergunta e pronto. Não enrole.
         4. IMAGENS: Se o usuário pedir foto, USE A TAG [SHOW_IMAGE: ID]. Se não tiver foto, diga que não tem.`;
 
     // Strict Anti-Repetition logic if history exists
     if (history && history.length > 0) {
-        systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente. Responda diretamente à pergunta dele.`;
+        systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente.
+        CRÍTICO: Não ofereça ajuda extra no final da mensagem. Apenas responda.`;
     }
 
     // Prepare Messages (History + System)
@@ -574,17 +575,24 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
     // 2. Send Image (if exists)
     if (imageUrl) {
         try {
-            console.log(`[Promp] Fetching and Sending Image (Base64) to ${number}: ${imageUrl}`);
+            console.log(`[Promp] DEBUG: Preparing to send image. URL: ${imageUrl}`);
 
-            // Fetch Remote Image to convert to Base64 (More reliable than URL endpoint)
+            // Fetch Remote Image to convert to Base64
             const imgFetch = await fetch(imageUrl);
+            console.log(`[Promp] DEBUG: Fetch Status: ${imgFetch.status} ${imgFetch.statusText}`);
+
             if (imgFetch.ok) {
                 const imgBuf = await imgFetch.arrayBuffer();
                 const imgBase64 = Buffer.from(imgBuf).toString('base64');
-                const mimeType = imgFetch.headers.get('content-type') || 'image/jpeg';
-                // Clean filename from URL or default
+                const contentType = imgFetch.headers.get('content-type');
+                const mimeType = contentType || 'image/jpeg'; // Fallback
+
+                // Clean filename
                 const urlParts = imageUrl.split('/');
-                const urlFilename = urlParts[urlParts.length - 1].split('?')[0] || `image_${Date.now()}.jpg`;
+                let urlFilename = urlParts[urlParts.length - 1].split('?')[0];
+                if (!urlFilename || urlFilename.length < 3) urlFilename = `image_${Date.now()}.jpg`;
+
+                console.log(`[Promp] DEBUG: Sending Payload. Mime: ${mimeType}, File: ${urlFilename}, Base64Len: ${imgBase64.length}`);
 
                 const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
                     method: 'POST',
@@ -594,7 +602,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
                     },
                     body: JSON.stringify({
                         number: number,
-                        body: "", // Caption handled by text message usually, or add here if needed
+                        body: "", // Sending empty body. Text is sent separately.
                         base64Data: imgBase64,
                         mimeType: mimeType,
                         fileName: urlFilename,
@@ -604,15 +612,16 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
                 });
 
                 if (!imgResponse.ok) {
-                    console.error('[Promp] Image Send Failed:', await imgResponse.text());
+                    const errRes = await imgResponse.text();
+                    console.error('[Promp] ERROR: API Response:', errRes);
                 } else {
-                    console.log('[Promp] Image Sent Successfully via Base64');
+                    console.log('[Promp] SUCCESS: Image sent via Base64 endpoint.');
                 }
             } else {
-                console.error('[Promp] Failed to download image from URL:', imageUrl);
+                console.error('[Promp] FAIL: Could not download image. Status:', imgFetch.status);
             }
         } catch (e) {
-            console.error('[Promp] Image Exception:', e);
+            console.error('[Promp] EXCEPTION during image send:', e);
         }
     }
 
