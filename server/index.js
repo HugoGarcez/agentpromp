@@ -574,33 +574,75 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
         console.error('[Promp] Text Exception:', e);
     }
 
-    // 2. Send Image (via URL - Postman Compatible)
+    // 2. Send Image (Hybrid: URL or Base64)
     if (imageUrl) {
         try {
-            console.log(`[Promp] Sending Image URL to ${number}: ${imageUrl}`);
+            const isDataUri = imageUrl.startsWith('data:');
+            console.log(`[Promp] Sending Image to ${number}. Type: ${isDataUri ? 'Base64' : 'URL'}`);
 
-            const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/url`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${config.prompToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    number: number,
-                    body: "", // Caption (optional)
-                    mediaUrl: imageUrl,
-                    externalKey: `ai_img_${Date.now()}`
-                })
-            });
+            if (isDataUri) {
+                // Handle Base64 Data URI
+                const matches = imageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                if (matches && matches.length === 3) {
+                    const mimeType = matches[1];
+                    const base64Data = matches[2];
+                    const ext = mimeType.split('/')[1] || 'jpg';
+                    const fileName = `image_${Date.now()}.${ext}`;
 
-            if (!imgResponse.ok) {
-                const errRes = await imgResponse.text();
-                console.error('[Promp] Image URL Send Failed:', errRes);
+                    console.log(`[Promp] Sending via /base64 endpoint. Mime: ${mimeType}, Size: ${base64Data.length}`);
+
+                    const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${config.prompToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            number: number,
+                            body: "",
+                            base64Data: base64Data,
+                            mimeType: mimeType,
+                            fileName: fileName,
+                            externalKey: `ai_img_${Date.now()}`,
+                            isClosed: false
+                        })
+                    });
+
+                    if (!imgResponse.ok) {
+                        const errRes = await imgResponse.text();
+                        console.error('[Promp] Base64 Image Send Failed:', errRes);
+                    } else {
+                        console.log('[Promp] SUCCESS: Image sent via Base64 endpoint.');
+                    }
+                } else {
+                    console.error('[Promp] Invalid Data URI format.');
+                }
             } else {
-                console.log('[Promp] SUCCESS: Image sent via URL endpoint.');
+                // Handle Remote URL
+                console.log(`[Promp] Sending via /url endpoint: ${imageUrl}`);
+                const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/url`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${config.prompToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        number: number,
+                        body: "",
+                        mediaUrl: imageUrl,
+                        externalKey: `ai_img_${Date.now()}`
+                    })
+                });
+
+                if (!imgResponse.ok) {
+                    const errRes = await imgResponse.text();
+                    console.error('[Promp] Image URL Send Failed:', errRes);
+                } else {
+                    console.log('[Promp] SUCCESS: Image sent via URL endpoint.');
+                }
             }
         } catch (e) {
-            console.error('[Promp] Image URL Exception:', e);
+            console.error('[Promp] Image Send Exception:', e);
         }
     }
 
