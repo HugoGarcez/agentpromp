@@ -574,39 +574,29 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
     // 2. Send Image (if exists)
     if (imageUrl) {
         try {
-            console.log(`[Promp] Fetching and Sending Image to ${number}: ${imageUrl}`);
+            console.log(`[Promp] Sending Image URL to ${number}: ${imageUrl}`);
 
-            // Fetch Remote Image
-            const imgFetch = await fetch(imageUrl);
-            if (imgFetch.ok) {
-                const imgBuf = await imgFetch.arrayBuffer();
-                const imgBase64 = Buffer.from(imgBuf).toString('base64');
-                const mimeType = imgFetch.headers.get('content-type') || 'image/jpeg';
-                const fileName = `image_${Date.now()}.jpg`;
+            // Use the /url endpoint for direct URL sending (SendMessageAPIFileURL)
+            const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/url`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${config.prompToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    number: number,
+                    body: "Imagem do Produto", // Caption
+                    mediaUrl: imageUrl,
+                    externalKey: `ai_img_${Date.now()}`,
+                    isClosed: false
+                })
+            });
 
-                const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${config.prompToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        number: number,
-                        body: "Imagem do Produto", // Caption
-                        base64Data: imgBase64,
-                        mimeType: mimeType,
-                        fileName: fileName,
-                        isClosed: false
-                    })
-                });
-
-                if (!imgResponse.ok) {
-                    console.error('[Promp] Image Send Failed:', await imgResponse.text());
-                } else {
-                    console.log('[Promp] Image Sent Successfully');
-                }
+            if (!imgResponse.ok) {
+                const errText = await imgResponse.text();
+                console.error('[Promp] Image Send Failed:', errText);
             } else {
-                console.error('[Promp] Failed to download image from URL:', imageUrl);
+                console.log('[Promp] Image Sent Successfully via URL');
             }
         } catch (e) {
             console.error('[Promp] Image Exception:', e);
