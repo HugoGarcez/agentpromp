@@ -620,14 +620,17 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
                     number: number,
                     body: "Áudio da IA", // Caption
                     base64Data: audioBase64,
-                    mimeType: "audio/mpeg",
-                    fileName: "audio_ia.mp3",
+                    mimeType: "audio/mp3", // ElevenLabs output
+                    fileName: `audio_ia_${Date.now()}.mp3`,
+                    externalKey: `ai_audio_${Date.now()}`,
                     isClosed: false
                 })
             });
 
             if (!audioResponse.ok) {
                 console.error('[Promp] Audio Send Failed:', await audioResponse.text());
+            } else {
+                console.log('[Promp] Audio Sent Successfully');
             }
         } catch (e) {
             console.error('[Promp] Audio Exception:', e);
