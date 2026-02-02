@@ -29,35 +29,66 @@ const Settings = () => {
     });
 
     const [showToast, setShowToast] = useState(false);
+    const [serverProducts, setServerProducts] = useState([]); // Store products from DB to prevent overwrite
     const { user } = useAuth();
 
-    // Load settings from localStorage on mount
+    // Load settings from Backend on mount (Source of Truth)
     React.useEffect(() => {
+        if (!user || !user.companyId) return;
+
+        const baseUrl = window.location.origin;
+        // Dev logic for webhook URL display
+        const isDev = window.location.hostname === 'localhost';
+        const apiBase = isDev ? 'http://localhost:3001' : window.location.origin;
+        setWebhookUrl(`${apiBase}/webhook/${user.companyId}`);
+
+        // Fetch current config from API
+        const fetchConfig = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch('/api/config', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+
+                    // Populate UI state from DB data
+                    if (data.persona) setPersona(data.persona);
+
+                    // Handle Integrations + Voice merge
+                    if (data.integrations) {
+                        setIntegrations({
+                            openaiKey: data.integrations.openaiKey || '',
+                            geminiKey: data.integrations.geminiKey || ''
+                        });
+                        // Voice settings might be merged in integrations or separate
+                        const voiceData = {
+                            enabled: data.integrations.enabled || false,
+                            elevenLabsKey: data.integrations.elevenLabsKey || '',
+                            voiceId: data.integrations.voiceId || '',
+                            responseType: data.integrations.responseType || 'audio_only',
+                            responsePercentage: data.integrations.responsePercentage || 50
+                        };
+                        setVoice(voiceData);
+                    }
+
+                    // CRITICAL: Preserve products from DB
+                    if (data.products && Array.isArray(data.products)) {
+                        setServerProducts(data.products);
+                        console.log('Loaded products from server to preserve:', data.products.length);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch config:", e);
+            }
+        };
+
+        fetchConfig();
+
+        // Fallback: Load from localStorage if needed (visual only, mostly legacy)
         const savedPersona = localStorage.getItem('promp_ai_persona');
-        const savedIntegrations = localStorage.getItem('promp_ai_integrations');
-        const savedVoice = localStorage.getItem('promp_ai_voice');
-        // Webhook shouldn't be local storage now, it's dynamic based on company
+        if (savedPersona && !user) setPersona(JSON.parse(savedPersona));
 
-        if (savedPersona) setPersona(JSON.parse(savedPersona));
-        if (savedIntegrations) setIntegrations(JSON.parse(savedIntegrations));
-        if (savedVoice) setVoice(JSON.parse(savedVoice));
-
-        if (user && user.companyId) {
-            const baseUrl = window.location.origin;
-            // Production: Use domain without port 5173 if backend is proxying, 
-            // OR assume backend is on same domain/port in prod.
-            // For Dev (Vite), backend is 3001. So we might need to be smart here.
-            // Ideally the Dashboard URL and Webhook URL are on the same domain in Prod.
-            // In Dev: Frontend 5173, Backend 3001. 
-            // Let's assume the user will configure the "Base URL" or we just show the relative path or try to guess.
-            // Simplest: Show the path relative to the API server.
-
-            // If we are in dev (localhost:5173), the webhook is http://localhost:3001/webhook/:id
-            const isDev = window.location.hostname === 'localhost';
-            const apiBase = isDev ? 'http://localhost:3001' : window.location.origin;
-
-            setWebhookUrl(`${apiBase}/webhook/${user.companyId}`);
-        }
     }, [user]);
 
     const handlePersonaChange = (e) => {
@@ -146,6 +177,15 @@ DIRETRIZES:
         // Save to Backend
         try {
             const token = localStorage.getItem('token');
+
+            // Determine products list to save
+            // Priority: Server Products (from DB) > Local Storage > Empty Array
+            let productsToSave = serverProducts;
+            if (!productsToSave || productsToSave.length === 0) {
+                const localProds = JSON.parse(localStorage.getItem('promp_ai_products') || '[]');
+                if (localProds.length > 0) productsToSave = localProds;
+            }
+
             const res = await fetch('/api/config', {
                 method: 'POST',
                 headers: {
@@ -158,7 +198,7 @@ DIRETRIZES:
                     integrations: { ...integrations, ...voice },
                     voice, // Keep for backward compat if needed
                     systemPrompt: finalSystemPrompt,
-                    products: JSON.parse(localStorage.getItem('promp_ai_products') || '[]')
+                    products: productsToSave // CRITICAL FIX: Send preserved products
                 }),
             });
 
