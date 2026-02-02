@@ -697,17 +697,30 @@ app.post('/webhook/:companyId', async (req, res) => {
     console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload));
 
     // Validate Payload
-    if (!payload.content || !payload.content.text) {
-        return res.status(400).json({ error: 'Invalid payload structure. content.text missing.' });
+    // Validate Payload & Ignore "fromMe" (Sent by us/AI)
+    if (payload.key?.fromMe || payload.fromMe) {
+        console.log('[Webhook] Ignoring message sent by me (fromMe=true).');
+        return res.json({ status: 'ignored_from_me' });
+    }
+
+    // Check for Status Updates (Delivery, Read) - Ignore them
+    if (payload.type === 'message_status' || payload.status) {
+        console.log('[Webhook] Ignoring status update.');
+        return res.json({ status: 'ignored_status_update' });
+    }
+
+    // Safety Check for Content
+    if (!payload.content?.text) {
+        // If it's a media message or something else we don't support yet, ignore gracefully
+        console.log('[Webhook] Payload missing text content. Ignoring.');
+        return res.json({ status: 'ignored_no_text' });
     }
 
     const userMessage = payload.content.text;
 
-    // Support both N8N structure (ticket.id) and pure Promp structure (might differ)
-    // If it comes from Promp API "MessageStatus" webhook, the structure might be different.
-    // For now, assuming N8N/Uazapi style payload as requested initially.
+    // Support both N8N structure (ticket.id) and pure Promp structure
     const sessionId = payload.ticket?.id ? String(payload.ticket.id) : null;
-    const senderNumber = payload.contact?.number || payload.number; // Ensure we have a number to reply to!
+    const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number;
 
     const metadata = JSON.stringify(payload);
 
