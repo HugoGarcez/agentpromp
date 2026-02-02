@@ -16,7 +16,12 @@ ssh $VPS_USER@$VPS_IP <<EOF
 
     echo "📦 Instalando dependências (caso haja novas)..."
     npm install
-    cd server && npm install && cd ..
+    cd server && npm install 
+    
+    echo "🗄️  Atualizando Banco de Dados..."
+    npx prisma db push
+    
+    cd ..
 
     echo "🏗️  Reconstruindo Frontend..."
     npm run build
