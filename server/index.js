@@ -942,7 +942,7 @@ app.post('/webhook/:companyId', async (req, res) => {
 
         // Process Chat
         // Pass dbSessionId to processChatResponse if needed, but we don't really use it there except for logging.
-        const { aiResponse, audioBase64, productImageUrl } = await processChatResponse(config, userMessage, history, dbSessionId);
+        const { aiResponse, audioBase64, productImageUrl, productCaption } = await processChatResponse(config, userMessage, history, dbSessionId);
 
         console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
 
