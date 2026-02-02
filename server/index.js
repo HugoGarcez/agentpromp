@@ -603,7 +603,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
 
                     console.log(`[Promp] Sending via /base64 endpoint (Data URI). Mime: ${mimeType}`);
 
-                    await sendBase64Image(config, number, base64Data, mimeType, fileName);
+                    await sendBase64Image(config, number, base64Data, mimeType, fileName, productCaption);
                 } else {
                     console.error('[Promp] Invalid Data URI format.');
                 }
@@ -662,7 +662,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
                     const fileName = path.basename(filePath);
 
                     console.log(`[Promp] Local file read success. Size: ${base64Data.length}. Sending via /base64...`);
-                    await sendBase64Image(config, number, base64Data, mimeType, fileName);
+                    await sendBase64Image(config, number, base64Data, mimeType, fileName, productCaption);
 
                 } catch (readErr) {
                     console.error('[Promp] Failed to read local image file:', readErr);
@@ -674,7 +674,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
     }
 
     // Helper function for Base64 sending
-    async function sendBase64Image(config, number, base64Data, mimeType, fileName) {
+    async function sendBase64Image(config, number, base64Data, mimeType, fileName, productCaption) {
         const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
             method: 'POST',
             headers: {
