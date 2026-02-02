@@ -2,13 +2,25 @@ import React, { useState } from 'react';
 import FilesTab from '../components/AIConfig/FilesTab';
 import LinksTab from '../components/AIConfig/LinksTab';
 import QATab from '../components/AIConfig/QATab';
+import PromptTab from '../components/AIConfig/PromptTab';
 
 const AIConfig = () => {
-    const [activeTab, setActiveTab] = useState('files');
+    const [activeTab, setActiveTab] = useState('prompt');
 
     return (
         <div style={{ background: 'white', padding: '24px', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ borderBottom: '1px solid #E5E7EB', marginBottom: '24px', display: 'flex', gap: '24px' }}>
+                <button
+                    onClick={() => setActiveTab('prompt')}
+                    style={{
+                        paddingBottom: '12px',
+                        borderBottom: activeTab === 'prompt' ? '2px solid var(--primary-blue)' : 'none',
+                        color: activeTab === 'prompt' ? 'var(--primary-blue)' : 'var(--text-medium)',
+                        fontWeight: 500
+                    }}
+                >
+                    Prompt
+                </button>
                 <button
                     onClick={() => setActiveTab('files')}
                     style={{
@@ -45,6 +57,7 @@ const AIConfig = () => {
             </div>
 
             <div className="content">
+                {activeTab === 'prompt' && <PromptTab />}
                 {activeTab === 'files' && <FilesTab />}
                 {activeTab === 'links' && <LinksTab />}
                 {activeTab === 'qa' && <QATab />}

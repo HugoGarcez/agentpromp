@@ -1,13 +1,15 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Settings, Moon, Sun } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Settings, Moon, Sun, Shield } from 'lucide-react';
 import styles from './Sidebar.module.css';
 import logo from '../../assets/logo.png';
 import logoDark from '../../assets/logo-dark.png';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Sidebar = () => {
   const { theme, toggleTheme } = useTheme();
+  const { user } = useAuth();
 
   return (
     <aside className={styles.sidebar}>
@@ -61,6 +63,16 @@ const Sidebar = () => {
           <Settings size={20} className={styles.navIcon} />
           <span>Configurações</span>
         </NavLink>
+
+        {user?.role === 'ADMIN' && (
+          <NavLink
+            to="/admin"
+            className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+          >
+            <Shield size={20} className={styles.navIcon} />
+            <span>Admin</span>
+          </NavLink>
+        )}
       </nav>
 
       <div style={{ padding: '16px', borderTop: '1px solid var(--border-color)' }}>

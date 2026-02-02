@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Save, Bot, Cpu, Mic, Volume2, Globe } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const Settings = () => {
     const [activeSection, setActiveSection] = useState('persona');
@@ -28,29 +29,36 @@ const Settings = () => {
     });
 
     const [showToast, setShowToast] = useState(false);
+    const { user } = useAuth();
 
     // Load settings from localStorage on mount
     React.useEffect(() => {
         const savedPersona = localStorage.getItem('promp_ai_persona');
         const savedIntegrations = localStorage.getItem('promp_ai_integrations');
         const savedVoice = localStorage.getItem('promp_ai_voice');
-        const savedWebhook = localStorage.getItem('promp_ai_webhook');
+        // Webhook shouldn't be local storage now, it's dynamic based on company
 
         if (savedPersona) setPersona(JSON.parse(savedPersona));
         if (savedIntegrations) setIntegrations(JSON.parse(savedIntegrations));
         if (savedVoice) setVoice(JSON.parse(savedVoice));
 
-        if (savedWebhook) {
-            setWebhookUrl(savedWebhook);
-        } else {
-            // Generate new webhook url if none exists
-            // Use window.location.origin to support local and prod environments automatically
+        if (user && user.companyId) {
             const baseUrl = window.location.origin;
-            const newWebhook = `${baseUrl}/webhook`;
-            setWebhookUrl(newWebhook);
-            localStorage.setItem('promp_ai_webhook', newWebhook);
+            // Production: Use domain without port 5173 if backend is proxying, 
+            // OR assume backend is on same domain/port in prod.
+            // For Dev (Vite), backend is 3001. So we might need to be smart here.
+            // Ideally the Dashboard URL and Webhook URL are on the same domain in Prod.
+            // In Dev: Frontend 5173, Backend 3001. 
+            // Let's assume the user will configure the "Base URL" or we just show the relative path or try to guess.
+            // Simplest: Show the path relative to the API server.
+
+            // If we are in dev (localhost:5173), the webhook is http://localhost:3001/webhook/:id
+            const isDev = window.location.hostname === 'localhost';
+            const apiBase = isDev ? 'http://localhost:3001' : window.location.origin;
+
+            setWebhookUrl(`${apiBase}/webhook/${user.companyId}`);
         }
-    }, []);
+    }, [user]);
 
     const handlePersonaChange = (e) => {
         setPersona({ ...persona, [e.target.name]: e.target.value });

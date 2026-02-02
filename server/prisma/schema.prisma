@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+  config    AgentConfig?
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  role      String   @default("USER") // ADMIN, USER
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AgentConfig {
+  id           String   @id @default(uuid())
+  companyId    String   @unique
+  company      Company  @relation(fields: [companyId], references: [id])
+  systemPrompt String?
+  persona      String?  // JSON
+  integrations String?  // JSON
+  products     String?  // JSON
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  history      PromptHistory[]
+}
+
+model PromptHistory {
+  id            String      @id @default(uuid())
+  agentConfigId String
+  agentConfig   AgentConfig @relation(fields: [agentConfigId], references: [id], onDelete: Cascade)
+  systemPrompt  String?
+  createdAt     DateTime    @default(now())
+}
