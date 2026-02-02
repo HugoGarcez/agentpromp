@@ -590,70 +590,57 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
     try {
         console.log(`[Promp] Auto-connecting for identity: ${identity}`);
 
-        // 1. Find Tenant by Identity (List Tenants)
+        // 1. List Tenants to get IDs
         const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
             headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
         });
 
         if (!tenantsRes.ok) throw new Error('Failed to list tenants');
 
-        const tenants = await tenantsRes.json();
-        // Assuming response is array of tenants or { data: [] }
-        const tenantList = Array.isArray(tenants) ? tenants : (tenants.data || []);
+        const tenantsData = await tenantsRes.json();
+        const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
 
-        const targetTenant = tenantList.find(t => t.identity === identity || t.email === identity); // Fallback to email if identity is vague? User said "Identity".
+        console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
+
+        // 2. Parallel Fetch Details (identity is only in detailed view)
+        const detailPromises = tenantListBasic.map(async (t) => {
+            try {
+                const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ id: t.id })
+                });
+                if (!res.ok) return null;
+                const json = await res.json();
+                const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
+                return tenantObj || json;
+            } catch (e) {
+                return null;
+            }
+        });
+
+        const detailedTenants = await Promise.all(detailPromises);
+
+        // Exact match on identity string (Sanitized)
+        const sanitize = (str) => String(str || '').replace(/\D/g, '');
+        const targetIdentity = sanitize(identity);
+
+        const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
 
         if (!targetTenant) {
+            console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
             return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
         }
 
-        console.log(`[Promp] Found Tenant ID: ${targetTenant.id}`);
+        console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
 
-        // 2. Find API Key (ShowTenant to see related data or List APIs?)
-        // The Postman show "CreateApi" and "DeleteApi" under "Tenant API".
-        // It doesn't clearly show "List APIs for Tenant".
-        // BUT, usually we need an existing "Session" or "Channel" to send messages.
-        // Let's try to assume we can create a new API Key for this integration OR we need to find one.
-        // Strategy: Create a specific API Key for "Agent AI".
-
-        // Check if session exists first?
-        // Actually, let's try to Create API directly. If it fails, maybe we need a session ID.
-        // "CreateApi" body requires "sessionId". We need to find the session ID first.
-
-        // Detailed Tenant Info might have sessions?
-        // POST /tenantApiShowTenant { id: tenant.id }
-        const tenantDetailRes = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ id: targetTenant.id })
-        });
-
-        const tenantDetail = await tenantDetailRes.json();
-        // Assuming tenantDetail contains sessions or we have to use another endpoint.
-        // Let's perform a smart guess: We trigger a standardized API creation.
-        // If we can't find a session, we can't create an API.
-
-        // For MVP: We will save the Identity and Tenant ID, but maybe we can't fully auto-generate the Token without selecting a Session.
-        // Let's mock the "Success" if we find the Tenant, and tell the user "Found Tenant X".
-        // BUT user wanted "Unique integration".
-
-        // REFINED PLAN:
-        // We will just try to find the MAIN session of that tenant.
-        // If we can't, we error out.
-        // Assuming tenantDetail has `sessions` array.
-        const session = tenantDetail.sessions?.[0] || tenantDetail.whatsapp?.[0]; // guessing structure
-
-        if (!session) {
-            // Fallback: Try to create a session? Too risky.
-            return res.status(400).json({ message: 'Tenant encontrado, mas nenhuma sessão de WhatsApp ativa.' });
-        }
-
-        // Create/Get API Token
-        // POST /tenantCreateApi
+        // 3. Create API (Best Effort)
         const apiName = "Agente IA Auto";
+
+        // Try creating API key - Using Tenant ID as Session ID fallback if unknown
         const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
             method: 'POST',
             headers: {
@@ -662,8 +649,8 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             },
             body: JSON.stringify({
                 name: apiName,
-                sessionId: session.id,
-                userId: targetTenant.adminId || 1, // Need admin ID
+                sessionId: targetTenant.id,
+                userId: targetTenant.adminId || 1,
                 authToken: Math.random().toString(36).substring(7),
                 tenant: targetTenant.id
             })
@@ -671,17 +658,9 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
 
         let apiData = await createApiRes.json();
 
-        // If "Api Name already exists" or similar, we might handle it.
-        // But assuming success or we get the UUID back.
-
-        // We need: UUID (externalKey usually?) and Token (BearerToken).
-        // In "SendMessageParams", URL is: /v2/api/external/{UUID}
-        // And Header is: Bearer {Token} (The token we created? Or a system token?)
-        // The Postman says: endpoint has a UUID (e.g. 7e862d5e...). This is likely the "API ID".
-        // The Authorization is Bearer {Token}.
-
-        if (!apiData.id) {
-            throw new Error('Falha ao criar API Keys na Promp.');
+        if (!createApiRes.ok || !apiData.id) {
+            console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
+            return res.status(400).json({ message: 'Tenant encontrado, mas falha ao criar API Key. Verifique sessões.' });
         }
 
         // SAVE TO DB
@@ -689,12 +668,12 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             where: { companyId },
             data: {
                 prompIdentity: identity,
-                prompUuid: apiData.id, // The UUID for the URL
-                prompToken: apiData.token // The Bearer Token (if returned)
+                prompUuid: apiData.id,
+                prompToken: apiData.token
             }
         });
 
-        res.json({ success: true, message: `Conectado a ${targetTenant.name} (Sessão ${session.name})` });
+        res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
 
     } catch (error) {
         console.error('Promp Connect Error:', error);
