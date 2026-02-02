@@ -574,56 +574,33 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl) => 
         console.error('[Promp] Text Exception:', e);
     }
 
-    // 2. Send Image (if exists)
+    // 2. Send Image (via URL - Postman Compatible)
     if (imageUrl) {
         try {
-            console.log(`[Promp] DEBUG: Preparing to send image. URL: ${imageUrl}`);
+            console.log(`[Promp] Sending Image URL to ${number}: ${imageUrl}`);
 
-            // Fetch Remote Image to convert to Base64
-            const imgFetch = await fetch(imageUrl);
-            console.log(`[Promp] DEBUG: Fetch Status: ${imgFetch.status} ${imgFetch.statusText}`);
+            const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/url`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${config.prompToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    number: number,
+                    body: "", // Caption (optional)
+                    mediaUrl: imageUrl,
+                    externalKey: `ai_img_${Date.now()}`
+                })
+            });
 
-            if (imgFetch.ok) {
-                const imgBuf = await imgFetch.arrayBuffer();
-                const imgBase64 = Buffer.from(imgBuf).toString('base64');
-                const contentType = imgFetch.headers.get('content-type');
-                const mimeType = contentType || 'image/jpeg'; // Fallback
-
-                // Clean filename
-                const urlParts = imageUrl.split('/');
-                let urlFilename = urlParts[urlParts.length - 1].split('?')[0];
-                if (!urlFilename || urlFilename.length < 3) urlFilename = `image_${Date.now()}.jpg`;
-
-                console.log(`[Promp] DEBUG: Sending Payload. Mime: ${mimeType}, File: ${urlFilename}, Base64Len: ${imgBase64.length}`);
-
-                const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${config.prompToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        number: number,
-                        body: "", // Sending empty body. Text is sent separately.
-                        base64Data: imgBase64,
-                        mimeType: mimeType,
-                        fileName: urlFilename,
-                        externalKey: `ai_img_${Date.now()}`,
-                        isClosed: false
-                    })
-                });
-
-                if (!imgResponse.ok) {
-                    const errRes = await imgResponse.text();
-                    console.error('[Promp] ERROR: API Response:', errRes);
-                } else {
-                    console.log('[Promp] SUCCESS: Image sent via Base64 endpoint.');
-                }
+            if (!imgResponse.ok) {
+                const errRes = await imgResponse.text();
+                console.error('[Promp] Image URL Send Failed:', errRes);
             } else {
-                console.error('[Promp] FAIL: Could not download image. Status:', imgFetch.status);
+                console.log('[Promp] SUCCESS: Image sent via URL endpoint.');
             }
         } catch (e) {
-            console.error('[Promp] EXCEPTION during image send:', e);
+            console.error('[Promp] Image URL Exception:', e);
         }
     }
 
