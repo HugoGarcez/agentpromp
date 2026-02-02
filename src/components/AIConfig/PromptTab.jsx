@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Save, History, RotateCcw } from 'lucide-react';
 import Modal from '../Modal';
 
-const PromptTab = () => {
+const PromptTab = ({ onPromptChange }) => {
     const [systemPrompt, setSystemPrompt] = useState('');
+    const [persona, setPersona] = useState(null);
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
 
@@ -15,6 +16,66 @@ const PromptTab = () => {
         fetchConfig();
     }, []);
 
+    // Notify parent on change
+    useEffect(() => {
+        if (onPromptChange) {
+            onPromptChange(systemPrompt);
+        }
+    }, [systemPrompt, onPromptChange]);
+
+    const generatePromptText = (personaData) => {
+        if (!personaData) return "";
+        try {
+            const p = typeof personaData === 'string' ? JSON.parse(personaData) : personaData;
+            const { name, role, tone } = p;
+
+            let basePrompt = "";
+            let toneInstruction = "";
+
+            switch (role) {
+                case 'sales':
+                    basePrompt = `Você é ${name || 'Sales Agent'}, um Top Performer em Vendas especialista em conversão.\n` +
+                        `Sua missão é entender as necessidades do cliente e fechar vendas de alto valor.\n` +
+                        `Você domina técnicas como SPIN Selling, PNL e Gatilhos Mentais.\n\n` +
+                        `MANDAMENTOS DO VENDEDOR:\n` +
+                        `1. OBJEÇÕES: Contorne com a técnica 'Entendo, Sinto, Descobri'.\n` +
+                        `2. CONTROLE: Termine suas respostas com perguntas.\n` +
+                        `3. VALOR: Ancore o valor antes de falar preço.\n` +
+                        `4. FECHAMENTO: Use fechamentos experimentais.\n` +
+                        `5. GATILHOS: Use escassez ética e urgência.`;
+                    break;
+                case 'support':
+                    basePrompt = `Você é ${name || 'Support Agent'}, um Especialista em Customer Success.\n` +
+                        `Sua prioridade é a SATISFAÇÃO, RESOLUÇÃO e RETENÇÃO.\n\n` +
+                        `DIRETRIZES:\n` +
+                        `1. EMPATIA EXTREMA: Valide o sentimento do usuário.\n` +
+                        `2. CLAREZA: Use linguagem simples.\n` +
+                        `3. SOLUÇÃO: Guie passo-a-passo.\n` +
+                        `4. PACIÊNCIA: Nunca culpe o usuário.`;
+                    break;
+                default:
+                    basePrompt = `Você é ${name || 'Assistente'}, um Assistente Virtual eficiente.\n` +
+                        `Sua missão é facilitar a vida do usuário com informações precisas.\n\n` +
+                        `DIRETRIZES:\n` +
+                        `1. SEJA DIRETO: Responda sem rodeios.\n` +
+                        `2. PRECISÃO: Verifique dados antes de afirmar.\n` +
+                        `3. UTILIDADE: Sempre ofereça algo a mais.`;
+                    break;
+            }
+
+            if (tone === 'friendly') toneInstruction = "Tom: AMIGÁVEL, CASUAL. Use emojis 😄.";
+            else if (tone === 'formal') toneInstruction = "Tom: PROFISSIONAL, POLIDO. Sem gírias.";
+            else if (tone === 'enthusiastic') toneInstruction = "Tom: ENTUSIASMADO! Use exclamações! 🚀";
+            else if (tone === 'empathetic') toneInstruction = "Tom: ACOLHEDOR, EMPÁTICO. Suave. 🌿";
+            else toneInstruction = "Tom: Profissional e equilibrado.";
+
+            return `${basePrompt}\n\n${toneInstruction}\n\nLembre-se: Mantenha o personagem o tempo todo.`;
+        } catch (e) {
+            console.error("Error generating prompt", e);
+            return "";
+        }
+    };
+
     const fetchConfig = async () => {
         const token = localStorage.getItem('token');
         try {
@@ -23,10 +84,30 @@ const PromptTab = () => {
             });
             if (res.ok) {
                 const data = await res.json();
-                setSystemPrompt(data.systemPrompt || '');
+                setPersona(data.persona);
+
+                let loadedPrompt = data.systemPrompt || '';
+
+                // Auto-generate if empty
+                if ((!loadedPrompt || loadedPrompt.trim() === '') && data.persona) {
+                    loadedPrompt = generatePromptText(data.persona);
+                }
+
+                setSystemPrompt(loadedPrompt);
             }
         } catch (error) {
             console.error('Error fetching config:', error);
+        }
+    };
+
+    const handleRegenerate = () => {
+        if (!persona) {
+            alert("Nenhuma configuração de persona encontrada. Salve a persona primeiro.");
+            return;
+        }
+        if (window.confirm("Isso substituirá o prompt atual pelo padrão da persona selecionada. Continuar?")) {
+            const newPrompt = generatePromptText(persona);
+            setSystemPrompt(newPrompt);
         }
     };
 
@@ -102,22 +183,38 @@ const PromptTab = () => {
         <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <h3 style={{ fontSize: '16px', fontWeight: 'bold' }}>Prompt do Sistema</h3>
-                <button
-                    onClick={fetchHistory}
-                    style={{
-                        display: 'flex', gap: '8px', alignItems: 'center',
-                        color: 'var(--text-medium)', fontSize: '14px',
-                        padding: '6px 12px', border: '1px solid var(--border-color)', borderRadius: '6px'
-                    }}
-                >
-                    <History size={16} /> Histórico de Versões
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                        onClick={handleRegenerate}
+                        style={{
+                            display: 'flex', gap: '8px', alignItems: 'center',
+                            color: 'var(--primary-blue)', fontSize: '14px', fontWeight: 500,
+                            padding: '6px 12px', border: '1px solid var(--primary-blue)', borderRadius: '6px',
+                            backgroundColor: 'white',
+                            cursor: 'pointer'
+                        }}
+                        title="Gerar prompt padrão baseado na Persona atual"
+                    >
+                        <RotateCcw size={16} /> Restaurar Padrão
+                    </button>
+                    <button
+                        onClick={fetchHistory}
+                        style={{
+                            display: 'flex', gap: '8px', alignItems: 'center',
+                            color: 'var(--text-medium)', fontSize: '14px',
+                            padding: '6px 12px', border: '1px solid var(--border-color)', borderRadius: '6px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <History size={16} /> Histórico de Versões
+                    </button>
+                </div>
             </div>
 
             <textarea
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
-                placeholder="Exinir como o agente deve se comportar..."
+                placeholder="Defina como o agente deve se comportar..."
                 rows={15}
                 style={{
                     width: '100%',

@@ -278,6 +278,17 @@ app.post('/api/config', authenticateToken, async (req, res) => {
     }
 });
 
+app.get('/api/config', authenticateToken, async (req, res) => {
+    const companyId = req.user.companyId;
+    try {
+        const config = await getCompanyConfig(companyId);
+        res.json(config || {});
+    } catch (error) {
+        console.error('Error fetching config:', error);
+        res.status(500).json({ message: 'Error fetching config' });
+    }
+});
+
 app.get('/api/config/history', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
     try {
@@ -324,6 +335,61 @@ app.get('/api/config', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Error fetching config:', error);
         res.status(500).json({ message: 'Error fetching config' });
+    }
+});
+
+
+
+// --- Chat Endpoint (Protected) ---
+app.post('/api/chat', authenticateToken, async (req, res) => {
+    const companyId = req.user.companyId;
+    const { message, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
+
+    if (!message) return res.status(400).json({ error: 'Message required' });
+
+    try {
+        const config = await getCompanyConfig(companyId);
+
+        if (!config || !config.integrations?.openaiKey) {
+            return res.status(400).json({ error: 'OpenAI API Key not configured' });
+        }
+
+        const openai = new OpenAI({ apiKey: config.integrations.openaiKey });
+
+        let systemPrompt = config.systemPrompt;
+
+        // Allow frontend to override for testing (Advanced Mode edits not yet saved)
+        if (!useConfigPrompt && overridePrompt) {
+            systemPrompt = overridePrompt;
+        }
+
+        // Fallback default
+        if (!systemPrompt) {
+            systemPrompt = "Você é um assistente virtual útil.";
+        }
+
+        // Inject Products
+        if (config.products && config.products.length > 0) {
+            const productList = config.products.map(p =>
+                `- ${p.name}: R$ ${p.price} (ID: ${p.id}). ${p.description || ''} ${p.image ? '[TEM_IMAGEM]' : ''}`
+            ).join('\n');
+            // Append product instruction
+            systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO IMPORTANTE: Se o usuário pedir para ver uma foto ou imagem de um produto e ele tiver a flag [TEM_IMAGEM], responda EXATAMENTE com a tag: [SHOW_IMAGE: ID_DO_PRODUTO]. Exemplo: [SHOW_IMAGE: 12345]. Não invente links.`;
+        }
+
+        const completion = await openai.chat.completions.create({
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: message }
+            ],
+            model: "gpt-3.5-turbo",
+        });
+
+        res.json({ response: completion.choices[0].message.content });
+
+    } catch (error) {
+        console.error('Chat API Error:', error);
+        res.status(500).json({ error: error.message || 'Error processing chat' });
     }
 });
 

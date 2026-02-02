@@ -73,8 +73,8 @@ const Settings = () => {
         setVoice({ ...voice, [e.target.name]: value });
     };
 
-    const handleSave = () => {
-        // Save raw settings
+    const handleSave = async () => {
+        // Save raw settings (local backup)
         localStorage.setItem('promp_ai_persona', JSON.stringify(persona));
         localStorage.setItem('promp_ai_integrations', JSON.stringify(integrations));
         localStorage.setItem('promp_ai_voice', JSON.stringify(voice));
@@ -144,25 +144,36 @@ DIRETRIZES:
         localStorage.setItem('promp_ai_system_prompt', finalSystemPrompt);
 
         // Save to Backend
-        fetch('/api/config', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                persona,
-                integrations,
-                voice,
-                systemPrompt: finalSystemPrompt,
-                products: JSON.parse(localStorage.getItem('promp_ai_products') || '[]')
-            }),
-        })
-            .then(res => res.json())
-            .then(data => console.log('Backend sync:', data))
-            .catch(err => console.error('Backend sync failed:', err));
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    persona,
+                    integrations,
+                    voice,
+                    systemPrompt: finalSystemPrompt,
+                    products: JSON.parse(localStorage.getItem('promp_ai_products') || '[]')
+                }),
+            });
 
-        setShowToast(true);
-        setTimeout(() => setShowToast(false), 3000);
+            if (res.ok) {
+                const data = await res.json();
+                console.log('Backend sync:', data);
+                setShowToast(true);
+                setTimeout(() => setShowToast(false), 3000);
+            } else {
+                console.error('Backend sync failed:', res.statusText);
+                alert('Erro ao salvar configurações no servidor.');
+            }
+        } catch (err) {
+            console.error('Backend sync failed:', err);
+            alert('Erro de conexão ao salvar configurações.');
+        }
     };
 
     return (
