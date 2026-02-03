@@ -405,10 +405,13 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
             // Inject Files
             if (kb.files && kb.files.length > 0) {
-                systemPrompt += "\n\n=== CONTEÚDO DA BASE DE CONHECIMENTO (ARQUIVOS) ===\n";
+                systemPrompt += "\n=== ARQUIVOS DE CONHECIMENTO ===\n";
                 kb.files.forEach(f => {
                     if (f.content) {
-                        systemPrompt += `\n[ARQUIVO: ${f.name}]\n${f.content}\n[FIM DO ARQUIVO]\n`;
+                        systemPrompt += `\n[ARQUIVO: ${f.name}]\n`;
+                        if (f.description) systemPrompt += `FUNÇÃO/CONTEXTO: ${f.description}\n`;
+                        if (f.usageTrigger) systemPrompt += `GATILHO DE USO: ${f.usageTrigger}\n`;
+                        systemPrompt += `CONTEÚDO:\n${f.content}\n[FIM DO ARQUIVO]\n`;
                     }
                 });
             }

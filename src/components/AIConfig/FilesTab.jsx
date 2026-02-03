@@ -89,6 +89,12 @@ const FilesTab = ({ files = [], onUpdate }) => {
         onUpdate(files.filter((_, i) => i !== index));
     };
 
+    const updateFileMetadata = (index, field, value) => {
+        const newFiles = [...files];
+        newFiles[index] = { ...newFiles[index], [field]: value };
+        onUpdate(newFiles);
+    };
+
     // Trigger update for specific file by simulating click on main input (cleanest for now)
     // Or we could have a separate hidden input, but using the main one works if we just want "Upload matching name"
     // To make it specific, we can tell user "Upload file with same name to update".
@@ -129,45 +135,92 @@ const FilesTab = ({ files = [], onUpdate }) => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {files.map((file, index) => (
                         <div key={index} style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '12px',
+                            padding: '16px',
                             border: '1px solid #E5E7EB',
-                            borderRadius: 'var(--radius-md)'
+                            borderRadius: 'var(--radius-md)',
+                            marginTop: '12px'
                         }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{
-                                    width: '40px',
-                                    height: '40px',
-                                    background: 'var(--primary-light)',
-                                    borderRadius: 'var(--radius-sm)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}>
-                                    <File size={20} color="var(--primary-blue)" />
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                marginBottom: '12px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{
+                                        width: '40px',
+                                        height: '40px',
+                                        background: 'var(--primary-light)',
+                                        borderRadius: 'var(--radius-sm)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}>
+                                        <File size={20} color="var(--primary-blue)" />
+                                    </div>
+                                    <div>
+                                        <p style={{ fontWeight: 500, fontSize: '14px' }}>{file.name}</p>
+                                        <p style={{ color: 'var(--text-light)', fontSize: '12px' }}>{file.size}</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p style={{ fontWeight: 500, fontSize: '14px' }}>{file.name}</p>
-                                    <p style={{ color: 'var(--text-light)', fontSize: '12px' }}>{file.size}</p>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button
+                                        title="Atualizar Arquivo"
+                                        onClick={() => document.getElementById('fileInput').click()}
+                                        style={{ padding: '8px', color: 'var(--primary-blue)', cursor: 'pointer', border: 'none', background: 'transparent' }}
+                                    >
+                                        <Upload size={18} />
+                                    </button>
+                                    <button
+                                        title="Remover"
+                                        onClick={() => removeFile(index)}
+                                        style={{ padding: '8px', color: 'var(--text-light)', cursor: 'pointer', border: 'none', background: 'transparent' }}
+                                    >
+                                        <Trash2 size={18} />
+                                    </button>
                                 </div>
                             </div>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <button
-                                    title="Atualizar Arquivo"
-                                    onClick={() => document.getElementById('fileInput').click()}
-                                    style={{ padding: '8px', color: 'var(--primary-blue)', cursor: 'pointer', border: 'none', background: 'transparent' }}
-                                >
-                                    <Upload size={18} />
-                                </button>
-                                <button
-                                    title="Remover"
-                                    onClick={() => removeFile(index)}
-                                    style={{ padding: '8px', color: 'var(--text-light)', cursor: 'pointer', border: 'none', background: 'transparent' }}
-                                >
-                                    <Trash2 size={18} />
-                                </button>
+
+                            {/* Metadata Inputs */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: 'var(--text-medium)', marginBottom: '4px' }}>
+                                        Função do Arquivo
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="Ex: Manual Técnico, Tabela de Preços..."
+                                        value={file.description || ''}
+                                        onChange={(e) => updateFileMetadata(index, 'description', e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px',
+                                            fontSize: '13px',
+                                            borderRadius: 'var(--radius-sm)',
+                                            border: '1px solid #D1D5DB',
+                                            outline: 'none'
+                                        }}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 500, color: 'var(--text-medium)', marginBottom: '4px' }}>
+                                        Quando Acionar (Gatilho)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="Ex: Apenas quando cliente pedir ajuda técnica..."
+                                        value={file.usageTrigger || ''}
+                                        onChange={(e) => updateFileMetadata(index, 'usageTrigger', e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px',
+                                            fontSize: '13px',
+                                            borderRadius: 'var(--radius-sm)',
+                                            border: '1px solid #D1D5DB',
+                                            outline: 'none'
+                                        }}
+                                    />
+                                </div>
                             </div>
                         </div>
                     ))}
