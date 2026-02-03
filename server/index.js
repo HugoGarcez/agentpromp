@@ -423,6 +423,30 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         }
     }
 
+    // --- DEBUG LOGS FOR CONTEXT ---
+    console.log('--- SYSTEM PROMPT DIAGNOSTICS ---');
+
+    // Check Products
+    if (config.products) {
+        let prods = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
+        console.log(`[Context] Total Products: ${prods.length}`);
+        console.log(`[Context] Product Names: ${prods.map(p => p.name).join(', ')}`);
+    } else {
+        console.log('[Context] No Producs found.');
+    }
+
+    // Check Knowledge Base
+    if (config.knowledgeBase) {
+        let kb = typeof config.knowledgeBase === 'string' ? JSON.parse(config.knowledgeBase) : config.knowledgeBase;
+        if (kb.files) {
+            console.log(`[Context] Total Files: ${kb.files.length}`);
+            kb.files.forEach(f => {
+                console.log(` - File: ${f.name} (Content Length: ${f.content ? f.content.length : 0} chars)`);
+            });
+        }
+    }
+    console.log('---------------------------------');
+
     console.log('[Chat] System Prompt Context:', systemPrompt); // DEBUG
 
     // Prepare Messages (History + System)
