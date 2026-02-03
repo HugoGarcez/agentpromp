@@ -236,7 +236,9 @@ const getCompanyConfig = async (companyId) => {
         persona: config.persona ? JSON.parse(config.persona) : undefined,
         integrations: config.integrations ? JSON.parse(config.integrations) : undefined,
         products: config.products ? JSON.parse(config.products) : undefined,
+        knowledgeBase: config.knowledgeBase ? JSON.parse(config.knowledgeBase) : undefined,
     };
+};
 };
 
 const scrapeUrl = async (url) => {

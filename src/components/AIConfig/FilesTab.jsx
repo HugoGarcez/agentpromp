@@ -70,13 +70,30 @@ const FilesTab = ({ files = [], onUpdate }) => {
         });
 
         Promise.all(filePromises).then(newReadFiles => {
-            onUpdate([...files, ...newReadFiles]);
+            let updatedFiles = [...files];
+            newReadFiles.forEach(newFile => {
+                const index = updatedFiles.findIndex(f => f.name === newFile.name);
+                if (index !== -1) {
+                    // Replace existing
+                    updatedFiles[index] = newFile;
+                } else {
+                    // Append new
+                    updatedFiles.push(newFile);
+                }
+            });
+            onUpdate(updatedFiles);
         });
     };
 
     const removeFile = (index) => {
         onUpdate(files.filter((_, i) => i !== index));
     };
+
+    // Trigger update for specific file by simulating click on main input (cleanest for now)
+    // Or we could have a separate hidden input, but using the main one works if we just want "Upload matching name"
+    // To make it specific, we can tell user "Upload file with same name to update".
+    // Better: Open dialog. But simple MVP: Just the main upload button handles both.
+    // Let's add an explicit button that opens the file dialog.
 
     return (
         <div>
@@ -93,7 +110,7 @@ const FilesTab = ({ files = [], onUpdate }) => {
                 <Upload size={32} color="var(--primary-blue)" style={{ marginBottom: '12px' }} />
                 <h3 style={{ fontSize: '16px', fontWeight: 500, marginBottom: '8px' }}>Clique para fazer upload</h3>
                 <p style={{ color: 'var(--text-light)', fontSize: '14px' }}>
-                    Arraste ou clique para adicionar (PDF, Excel, CSV, TXT)
+                    Arraste ou clique para adicionar/atualizar (PDF, Excel, CSV, TXT)
                 </p>
                 <input
                     id="fileInput"
@@ -136,12 +153,22 @@ const FilesTab = ({ files = [], onUpdate }) => {
                                     <p style={{ color: 'var(--text-light)', fontSize: '12px' }}>{file.size}</p>
                                 </div>
                             </div>
-                            <button
-                                onClick={() => removeFile(index)}
-                                style={{ padding: '8px', color: 'var(--text-light)', cursor: 'pointer' }}
-                            >
-                                <Trash2 size={18} />
-                            </button>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    title="Atualizar Arquivo"
+                                    onClick={() => document.getElementById('fileInput').click()}
+                                    style={{ padding: '8px', color: 'var(--primary-blue)', cursor: 'pointer', border: 'none', background: 'transparent' }}
+                                >
+                                    <Upload size={18} />
+                                </button>
+                                <button
+                                    title="Remover"
+                                    onClick={() => removeFile(index)}
+                                    style={{ padding: '8px', color: 'var(--text-light)', cursor: 'pointer', border: 'none', background: 'transparent' }}
+                                >
+                                    <Trash2 size={18} />
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
