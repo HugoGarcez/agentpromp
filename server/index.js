@@ -339,10 +339,12 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente.
         CRÍTICO: Não ofereça ajuda extra no final da mensagem. Apenas responda.`;
 
-        systemPrompt += `\n\nDIRETRIZES DE CONTINUIDADE (IMPORTANTE):
-        1. MEMÓRIA DE CURTO PRAZO: Ao responder, LEIA O HISTÓRICO RECENTE para identificar sobre qual produto o cliente está falando.
-        2. FOCO NO PRODUTO ATUAL: Se o cliente perguntar "tem outras cores?" ou "qual o preço?", refira-se ao MESMO produto discutido nas mensagens anteriores.
-        3. NÃO ALUCINE: Nunca traga informações de um produto diferente (ex: iPhone) se estamos falando de outro (ex: Camisa), a menos que o cliente mude de assunto explicitamente.`;
+        systemPrompt += `\n\nDIRETRIZES DE CONTINUIDADE (CRÍTICO - NÃO IGNORE):
+        1. CONTEXTO IMPLÍCITO (OBRIGATÓRIO): Se o usuário fizer uma pergunta sem citar o nome do produto (ex: "Tem tamanho G?", "Qual o preço?", "Tem outras cores?"), você DEVE assumir que ele está falando do ÚLTIMO produto mencionado.
+        2. NÃO TROQUE O ASSUNTO: Se estávamos falando de "Camiseta", e o usuário pergunta "Tem G?", é PROIBIDO falar sobre "iPhone" ou qualquer outro item que não seja a Camiseta.
+        3. FOCADO NO HISTÓRICO: Analise o histórico para saber qual foi o último produto. Se a conversa era sobre roupa, continue falando sobre roupa. Só mude de produto se o usuário disser explicitamente o nome de outro produto (ex: "E o iPhone?").
+        4. ZERO ALUCINAÇÃO: Não invente que o produto tem recursos que não estão na lista.
+        5. REGRA DE OURO: Na dúvida, pergunte "Você está falando de qual produto?" em vez de assumir errado. Mas se o contexto for óbvio (sequencial), assuma o anterior.`;
     }
 
     console.log('[Chat] System Prompt Context:', systemPrompt); // DEBUG
