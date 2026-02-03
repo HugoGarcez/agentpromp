@@ -120,6 +120,31 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
 
 
 
+
+// --- EMERGENCY RESET (TEMPORARY) ---
+app.get('/api/emergency-reset', async (req, res) => {
+    try {
+        const email = 'hugo@promp.com.br';
+        const newPassword = 'promp_admin_reset';
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        await prisma.user.update({
+            where: { email },
+            data: { password: hashedPassword }
+        });
+
+        res.send(`
+            <h1>Senha Resetada com Sucesso</h1>
+            <p>Email: ${email}</p>
+            <p>Nova Senha: ${newPassword}</p>
+            <p>Agora tente logar. Depois remova este endpoint.</p>
+        `);
+    } catch (e) {
+        res.status(500).send('Erro no reset: ' + e.message);
+    }
+});
+
 // --- Admin Routes ---
 
 const authenticateAdmin = (req, res, next) => {
