@@ -274,6 +274,13 @@ app.post('/api/config', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
     const newConfig = req.body;
 
+    // DEBUG: Log incoming config update
+    if (newConfig.products) {
+        console.log(`[Config Update] Received ${newConfig.products.length} products to save.`);
+    } else {
+        console.log('[Config Update] No products array in payload.');
+    }
+
     try {
         const currentConfig = await prisma.agentConfig.findUnique({ where: { companyId } });
 
