@@ -13,6 +13,7 @@ const AIConfig = () => {
     // Knowledge Base State
     const [files, setFiles] = useState([]);
     const [links, setLinks] = useState([]);
+    const [qa, setQa] = useState([]);
 
     const [showToast, setShowToast] = useState(false);
 
@@ -30,6 +31,7 @@ const AIConfig = () => {
                     if (data.knowledgeBase) {
                         setFiles(data.knowledgeBase.files || []);
                         setLinks((data.knowledgeBase.links || []).map(l => typeof l === 'object' ? l.url : l));
+                        setQa(data.knowledgeBase.qa || []);
                     }
                 }
             } catch (e) {
@@ -70,7 +72,8 @@ const AIConfig = () => {
                 ...currentConfig,
                 knowledgeBase: {
                     files,
-                    links
+                    links,
+                    qa
                 }
             };
 
@@ -167,7 +170,7 @@ const AIConfig = () => {
                 {activeTab === 'prompt' && <PromptTab />}
                 {activeTab === 'files' && <FilesTab files={files} onUpdate={setFiles} />}
                 {activeTab === 'links' && <LinksTab links={links} onUpdate={setLinks} />}
-                {activeTab === 'qa' && <QATab />}
+                {activeTab === 'qa' && <QATab qaList={qa} onUpdate={setQa} />}
             </div>
 
             {showToast && (

@@ -1,21 +1,20 @@
 import React, { useState } from 'react';
 import { MessageCircle, Trash2, Plus } from 'lucide-react';
 
-const QATab = () => {
-    const [qaList, setQaList] = useState([]);
+const QATab = ({ qaList = [], onUpdate }) => {
     const [question, setQuestion] = useState('');
     const [answer, setAnswer] = useState('');
 
     const addQA = () => {
         if (question && answer) {
-            setQaList([...qaList, { question, answer }]);
+            onUpdate([...qaList, { question, answer }]);
             setQuestion('');
             setAnswer('');
         }
     };
 
     const removeQA = (index) => {
-        setQaList(qaList.filter((_, i) => i !== index));
+        onUpdate(qaList.filter((_, i) => i !== index));
     };
 
     return (

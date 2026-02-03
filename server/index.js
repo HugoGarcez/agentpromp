@@ -423,6 +423,16 @@ const processChatResponse = async (config, message, history, sessionId = null) =
                 });
             }
 
+            // Inject Q&A
+            if (kb.qa && kb.qa.length > 0) {
+                systemPrompt += "\n=== PERGUNTAS E RESPOSTAS FREQUENTES (Q&A) ===\n";
+                kb.qa.forEach(item => {
+                    if (item.question && item.answer) {
+                        systemPrompt += `\nQ: ${item.question}\nA: ${item.answer}\n`;
+                    }
+                });
+            }
+
             systemPrompt += "\n\nINSTRUÇÃO SOBRE BASE DE CONHECIMENTO: Use as informações acima para responder perguntas do usuário. Se a resposta estiver nos arquivos/links, use-a. Se não estiver, diga que não sabe.";
 
         } catch (e) {
