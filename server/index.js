@@ -558,28 +558,32 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, pro
     // Removing '55' prefix if exists (Promp API usually handles it, or check documentation)
     // Postman doc example: "5515998566622". Okay, keep it.
 
-    // 1. Send Text
-    try {
-        console.log(`[Promp] Sending Text to ${number}...`);
-        const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${config.prompToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                number: number,
-                body: text,
-                externalKey: `ai_${Date.now()}`,
-                isClosed: false
-            })
-        });
+    // 1. Send Text (ONLY if no audio, to avoid duplication)
+    if (!audioBase64) {
+        try {
+            console.log(`[Promp] Sending Text to ${number}...`);
+            const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${config.prompToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    number: number,
+                    body: text,
+                    externalKey: `ai_${Date.now()}`,
+                    isClosed: false
+                })
+            });
 
-        if (!textResponse.ok) {
-            console.error('[Promp] Text Send Failed:', await textResponse.text());
+            if (!textResponse.ok) {
+                console.error('[Promp] Text Send Failed:', await textResponse.text());
+            }
+        } catch (e) {
+            console.error('[Promp] Text Exception:', e);
         }
-    } catch (e) {
-        console.error('[Promp] Text Exception:', e);
+    } else {
+        console.log(`[Promp] Skipping text message because audio is being sent.`);
     }
 
     // 2. Send Image (Hybrid: URL vs Base64 vs Local File)
