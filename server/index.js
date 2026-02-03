@@ -405,7 +405,16 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
         systemPrompt += `\n\nDIRETRIZES DE CONTINUIDADE (CRÍTICO - NÃO IGNORE):
         1. CONTEXTO IMPLÍCITO (OBRIGATÓRIO): Se o usuário fizer uma pergunta sem citar o nome do produto ou apenas confirmar algo (ex: "Sim", "Quero", "Manda", "Pode ser", "Quanto custa?"), você DEVE assumir que ele está falando do ÚLTIMO produto/serviço mencionado no histórico.
-        2. REGRA DO PDF: Se você ofereceu um PDF na mensagem anterior e o usuário respondeu "Sim" ou "Quero", NÃO PERGUNTE "Qual PDF?". ISSO É PROIBIDO. Envie IMEDIATAMENTE o PDF do serviço que você acabou de oferecer usando a tag [SEND_PDF: ID].
+        
+        2. PROTOCOLO DE RESPOSTA CURTA (REGRA SUPREMA):
+           - Cenario: Você ofereceu um PDF ("Quer o PDF?") e o usuário disse SIM ("Sim", "Quero", "Pode mandar").
+           - AÇÃO OBRIGATÓRIA: NÃO PERGUNTE "Qual PDF?". IDENTIFIQUE o serviço da mensagem anterior e envie o PDF dele IMEDIATAMENTE usando [SEND_PDF: ID].
+           - EXEMPLO:
+             IA: "...O serviço custa R$50. Quer o PDF?"
+             User: "Sim"
+             IA (CORRETO): "[SEND_PDF: serviço_xyz] Aqui está o arquivo!"
+             IA (ERRADO): "Qual PDF você quer?" (ISSO É PROIBIDO)
+
         3. NÃO TROQUE O ASSUNTO: Se estávamos falando de "Camiseta", e o usuário pergunta "Tem G?", é PROIBIDO falar sobre "iPhone".
         4. ZERO ALUCINAÇÃO: Não invente recursos.
         5. REGRA DE OURO: Só pergunte "Qual produto?" se o histórico estiver VAZIO ou se o usuário mudar de assunto drasticamente. No fluxo de venda, ASSUMA O CONTEXTO ANTERIOR.`;
