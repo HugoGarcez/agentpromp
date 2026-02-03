@@ -368,50 +368,50 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     let aiResponse = completion.choices[0].message.content;
 
-// --- Image Detection Logic ---
-let productImageUrl = null;
-let productCaption = ""; // Initialize caption
-const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*([a-zA-Z0-9_-]+)\]/); // Support alphanum IDs
+    // --- Image Detection Logic ---
+    let productImageUrl = null;
+    let productCaption = ""; // Initialize caption
+    const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*([a-zA-Z0-9_-]+)\]/); // Support alphanum IDs
 
-if (imageMatch && config.products) {
-    const targetId = imageMatch[1];
-    let found = false;
+    if (imageMatch && config.products) {
+        const targetId = imageMatch[1];
+        let found = false;
 
-    // Search in Parent Products or Variations
-    for (const p of config.products) {
-        // Check Parent
-        if (String(p.id) === String(targetId)) {
-            if (p.image) {
-                productImageUrl = p.image;
-                productCaption = `${p.name} - R$ ${p.price}`;
-                found = true;
-                break;
+        // Search in Parent Products or Variations
+        for (const p of config.products) {
+            // Check Parent
+            if (String(p.id) === String(targetId)) {
+                if (p.image) {
+                    productImageUrl = p.image;
+                    productCaption = `${p.name} - R$ ${p.price}`;
+                    found = true;
+                    break;
+                }
+            }
+
+            // Check Variations
+            if (p.variantItems) {
+                const variant = p.variantItems.find(v => String(v.id) === String(targetId));
+                if (variant && variant.image) {
+                    productImageUrl = variant.image;
+                    const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                    productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
+                    found = true;
+                    break;
+                }
             }
         }
 
-        // Check Variations
-        if (p.variantItems) {
-            const variant = p.variantItems.find(v => String(v.id) === String(targetId));
-            if (variant && variant.image) {
-                productImageUrl = variant.image;
-                const details = [variant.color, variant.size].filter(Boolean).join(' / ');
-                productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
-                found = true;
-                break;
-            }
+        if (found) {
+            console.log(`[Chat] Found Product/Variant Image for ID ${targetId}: ${productImageUrl}`);
+            console.log(`[Chat] Caption: ${productCaption}`);
+        } else {
+            console.log(`[Chat] Image requested for ID ${targetId} but not found.`);
         }
-    }
 
-    if (found) {
-        console.log(`[Chat] Found Product/Variant Image for ID ${targetId}: ${productImageUrl}`);
-        console.log(`[Chat] Caption: ${productCaption}`);
-    } else {
-        console.log(`[Chat] Image requested for ID ${targetId} but not found.`);
+        // Remove the tag from the text displayed to user
+        aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
     }
-
-    // Remove the tag from the text displayed to user
-    aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
-}
 
     // --- Audio Generation Logic ---
     let audioBase64 = null;
@@ -587,7 +587,7 @@ const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
 // MUST be set in .env on the server
 const PROMP_ADMIN_TOKEN = process.env.PROMP_ADMIN_TOKEN;
 
-const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, productCaption) => {
+const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, caption) => {
     if (!config.prompUuid || !config.prompToken) {
         console.log('[Promp] Skipping external API execution (Credentials missing).');
         return false;
@@ -645,7 +645,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, pro
 
                     console.log(`[Promp] Sending via /base64 endpoint (Data URI). Mime: ${mimeType}`);
 
-                    await sendBase64Image(config, number, base64Data, mimeType, fileName, productCaption);
+                    await sendBase64Image(config, number, base64Data, mimeType, fileName, caption);
                 } else {
                     console.error('[Promp] Invalid Data URI format.');
                 }
@@ -661,7 +661,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, pro
                     },
                     body: JSON.stringify({
                         number: number,
-                        body: productCaption || "",
+                        body: caption || "",
                         mediaUrl: finalImageUrl,
                         externalKey: `ai_img_${Date.now()}`
                     })
@@ -704,7 +704,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, pro
                     const fileName = path.basename(filePath);
 
                     console.log(`[Promp] Local file read success. Size: ${base64Data.length}. Sending via /base64...`);
-                    await sendBase64Image(config, number, base64Data, mimeType, fileName, productCaption);
+                    await sendBase64Image(config, number, base64Data, mimeType, fileName, caption);
 
                 } catch (readErr) {
                     console.error('[Promp] Failed to read local image file:', readErr);
@@ -716,7 +716,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, pro
     }
 
     // Helper function for Base64 sending
-    async function sendBase64Image(config, number, base64Data, mimeType, fileName, productCaption) {
+    async function sendBase64Image(config, number, base64Data, mimeType, fileName, caption) {
         const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
             method: 'POST',
             headers: {
@@ -725,7 +725,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, pro
             },
             body: JSON.stringify({
                 number: number,
-                body: productCaption || "",
+                body: caption || "",
                 base64Data: base64Data,
                 mimeType: mimeType,
                 fileName: fileName,
