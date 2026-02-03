@@ -309,7 +309,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     // Inject Products
     if (config.products && config.products.length > 0) {
         const productList = config.products.map(p =>
-            `- ${p.image ? '[TEM_IMAGEM] ' : ''}ID: ${p.id} | Nome: ${p.name} | Preço: R$ ${p.price}. ${p.description || ''}`
+            `- ${p.image ? '[TEM_IMAGEM] ' : ''}ID: ${p.id} | Nome: ${p.name} | Preço: R$ ${p.price} | Variações: ${p.variations || 'N/A'} | Cores: ${p.colors || 'N/A'}. ${p.description || ''}`
         ).join('\n');
         systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO DE IMAGEM (PRIORIDADE MÁXIMA): Se o usuário pedir foto de um produto que tenha a flag [TEM_IMAGEM], você DEVE responder EXATAMENTE assim: "[SHOW_IMAGE: ID_DO_PRODUTO] Aqui está a foto que pediu!". Não invente desculpas.`;
     }
@@ -361,9 +361,10 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
         if (product && product.image) {
             productImageUrl = product.image;
-            // Create Caption: "Nome - Variação - R$ Preço"
-            productCaption = `${product.name || 'Produto'} - ${product.variation || ''} - R$ ${product.price || '0,00'}`;
-            // Clean up double dashes if variation is empty
+            // Create Caption: "Nome - Variações / Cores - R$ Preço"
+            const details = [product.variations, product.colors].filter(Boolean).join(' / ');
+            productCaption = `${product.name || 'Produto'} - ${details} - R$ ${product.price || '0,00'}`;
+            // Clean up
             productCaption = productCaption.replace(' -  -', ' -').trim();
 
             console.log(`[Chat] Found Product Image for ID ${targetId}: ${productImageUrl}`);
