@@ -264,7 +264,7 @@ const getCompanyConfig = async (companyId) => {
         knowledgeBase: config.knowledgeBase ? JSON.parse(config.knowledgeBase) : undefined,
     };
 };
-};
+
 
 const scrapeUrl = async (url) => {
     try {
