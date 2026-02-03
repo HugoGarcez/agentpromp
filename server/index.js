@@ -239,6 +239,29 @@ const getCompanyConfig = async (companyId) => {
     };
 };
 
+const scrapeUrl = async (url) => {
+    try {
+        console.log(`[Scraper] Fetching ${url}...`);
+        const response = await fetch(url);
+        if (!response.ok) return `[Erro ao ler ${url}: ${response.statusText}]`;
+        const html = await response.text();
+
+        // Simple regex-based extraction (Body text)
+        // Remove scripts, styles, tags
+        let text = html
+            .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gim, "")
+            .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gim, "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        return text.substring(0, 5000) + (text.length > 5000 ? "..." : ""); // Limit size
+    } catch (e) {
+        console.error(`[Scraper] Failed to scrape ${url}:`, e);
+        return `[Erro ao ler ${url}]`;
+    }
+};
+
 app.post('/api/config', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
     const newConfig = req.body;
@@ -246,12 +269,24 @@ app.post('/api/config', authenticateToken, async (req, res) => {
     try {
         const currentConfig = await prisma.agentConfig.findUnique({ where: { companyId } });
 
-        // Merge Voice settings into Integrations for storage
-        // The frontend sends 'integrations' (LLM keys) and 'voice' (Audio settings) separately.
-        // We store them together in the 'integrations' JSON column.
+        // Merge Voice settings into Integrations
         let combinedIntegrations = newConfig.integrations || {};
         if (newConfig.voice) {
             combinedIntegrations = { ...combinedIntegrations, ...newConfig.voice };
+        }
+
+        // Handle Knowledge Base - SCRAPE LINKS
+        let finalKB = newConfig.knowledgeBase || {};
+
+        if (finalKB.links && finalKB.links.length > 0) {
+            const processedLinks = await Promise.all(finalKB.links.map(async (link) => {
+                let url = typeof link === 'string' ? link : link.url;
+                // Avoid re-scraping if content exists? 
+                // For now, scrape always to ensure freshness on save.
+                let content = await scrapeUrl(url);
+                return { url, content };
+            }));
+            finalKB.links = processedLinks;
         }
 
         const data = {
@@ -260,6 +295,7 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             persona: newConfig.persona ? JSON.stringify(newConfig.persona) : undefined,
             integrations: JSON.stringify(combinedIntegrations),
             products: newConfig.products ? JSON.stringify(newConfig.products) : undefined,
+            knowledgeBase: JSON.stringify(finalKB),
         };
 
         const updatedConfig = await prisma.agentConfig.upsert({
@@ -345,6 +381,38 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         3. FOCADO NO HISTÓRICO: Analise o histórico para saber qual foi o último produto. Se a conversa era sobre roupa, continue falando sobre roupa. Só mude de produto se o usuário disser explicitamente o nome de outro produto (ex: "E o iPhone?").
         4. ZERO ALUCINAÇÃO: Não invente que o produto tem recursos que não estão na lista.
         5. REGRA DE OURO: Na dúvida, pergunte "Você está falando de qual produto?" em vez de assumir errado. Mas se o contexto for óbvio (sequencial), assuma o anterior.`;
+    }
+
+    // Knowledge Base Injection
+    if (config.knowledgeBase) {
+        try {
+            const kb = typeof config.knowledgeBase === 'string' ? JSON.parse(config.knowledgeBase) : config.knowledgeBase;
+
+            // Inject Files
+            if (kb.files && kb.files.length > 0) {
+                systemPrompt += "\n\n=== CONTEÚDO DA BASE DE CONHECIMENTO (ARQUIVOS) ===\n";
+                kb.files.forEach(f => {
+                    if (f.content) {
+                        systemPrompt += `\n[ARQUIVO: ${f.name}]\n${f.content}\n[FIM DO ARQUIVO]\n`;
+                    }
+                });
+            }
+
+            // Inject Links
+            if (kb.links && kb.links.length > 0) {
+                systemPrompt += "\n=== CONTEÚDO EXTRAÍDO DE LINKS ===\n";
+                kb.links.forEach(l => {
+                    if (l.content) {
+                        systemPrompt += `\n[FONTE: ${l.url}]\n${l.content}\n[FIM DA FONTE]\n`;
+                    }
+                });
+            }
+
+            systemPrompt += "\n\nINSTRUÇÃO SOBRE BASE DE CONHECIMENTO: Use as informações acima para responder perguntas do usuário. Se a resposta estiver nos arquivos/links, use-a. Se não estiver, diga que não sabe.";
+
+        } catch (e) {
+            console.error('Error parsing Knowledge Base:', e);
+        }
     }
 
     console.log('[Chat] System Prompt Context:', systemPrompt); // DEBUG

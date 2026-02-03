@@ -35,6 +35,7 @@ model AgentConfig {
   persona      String?  // JSON
   integrations String?  // JSON
   products     String?  // JSON
+  knowledgeBase String? // JSON - Files text and Scraped URLs
   
   // Promp API Integration
   prompIdentity String?

@@ -1,19 +1,18 @@
 import React, { useState } from 'react';
 import { Link, Trash2, Plus } from 'lucide-react';
 
-const LinksTab = () => {
-    const [links, setLinks] = useState([]);
+const LinksTab = ({ links = [], onUpdate }) => {
     const [newLink, setNewLink] = useState('');
 
     const addLink = () => {
         if (newLink) {
-            setLinks([...links, newLink]);
+            onUpdate([...links, newLink]);
             setNewLink('');
         }
     };
 
     const removeLink = (index) => {
-        setLinks(links.filter((_, i) => i !== index));
+        onUpdate(links.filter((_, i) => i !== index));
     };
 
     return (
@@ -42,7 +41,8 @@ const LinksTab = () => {
                         fontWeight: 500,
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '8px'
+                        gap: '8px',
+                        cursor: 'pointer'
                     }}
                 >
                     <Plus size={18} />
@@ -71,7 +71,7 @@ const LinksTab = () => {
                             </div>
                             <button
                                 onClick={() => removeLink(index)}
-                                style={{ color: 'var(--text-light)' }}
+                                style={{ color: 'var(--text-light)', cursor: 'pointer' }}
                             >
                                 <Trash2 size={18} />
                             </button>
