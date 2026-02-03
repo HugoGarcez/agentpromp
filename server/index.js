@@ -591,9 +591,15 @@ const processChatResponse = async (config, message, history, sessionId = null) =
             // Ensure Base64 doesn't have data: prefix for pure transport if needed, 
             // but usually we keep it or strip it depending on frontend.
             // Let's strip standard prefixes if present to ensure clean base64 for WhatsApp API
-            pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
-            pdfName = foundName;
-            console.log(`[Chat] Found PDF for ID ${targetId}`);
+            console.log(`[DEBUG] Raw PDF found. Length: ${foundPdf.length}`);
+
+            try {
+                pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
+                pdfName = foundName;
+                console.log(`[Chat] Found PDF for ID ${targetId}. Processed Base64 Length: ${pdfBase64.length}`);
+            } catch (e) {
+                console.error(`[Chat] PDF Processing Error:`, e);
+            }
         } else {
             console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
         }
