@@ -502,6 +502,39 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     console.log('[Chat] System Prompt Context:', systemPrompt); // DEBUG
 
+    // --- DYNAMIC CONTEXT INJECTION (FORCE OVERRIDE) ---
+    // Problem: AI forgets context on short replies ("Sim").
+    // Solution: If last AI msg offered PDF and user says "Sim", we force the AI to ACT.
+    if (history && history.length > 0) {
+        // Find last assistant message
+        const lastAiMsg = [...history].reverse().find(m => m.role === 'assistant');
+
+        if (lastAiMsg) {
+            const aiContent = (lastAiMsg.content || '').toLowerCase();
+            const userContent = (message || '').toLowerCase();
+
+            // Check if AI offered PDF recently (keywords: pdf AND question words)
+            // Or just mentions PDF and is a question
+            if (aiContent.includes('pdf') && (aiContent.includes('?') || aiContent.includes('gostaria') || aiContent.includes('quer'))) {
+
+                // Check if User accepted
+                const acceptanceKeywords = ['sim', 'quero', 'pode', 'manda', 'gostaria', 'yes', 'ok'];
+                const isAcceptance = acceptanceKeywords.some(kw => userContent.includes(kw));
+
+                if (isAcceptance) {
+                    console.log('[Context] Detected PDF Offer Acceptance. Injecting Force Command.');
+                    systemPrompt += `\n\n!!! COMANDO DO SISTEMA (PRIORIDADE SUPREMA) !!!
+                    O usuário ACABOU de aceitar sua oferta de PDF feita na mensagem anterior.
+                    CONTEXTO ANTERIOR DO AI: "${lastAiMsg.content}"
+                    AÇÃO: Pare de perguntar "Qual PDF?".
+                    EXECUÇÃO: Identifique o serviço que você estava falando nessa mensagem anterior e envie o PDF AGORA usando [SEND_PDF: ID].
+                    NÃO DIGA MAIS NADA ALÉM DE ENVIAR O ARQUIVO.`;
+                }
+            }
+        }
+    }
+    // --- END DYNAMIC CONTEXT ---
+
     // Prepare Messages (History + System)
     let messages = [{ role: "system", content: systemPrompt }];
 
