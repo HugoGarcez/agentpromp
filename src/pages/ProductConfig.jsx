@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Package, Image as ImageIcon, Save, Loader2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Package, Image as ImageIcon, Save, Loader2, FileText, CreditCard, Briefcase, Link as LinkIcon, ToggleLeft, ToggleRight } from 'lucide-react';
 
 const ProductConfig = () => {
     const [showForm, setShowForm] = useState(false);
     const [products, setProducts] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false); // Global saving state
-    const [config, setConfig] = useState(null); // Store full config to preserve other fields
+    const [saving, setSaving] = useState(false);
+    const [config, setConfig] = useState(null);
 
     const token = localStorage.getItem('token');
 
-    // Fetch Products from API (and migrate if needed)
+    // Fetch Products (and Services)
     useEffect(() => {
         if (!token) return;
 
@@ -22,28 +22,9 @@ const ProductConfig = () => {
                 if (response.ok) {
                     const data = await response.json();
                     setConfig(data);
-
-                    let serverProducts = data.products || [];
-
-                    // --- MIGRATION START ---
-                    // If server is empty but we have local products, migrate them!
-                    const localProducts = localStorage.getItem('promp_ai_products');
-                    if (serverProducts.length === 0 && localProducts) {
-                        try {
-                            const parsedLocal = JSON.parse(localProducts);
-                            if (parsedLocal.length > 0) {
-                                console.log('Migrating local products to server...');
-                                await saveProductsToApi(parsedLocal, data); // Save immediately
-                                serverProducts = parsedLocal; // Update DB used in state
-                                localStorage.removeItem('promp_ai_products'); // Clear after migration
-                            }
-                        } catch (e) {
-                            console.error("Migration error:", e);
-                        }
-                    }
-                    // --- MIGRATION END ---
-
-                    setProducts(serverProducts);
+                    // Ensure products exist
+                    let serverItems = data.products || [];
+                    setProducts(serverItems);
                 }
             } catch (error) {
                 console.error("Error loading config:", error);
@@ -55,12 +36,12 @@ const ProductConfig = () => {
         fetchConfig();
     }, [token]);
 
-    const saveProductsToApi = async (newProducts, currentConfig = config) => {
+    const saveItemsToApi = async (newItems, currentConfig = config) => {
         setSaving(true);
         try {
             const payload = {
-                ...currentConfig, // Preserve systemPrompt, persona, etc.
-                products: newProducts
+                ...currentConfig,
+                products: newItems // We use the same 'products' array for both Products and Services
             };
 
             const response = await fetch('/api/config', {
@@ -74,12 +55,11 @@ const ProductConfig = () => {
 
             if (!response.ok) throw new Error('Failed to save to server');
 
-            // Update local state ONLY on success
-            setProducts(newProducts);
+            setProducts(newItems);
             setConfig(payload);
             return true;
         } catch (error) {
-            console.error("Error saving products:", error);
+            console.error("Error saving items:", error);
             alert("Erro ao salvar no servidor. Verifique sua conexão.");
             return false;
         } finally {
@@ -87,372 +67,326 @@ const ProductConfig = () => {
         }
     };
 
-    const [formData, setFormData] = useState({
+    const initialFormState = {
+        type: 'product', // 'product' | 'service'
         name: '',
         price: '',
         description: '',
-        // variations: '', // DEPRECATED: Replaced by variantItems
-        // colors: '',     // DEPRECATED: Replaced by variantItems
         image: null,
-        variantItems: [] // New Structure: { id, name, price, sku, image, color, size }
-    });
+        variantItems: [], // Only for Products
 
-    const [editingVariant, setEditingVariant] = useState(null); // For variant modal/inline form
+        // Service Specific
+        paymentConditions: '',
+        pdf: null, // Base64 PDF
+
+        // Common New Fields
+        paymentLink: '',
+        hasPaymentLink: false
+    };
+
+    const [formData, setFormData] = useState(initialFormState);
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    // --- VARIATION LOGIC ---
+    const handleTogglePaymentLink = () => {
+        setFormData(prev => ({ ...prev, hasPaymentLink: !prev.hasPaymentLink }));
+    };
+
+    // --- VARIATION LOGIC (For Products) ---
     const addVariation = () => {
         const newId = `var_${Date.now()}`;
-        const newVariant = {
-            id: newId,
-            name: '', // e.g. "Azul - P"
-            price: formData.price, // Default to parent price
-            sku: '',
-            image: null,
-            color: '',
-            size: ''
-        };
-        setFormData(prev => ({
-            ...prev,
-            variantItems: [...(prev.variantItems || []), newVariant]
-        }));
-        setEditingVariant(newId); // Auto-open edit mode? Or just add empty row
+        const newVariant = { id: newId, name: '', price: formData.price, sku: '', image: null, color: '', size: '' };
+        setFormData(prev => ({ ...prev, variantItems: [...(prev.variantItems || []), newVariant] }));
     };
 
     const updateVariation = (id, field, value) => {
         setFormData(prev => ({
             ...prev,
-            variantItems: prev.variantItems.map(v =>
-                v.id === id ? { ...v, [field]: value } : v
-            )
+            variantItems: prev.variantItems.map(v => v.id === id ? { ...v, [field]: value } : v)
         }));
     };
 
     const removeVariation = (id) => {
-        setFormData(prev => ({
-            ...prev,
-            variantItems: prev.variantItems.filter(v => v.id !== id)
-        }));
+        setFormData(prev => ({ ...prev, variantItems: prev.variantItems.filter(v => v.id !== id) }));
     };
 
     const handleVariantImageChange = (id, e) => {
         const file = e.target.files[0];
         if (file) {
-            if (file.size > 300 * 1024) {
-                alert('Imagem muito grande (Max 300KB)');
-                return;
-            }
+            if (file.size > 300 * 1024) { alert('Imagem muito grande (Max 300KB)'); return; }
             const reader = new FileReader();
-            reader.onloadend = () => {
-                updateVariation(id, 'image', reader.result);
-            };
+            reader.onloadend = () => updateVariation(id, 'image', reader.result);
             reader.readAsDataURL(file);
         }
     };
 
+    // --- FILE I/O ---
     const handleImageChange = (e) => {
         const file = e.target.files[0];
         if (file) {
-            if (file.size > 300 * 1024) {
-                alert('A imagem é muito grande! Por favor, escolha uma imagem com menos de 300KB.');
-                return;
-            }
+            if (file.size > 500 * 1024) { alert('Imagem muito grande (Max 500KB)'); return; }
+            const reader = new FileReader();
+            reader.onloadend = () => setFormData(prev => ({ ...prev, image: reader.result }));
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handlePdfChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.type !== 'application/pdf') { alert('Apenas arquivos PDF são permitidos.'); return; }
+            if (file.size > 2 * 1024 * 1024) { alert('PDF muito grande (Max 2MB)'); return; } // 2MB limit for base64 safety
 
             const reader = new FileReader();
-            reader.onloadend = () => {
-                setFormData(prev => ({ ...prev, image: reader.result }));
-            };
+            reader.onloadend = () => setFormData(prev => ({ ...prev, pdf: reader.result }));
             reader.readAsDataURL(file);
         }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        const itemsCopy = [...products];
+        // Ensure type defaults to product if missing (legacy)
+        const newItem = { ...formData, id: formData.id || Date.now(), type: formData.type || 'product' };
 
-        const productsCopy = [...products];
-        const newProduct = { ...formData, id: formData.id || Date.now() };
-
-        let newProductsState;
+        let newItemsState;
         if (formData.id) {
-            newProductsState = productsCopy.map(p => p.id === formData.id ? newProduct : p);
+            newItemsState = itemsCopy.map(p => p.id === formData.id ? newItem : p);
         } else {
-            newProductsState = [...productsCopy, newProduct];
+            newItemsState = [...itemsCopy, newItem];
         }
 
-        const success = await saveProductsToApi(newProductsState);
+        const success = await saveItemsToApi(newItemsState);
         if (success) {
-            setFormData({ name: '', price: '', description: '', variantItems: [], image: null });
+            setFormData(initialFormState);
             setShowForm(false);
         }
     };
 
-    const handleEdit = (product) => {
-        setFormData(product);
+    const handleEdit = (item) => {
+        setFormData({ ...initialFormState, ...item }); // Merge to ensure new fields (like hasPaymentLink) exist
         setShowForm(true);
     };
 
-    const deleteProduct = async (id) => {
-        if (!confirm("Tem certeza que deseja excluir este produto?")) return;
-        const newProductsState = products.filter(p => p.id !== id);
-        await saveProductsToApi(newProductsState);
+    const deleteItem = async (id) => {
+        if (!confirm("Tem certeza que deseja excluir este item?")) return;
+        const newItemsState = products.filter(p => p.id !== id);
+        await saveItemsToApi(newItemsState);
     };
 
-    if (loading) return <div style={{ padding: 24, textAlign: 'center' }}><Loader2 className="animate-spin" /> Carregando produtos...</div>;
+    // Helper to open form
+    const openForm = (type) => {
+        setFormData({ ...initialFormState, type });
+        setShowForm(true);
+    };
+
+    if (loading) return <div style={{ padding: 24, textAlign: 'center' }}><Loader2 className="animate-spin" /> Carregando...</div>;
 
     return (
         <div style={{ background: 'var(--bg-white)', padding: '24px', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Produtos ({products.length})</h2>
+                <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Produtos e Serviços ({products.length})</h2>
                 {!showForm && (
-                    <button
-                        onClick={() => {
-                            setFormData({ name: '', price: '', description: '', variantItems: [], image: null });
-                            setShowForm(true);
-                        }}
-                        disabled={saving}
-                        style={{
-                            backgroundColor: 'var(--primary-blue)',
-                            color: 'white',
-                            padding: '10px 16px',
-                            borderRadius: 'var(--radius-sm)',
-                            fontSize: '14px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            opacity: saving ? 0.7 : 1,
-                            cursor: saving ? 'not-allowed' : 'pointer'
-                        }}
-                    >
-                        <Plus size={18} />
-                        Novo Produto
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            onClick={() => openForm('product')}
+                            disabled={saving}
+                            style={{
+                                backgroundColor: 'var(--primary-blue)', margin: 0, color: 'white', padding: '10px 16px', borderRadius: 'var(--radius-sm)', fontSize: '14px',
+                                display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: 'none'
+                            }}
+                        >
+                            <Package size={18} /> Novo Produto
+                        </button>
+                        <button
+                            onClick={() => openForm('service')}
+                            disabled={saving}
+                            style={{
+                                backgroundColor: '#10B981', margin: 0, color: 'white', padding: '10px 16px', borderRadius: 'var(--radius-sm)', fontSize: '14px',
+                                display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: 'none'
+                            }}
+                        >
+                            <Briefcase size={18} /> Novo Serviço
+                        </button>
+                    </div>
                 )}
             </div>
 
-            {/* Saving Indicator */}
             {saving && <div style={{ color: 'var(--primary-blue)', marginBottom: 10, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}> <Loader2 size={14} className="animate-spin" /> Salvando alterações...</div>}
-
 
             {showForm ? (
                 <form onSubmit={handleSubmit} style={{ marginBottom: '24px', padding: '24px', border: '1px solid #E5E7EB', borderRadius: 'var(--radius-md)' }}>
-                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>{formData.id ? 'Editar Produto' : 'Adicionar Produto'}</h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+                        <h3 style={{ fontSize: '16px', fontWeight: 600 }}>
+                            {formData.id ? 'Editar' : 'Novo'} {formData.type === 'service' ? 'Serviço' : 'Produto'}
+                        </h3>
+                        <span style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '12px', background: formData.type === 'service' ? '#D1FAE5' : '#DBEAFE', color: formData.type === 'service' ? '#065F46' : '#1E40AF' }}>
+                            {formData.type === 'service' ? 'Serviço' : 'Produto'}
+                        </span>
+                    </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                         <div>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Nome do Produto</label>
-                            <input
-                                type="text"
-                                name="name"
-                                value={formData.name}
-                                onChange={handleInputChange}
-                                required
-                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }}
-                            />
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Nome</label>
+                            <input type="text" name="name" value={formData.name} onChange={handleInputChange} required
+                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
                         </div>
                         <div>
                             <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Preço (R$)</label>
-                            <input
-                                type="number"
-                                name="price"
-                                value={formData.price}
-                                onChange={handleInputChange}
-                                required
-                                step="0.01"
-                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }}
-                            />
+                            <input type="number" name="price" value={formData.price} onChange={handleInputChange} required step="0.01"
+                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
                         </div>
                     </div>
 
                     <div style={{ marginBottom: '16px' }}>
                         <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Descrição</label>
-                        <textarea
-                            name="description"
-                            value={formData.description}
-                            onChange={handleInputChange}
-                            rows={3}
-                            style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB', resize: 'vertical' }}
-                        />
+                        <textarea name="description" value={formData.description} onChange={handleInputChange} rows={3}
+                            style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB', resize: 'vertical' }} />
                     </div>
 
-                    {/* VARIATIONS SECTION */}
-                    <div style={{ marginBottom: '24px', padding: '16px', background: '#F9FAFB', borderRadius: 'var(--radius-md)', border: '1px solid #E5E7EB' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                            <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-dark)' }}>Variações do Produto</label>
-                            <button
-                                type="button"
-                                onClick={addVariation}
-                                style={{
-                                    fontSize: '12px',
-                                    padding: '6px 12px',
-                                    background: 'var(--bg-white)',
-                                    border: '1px solid var(--border-color)',
-                                    borderRadius: 'var(--radius-sm)',
-                                    cursor: 'pointer',
-                                    display: 'flex', alignItems: 'center', gap: '4px'
-                                }}
-                            >
-                                <Plus size={14} /> Adicionar Variação
+                    {/* PAYMENT LINK SECTION */}
+                    <div style={{ marginBottom: '16px', padding: '16px', background: '#F0F9FF', borderRadius: '8px', border: '1px solid #BAE6FD' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: formData.hasPaymentLink ? '12px' : '0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <CreditCard size={18} color="#0284C7" />
+                                <span style={{ fontWeight: 500, color: '#0369A1' }}>Link de Pagamento</span>
+                            </div>
+                            <button type="button" onClick={handleTogglePaymentLink} style={{ background: 'none', border: 'none', cursor: 'pointer', color: formData.hasPaymentLink ? '#0284C7' : '#94A3B8' }}>
+                                {formData.hasPaymentLink ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
                             </button>
                         </div>
 
-                        {(!formData.variantItems || formData.variantItems.length === 0) && (
-                            <p style={{ fontSize: '13px', color: 'var(--text-light)', fontStyle: 'italic' }}>Nenhuma variação adicionada (Produto Simples).</p>
+                        {formData.hasPaymentLink && (
+                            <input
+                                type="text"
+                                name="paymentLink"
+                                placeholder="https://pagamento..."
+                                value={formData.paymentLink}
+                                onChange={handleInputChange}
+                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #7DD3FC' }}
+                            />
                         )}
-
-                        <div style={{ display: 'grid', gap: '12px' }}>
-                            {formData.variantItems?.map((variant, index) => (
-                                <div key={variant.id} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr 1fr 40px', gap: '8px', alignItems: 'center', background: 'white', padding: '10px', borderRadius: '4px', border: '1px solid #E5E7EB' }}>
-                                    {/* Image Upload Small */}
-                                    <label style={{ cursor: 'pointer', width: '32px', height: '32px', borderRadius: '4px', border: '1px dashed #ccc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                                        {variant.image ? <img src={variant.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ImageIcon size={14} color="#ccc" />}
-                                        <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleVariantImageChange(variant.id, e)} />
-                                    </label>
-
-                                    <input
-                                        type="text"
-                                        placeholder="Cor (Ex: Azul)"
-                                        value={variant.color}
-                                        onChange={(e) => updateVariation(variant.id, 'color', e.target.value)}
-                                        style={{ padding: '6px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ddd' }}
-                                    />
-                                    <input
-                                        type="text"
-                                        placeholder="Tamanho (Ex: G)"
-                                        value={variant.size}
-                                        onChange={(e) => updateVariation(variant.id, 'size', e.target.value)}
-                                        style={{ padding: '6px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ddd' }}
-                                    />
-                                    <input
-                                        type="number"
-                                        placeholder="Preço (Ex: 99.90)"
-                                        value={variant.price}
-                                        onChange={(e) => updateVariation(variant.id, 'price', e.target.value)}
-                                        style={{ padding: '6px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ddd' }}
-                                    />
-
-                                    <button type="button" onClick={() => removeVariation(variant.id)} style={{ color: '#EF4444', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}>
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
                     </div>
 
+                    {/* SERVICE SPECIFIC FIELDS */}
+                    {formData.type === 'service' && (
+                        <div style={{ marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Condições de Pagamento</label>
+                                <input type="text" name="paymentConditions" placeholder="Ex: 50% entrada, 50% na entrega" value={formData.paymentConditions} onChange={handleInputChange}
+                                    style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
+                            </div>
+
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>PDF Informativo (Enviado se cliente pedir detalhes)</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', border: '1px dashed #D1D5DB', borderRadius: 'var(--radius-md)', background: 'white' }}>
+                                        <FileText size={18} color="#EF4444" />
+                                        <span>{formData.pdf ? 'PDF Selecionado (Clique para trocar)' : 'Upload PDF'}</span>
+                                        <input type="file" accept="application/pdf" onChange={handlePdfChange} style={{ display: 'none' }} />
+                                    </label>
+                                    {formData.pdf && <span style={{ fontSize: '12px', color: '#10B981' }}>Arquivo carregado!</span>}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* PRODUCT VARIATIONS */}
+                    {formData.type === 'product' && (
+                        <div style={{ marginBottom: '24px', padding: '16px', background: '#F9FAFB', borderRadius: 'var(--radius-md)', border: '1px solid #E5E7EB' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <label style={{ fontSize: '14px', fontWeight: 600 }}>Variações</label>
+                                <button type="button" onClick={addVariation} style={{ fontSize: '12px', padding: '6px 12px', border: '1px solid #D1D5DB', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <Plus size={14} /> Add
+                                </button>
+                            </div>
+                            <div style={{ display: 'grid', gap: '12px' }}>
+                                {formData.variantItems?.map((variant) => (
+                                    <div key={variant.id} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr 1fr 40px', gap: '8px', alignItems: 'center', background: 'white', padding: '10px', borderRadius: '4px', border: '1px solid #E5E7EB' }}>
+                                        <label style={{ cursor: 'pointer', width: '32px', height: '32px', border: '1px dashed #ccc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                            {variant.image ? <img src={variant.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ImageIcon size={14} color="#ccc" />}
+                                            <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleVariantImageChange(variant.id, e)} />
+                                        </label>
+                                        <input type="text" placeholder="Cor" value={variant.color} onChange={(e) => updateVariation(variant.id, 'color', e.target.value)} style={{ padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }} />
+                                        <input type="text" placeholder="Tam" value={variant.size} onChange={(e) => updateVariation(variant.id, 'size', e.target.value)} style={{ padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }} />
+                                        <input type="number" placeholder="Preço" value={variant.price} onChange={(e) => updateVariation(variant.id, 'price', e.target.value)} style={{ padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }} />
+                                        <button type="button" onClick={() => removeVariation(variant.id)} style={{ color: '#EF4444', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MAIN IMAGE (Common) */}
                     <div style={{ marginBottom: '24px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Imagem do Produto</label>
+                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Imagem Principal</label>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                            <label style={{
-                                cursor: 'pointer',
-                                display: 'flex', alignItems: 'center', gap: '8px',
-                                padding: '10px 16px',
-                                border: '1px solid #D1D5DB',
-                                borderRadius: 'var(--radius-md)',
-                                background: 'var(--bg-white)',
-                                color: 'var(--text-medium)'
-                            }}>
-                                <ImageIcon size={20} />
-                                <span>Escolher Imagem</span>
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    onChange={handleImageChange}
-                                    style={{ display: 'none' }}
-                                />
+                            <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px', border: '1px solid #D1D5DB', borderRadius: 'var(--radius-md)' }}>
+                                <ImageIcon size={20} /> <span>Escolher Imagem</span>
+                                <input type="file" accept="image/*" onChange={handleImageChange} style={{ display: 'none' }} />
                             </label>
-                            {formData.image && (
-                                <img src={formData.image} alt="Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '4px' }} />
-                            )}
+                            {formData.image && <img src={formData.image} alt="Preview" style={{ width: '48px', height: '48px', objectFit: 'cover', borderRadius: '4px' }} />}
                         </div>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                        <button
-                            type="button"
-                            onClick={() => setShowForm(false)}
-                            disabled={saving}
-                            style={{ padding: '10px 16px', color: 'var(--text-medium)', fontWeight: 500, cursor: 'pointer' }}
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={saving}
-                            style={{
-                                backgroundColor: 'var(--primary-blue)',
-                                color: 'white',
-                                padding: '10px 24px',
-                                borderRadius: 'var(--radius-md)',
-                                fontWeight: 500,
-                                opacity: saving ? 0.7 : 1,
-                                cursor: 'pointer'
-                            }}
-                        >
-                            {saving ? 'Salvando...' : (formData.id ? 'Salvar Alterações' : 'Salvar Produto')}
+                        <button type="button" onClick={() => setShowForm(false)} disabled={saving} style={{ padding: '10px 16px', color: '#6B7280', cursor: 'pointer', border: 'none', background: 'transparent' }}>Cancelar</button>
+                        <button type="submit" disabled={saving} style={{ backgroundColor: 'var(--primary-blue)', color: 'white', padding: '10px 24px', borderRadius: 'var(--radius-md)', border: 'none', cursor: 'pointer' }}>
+                            {saving ? 'Salvando...' : 'Salvar'}
                         </button>
                     </div>
                 </form>
             ) : (
                 <div>
                     {products.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-light)' }}>
+                        <div style={{ textAlign: 'center', padding: '48px 0', color: '#9CA3AF' }}>
                             <Package size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
-                            <p>Nenhum produto cadastrado.</p>
+                            <p>Nenhum item cadastrado.</p>
                         </div>
                     ) : (
                         <div style={{ display: 'grid', gap: '16px' }}>
-                            {products.map(product => (
-                                <div key={product.id} style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    padding: '16px',
-                                    border: '1px solid #E5E7EB',
-                                    borderRadius: 'var(--radius-md)'
-                                }}>
+                            {products.map(item => (
+                                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', border: '1px solid #E5E7EB', borderRadius: 'var(--radius-md)', background: item.type === 'service' ? '#FDFDFD' : 'white' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                        {product.image ? (
-                                            <img src={product.image} alt={product.name} style={{ width: '64px', height: '64px', objectFit: 'cover', borderRadius: 'var(--radius-md)' }} />
-                                        ) : (
-                                            <div style={{ width: '64px', height: '64px', borderRadius: 'var(--radius-md)', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <Package size={24} color="#9CA3AF" />
-                                            </div>
-                                        )}
+                                        {/* Icon/Image */}
+                                        <div style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            {item.image ? (
+                                                <img src={item.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            ) : (
+                                                item.type === 'service' ? <Briefcase size={24} color="#10B981" /> : <Package size={24} color="#3B82F6" />
+                                            )}
+                                        </div>
+
                                         <div>
-                                            <h4 style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{product.name}</h4>
-                                            <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>R$ {product.price}</p>
-                                            <div style={{ marginTop: '8px' }}>
-                                                {product.variantItems && product.variantItems.length > 0 ? (
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                                        {product.variantItems.map((v, i) => (
-                                                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--bg-main)', padding: '2px 8px', borderRadius: '12px', border: '1px solid #E5E7EB' }}>
-                                                                {v.image && <img src={v.image} style={{ width: '16px', height: '16px', borderRadius: '50%', objectFit: 'cover' }} />}
-                                                                <span style={{ fontSize: '12px', color: 'var(--text-medium)' }}>
-                                                                    {v.color} {v.size ? `(${v.size})` : ''} - R$ {v.price}
-                                                                </span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                ) : (
-                                                    // Fallback for Legacy Data
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                        {product.variations && (
-                                                            <span style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Var: {product.variations}</span>
-                                                        )}
-                                                        {product.colors && (
-                                                            <span style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Cor: {product.colors}</span>
-                                                        )}
-                                                    </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <h4 style={{ fontWeight: 600, fontSize: '16px' }}>{item.name}</h4>
+                                                <span style={{ fontSize: '10px', padding: '2px 6px', borderRadius: '10px', background: item.type === 'service' ? '#D1FAE5' : '#DBEAFE', color: item.type === 'service' ? '#065F46' : '#1E40AF', textTransform: 'uppercase' }}>
+                                                    {item.type === 'service' ? 'Serviço' : 'Produto'}
+                                                </span>
+                                            </div>
+                                            <p style={{ color: '#6B7280', fontSize: '14px' }}>R$ {item.price}</p>
+
+                                            {/* Meta Data Badges */}
+                                            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                                                {item.hasPaymentLink && (
+                                                    <span style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', color: '#0369A1' }}>
+                                                        <LinkIcon size={10} /> Link Pgto
+                                                    </span>
+                                                )}
+                                                {item.pdf && (
+                                                    <span style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', color: '#EF4444' }}>
+                                                        <FileText size={10} /> PDF
+                                                    </span>
                                                 )}
                                             </div>
                                         </div>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
-                                        <button onClick={() => handleEdit(product)} disabled={saving} style={{ color: 'var(--text-light)', cursor: 'pointer' }}><Edit2 size={18} /></button>
-                                        <button onClick={() => deleteProduct(product.id)} disabled={saving} style={{ color: 'var(--text-light)', cursor: 'pointer' }}><Trash2 size={18} /></button>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button onClick={() => handleEdit(item)} style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer' }}><Edit2 size={18} /></button>
+                                        <button onClick={() => deleteItem(item.id)} style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer' }}><Trash2 size={18} /></button>
                                     </div>
                                 </div>
                             ))}

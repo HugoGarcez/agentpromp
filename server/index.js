@@ -357,25 +357,38 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     let systemPrompt = config.systemPrompt || "Você é um assistente virtual útil.";
 
-    // Inject Products
+    // Inject Products & Services
     if (config.products && config.products.length > 0) {
         let productList = "";
         config.products.forEach(p => {
-            // Parent Product Line
-            productList += `- [PRODUTO PAI] ID: ${p.id} | Nome: ${p.name} | Preço Base: R$ ${p.price}. Descrição: ${p.description || ''}\n`;
+            const isService = p.type === 'service';
+            const typeLabel = isService ? 'SERVIÇO' : 'PRODUTO';
+            const pdfTag = p.pdf ? `[TEM_PDF] (ID: ${p.id})` : '';
+            const paymentLinkCtx = p.hasPaymentLink ? `[TEM_LINK_PAGAMENTO] (Link: ${p.paymentLink})` : '';
 
-            // Variations
+            // Item Header
+            productList += `- [${typeLabel}] ID: ${p.id} | Nome: ${p.name} | Preço: R$ ${p.price}. ${pdfTag} ${paymentLinkCtx}\n`;
+            if (p.description) productList += `  Descrição: ${p.description}\n`;
+            if (p.paymentConditions) productList += `  Condições: ${p.paymentConditions}\n`;
+
+            // Variations (Only for Products usually, but code handles generically)
             if (p.variantItems && p.variantItems.length > 0) {
                 p.variantItems.forEach(v => {
-                    productList += `  -- [VARIAÇÃO] ID: ${v.id} | Nome: ${p.name} (${v.color || ''} ${v.size || ''}) | Cor: ${v.color || 'N/A'} | Tamanho: ${v.size || 'N/A'} | Preço: R$ ${v.price || p.price} | ${v.image ? '[TEM_IMAGEM]' : ''}\n`;
+                    productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name} (${v.color || ''} ${v.size || ''}) | R$ ${v.price || p.price} | ${v.image ? '[TEM_IMAGEM]' : ''}\n`;
                 });
             } else {
-                // Legacy or Simple Product
-                productList += `  -- [ITEM ÚNICO] ID: ${p.id} | ${p.image ? '[TEM_IMAGEM]' : ''} (Use este ID para vender o produto base)\n`;
+                // Simple Item
+                productList += `  -- [ITEM ÚNICO] ID: ${p.id} | ${p.image ? '[TEM_IMAGEM]' : ''}\n`;
             }
         });
 
-        systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO DE IMAGEM (PRIORIDADE MÁXIMA): Se o usuário pedir foto de um produto que tenha a flag [TEM_IMAGEM], você DEVE responder EXATAMENTE assim: "[SHOW_IMAGE: ID_DA_VARIAÇÃO] Aqui está a foto que pediu!".\nIMPORTANTE: Use o ID específico da VARIAÇÃO (ex: var_12345) se o cliente especificou cor/tamanho.`;
+        systemPrompt += `\n\nCONTEXTO DE PRODUTOS E SERVIÇOS:\n${productList}\n\n`;
+
+        systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
+        systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!".\n`;
+        systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes técnicos/formais de um serviço com [TEM_PDF], responda: "[SEND_PDF: ID] Aqui está o PDF com os detalhes.".\n`;
+        systemPrompt += `3. PAGAMENTO: Se o cliente quiser comprar/contratar e o item tiver [TEM_LINK_PAGAMENTO], envie o link: "[LINK: URL_DO_PAGAMENTO] Clique aqui para finalizar.".\n`;
+        systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.`;
     }
 
     // Humanization & Memory Control
@@ -546,6 +559,40 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
     }
 
+    // --- PDF Logic (Service Details) ---
+    let pdfBase64 = null;
+    let pdfName = null;
+    const pdfMatch = aiResponse.match(/\[SEND_PDF:\s*([a-zA-Z0-9_-]+)\]/);
+
+    if (pdfMatch) {
+        const targetId = pdfMatch[1];
+        let foundPdf = null;
+        let foundName = null;
+
+        // Check Products/Services
+        if (config.products) {
+            const p = config.products.find(p => p.id == targetId); // loose equality for string/number id mix
+            if (p && p.pdf) {
+                foundPdf = p.pdf;
+                foundName = `${p.name}.pdf`; // Fallback name
+            }
+        }
+
+        if (foundPdf) {
+            // Ensure Base64 doesn't have data: prefix for pure transport if needed, 
+            // but usually we keep it or strip it depending on frontend.
+            // Let's strip standard prefixes if present to ensure clean base64 for WhatsApp API
+            pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
+            pdfName = foundName;
+            console.log(`[Chat] Found PDF for ID ${targetId}`);
+        } else {
+            console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
+        }
+
+        // Remove tag
+        aiResponse = aiResponse.replace(/\[SEND_PDF:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
+    }
+
     // --- Audio Generation Logic ---
     let audioBase64 = null;
     const integrator = config.integrations || {};
@@ -604,7 +651,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         }
     }
 
-    return { aiResponse, audioBase64, productImageUrl, productCaption };
+    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 };
 };
 
 // --- Config History Routes ---
