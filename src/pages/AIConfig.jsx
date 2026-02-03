@@ -15,6 +15,10 @@ const AIConfig = () => {
     const [links, setLinks] = useState([]);
     const [qa, setQa] = useState([]);
 
+    // Prompt & Persona State
+    const [systemPrompt, setSystemPrompt] = useState('');
+    const [persona, setPersona] = useState(null);
+
     const [showToast, setShowToast] = useState(false);
 
     // Fetch Config on Mount
@@ -28,6 +32,9 @@ const AIConfig = () => {
                 });
                 if (res.ok) {
                     const data = await res.json();
+                    setSystemPrompt(data.systemPrompt || '');
+                    setPersona(data.persona || null);  // Ensure we consistently use 'persona' field
+
                     if (data.knowledgeBase) {
                         setFiles(data.knowledgeBase.files || []);
                         setLinks((data.knowledgeBase.links || []).map(l => typeof l === 'object' ? l.url : l));
@@ -70,6 +77,8 @@ const AIConfig = () => {
 
             const payload = {
                 ...currentConfig,
+                systemPrompt, // Added to payload
+                persona,      // Added to payload
                 knowledgeBase: {
                     files,
                     links,
@@ -167,7 +176,7 @@ const AIConfig = () => {
             </div>
 
             <div className="content">
-                {activeTab === 'prompt' && <PromptTab />}
+                {activeTab === 'prompt' && <PromptTab systemPrompt={systemPrompt} onPromptChange={setSystemPrompt} persona={persona} onPersonaChange={setPersona} />}
                 {activeTab === 'files' && <FilesTab files={files} onUpdate={setFiles} />}
                 {activeTab === 'links' && <LinksTab links={links} onUpdate={setLinks} />}
                 {activeTab === 'qa' && <QATab qaList={qa} onUpdate={setQa} />}

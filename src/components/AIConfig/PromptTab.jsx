@@ -1,27 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Save, History, RotateCcw } from 'lucide-react';
+import React, { useState } from 'react';
+import { History, RotateCcw } from 'lucide-react';
 import Modal from '../Modal';
 
-const PromptTab = ({ onPromptChange }) => {
-    const [systemPrompt, setSystemPrompt] = useState('');
-    const [persona, setPersona] = useState(null);
-    const [loading, setLoading] = useState(false);
-    const [message, setMessage] = useState({ type: '', text: '' });
-
-    // History State
+const PromptTab = ({ systemPrompt, onPromptChange, persona, onPersonaChange }) => {
+    // Local state only for History UI
     const [history, setHistory] = useState([]);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-
-    useEffect(() => {
-        fetchConfig();
-    }, []);
-
-    // Notify parent on change
-    useEffect(() => {
-        if (onPromptChange) {
-            onPromptChange(systemPrompt);
-        }
-    }, [systemPrompt, onPromptChange]);
 
     const generatePromptText = (personaData) => {
         if (!personaData) return "";
@@ -76,38 +60,14 @@ const PromptTab = ({ onPromptChange }) => {
         }
     };
 
-    const fetchConfig = async () => {
-        const token = localStorage.getItem('token');
-        try {
-            const res = await fetch('/api/config', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setPersona(data.persona);
-
-                let loadedPrompt = data.systemPrompt || '';
-
-                // Auto-generate if empty
-                if ((!loadedPrompt || loadedPrompt.trim() === '') && data.persona) {
-                    loadedPrompt = generatePromptText(data.persona);
-                }
-
-                setSystemPrompt(loadedPrompt);
-            }
-        } catch (error) {
-            console.error('Error fetching config:', error);
-        }
-    };
-
     const handleRegenerate = () => {
         if (!persona) {
-            alert("Nenhuma configuração de persona encontrada. Salve a persona primeiro.");
+            alert("Nenhuma configuração de persona encontrada. Verifique as configurações gerais (em outra aba).");
             return;
         }
         if (window.confirm("Isso substituirá o prompt atual pelo padrão da persona selecionada. Continuar?")) {
             const newPrompt = generatePromptText(persona);
-            setSystemPrompt(newPrompt);
+            onPromptChange(newPrompt);
         }
     };
 
@@ -126,56 +86,10 @@ const PromptTab = ({ onPromptChange }) => {
         }
     };
 
-    const handleRestore = async (historyId) => {
-        const token = localStorage.getItem('token');
-        if (!window.confirm('Tem certeza? Isso substituirá o prompt atual.')) return;
-
-        try {
-            const res = await fetch('/api/config/restore', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify({ historyId })
-            });
-
-            if (res.ok) {
-                alert('Prompt restaurado com sucesso!');
-                setIsHistoryOpen(false);
-                fetchConfig(); // Reload current prompt
-            } else {
-                alert('Erro ao restaurar');
-            }
-        } catch (error) {
-            console.error('Error restoring:', error);
-        }
-    };
-
-    const handleSave = async () => {
-        setLoading(true);
-        setMessage({ type: '', text: '' });
-        const token = localStorage.getItem('token');
-
-        try {
-            const res = await fetch('/api/config', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                },
-                body: JSON.stringify({ systemPrompt })
-            });
-
-            if (res.ok) {
-                setMessage({ type: 'success', text: 'Prompt salvo com sucesso!' });
-            } else {
-                setMessage({ type: 'error', text: 'Erro ao salvar prompt' });
-            }
-        } catch (error) {
-            setMessage({ type: 'error', text: 'Erro de conexão' });
-        } finally {
-            setLoading(false);
+    const handleRestore = (historyId, historyPrompt) => {
+        if (window.confirm('Tem certeza? Isso substituirá o prompt atual (mas você precisa Salvar depois).')) {
+            onPromptChange(historyPrompt);
+            setIsHistoryOpen(false);
         }
     };
 
@@ -212,8 +126,8 @@ const PromptTab = ({ onPromptChange }) => {
             </div>
 
             <textarea
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
+                value={systemPrompt || ''}
+                onChange={(e) => onPromptChange(e.target.value)}
                 placeholder="Defina como o agente deve se comportar..."
                 rows={15}
                 style={{
@@ -228,29 +142,8 @@ const PromptTab = ({ onPromptChange }) => {
                 }}
             />
 
-            {message.text && (
-                <div style={{
-                    marginBottom: '16px', padding: '10px', borderRadius: '6px', fontSize: '14px',
-                    backgroundColor: message.type === 'success' ? '#F0FDF4' : '#FEF2F2',
-                    color: message.type === 'success' ? '#16A34A' : '#EF4444'
-                }}>
-                    {message.text}
-                </div>
-            )}
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button
-                    onClick={handleSave}
-                    disabled={loading}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '8px',
-                        backgroundColor: 'var(--primary-blue)', color: 'white',
-                        padding: '10px 20px', borderRadius: '8px', fontWeight: '500',
-                        opacity: loading ? 0.7 : 1
-                    }}
-                >
-                    <Save size={18} /> {loading ? 'Salvando...' : 'Salvar Prompt'}
-                </button>
+            <div style={{ color: 'var(--text-light)', fontSize: '13px', fontStyle: 'italic', marginBottom: '12px' }}>
+                * Clique em "Salvar Alterações" no topo da página para aplicar o novo prompt.
             </div>
 
             <Modal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} title="Histórico de Versões">
@@ -265,7 +158,7 @@ const PromptTab = ({ onPromptChange }) => {
                                         {new Date(item.createdAt).toLocaleString()}
                                     </span>
                                     <button
-                                        onClick={() => handleRestore(item.id)}
+                                        onClick={() => handleRestore(item.id, item.systemPrompt)}
                                         style={{ color: 'var(--primary-blue)', fontSize: '12px', fontWeight: '500', display: 'flex', gap: '4px', alignItems: 'center' }}
                                     >
                                         <RotateCcw size={14} /> Restaurar
