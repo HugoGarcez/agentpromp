@@ -405,15 +405,26 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
             // Inject Files
             if (kb.files && kb.files.length > 0) {
-                systemPrompt += "\n=== ARQUIVOS DE CONHECIMENTO ===\n";
+                systemPrompt += "\n\n###### BASE DE CONHECIMENTO (ARQUIVOS) ######\n";
+
+                // 1. Create Index Summary (Crucial for AI planning)
+                systemPrompt += "VOCÊ POSSUI OS SEGUINTES ARQUIVOS EM SUA MEMÓRIA:\n";
+                kb.files.forEach((f, idx) => {
+                    systemPrompt += `${idx + 1}. [${f.name}] - Função: ${f.description || 'Geral'} (Gatilho: ${f.usageTrigger || 'Sempre que relevante'})\n`;
+                });
+                systemPrompt += "\nINSTRUÇÃO DE USO: Se a pergunta do usuário ativar um GATILHO acima, LEIA O CONTEÚDO DO ARQUIVO correspondente abaixo antes de responder.\n";
+
+                // 2. Inject Content
+                systemPrompt += "\n--- CONTEÚDO DETALHADO DOS ARQUIVOS ---\n";
                 kb.files.forEach(f => {
                     if (f.content) {
-                        systemPrompt += `\n[ARQUIVO: ${f.name}]\n`;
-                        if (f.description) systemPrompt += `FUNÇÃO/CONTEXTO: ${f.description}\n`;
-                        if (f.usageTrigger) systemPrompt += `GATILHO DE USO: ${f.usageTrigger}\n`;
-                        systemPrompt += `CONTEÚDO:\n${f.content}\n[FIM DO ARQUIVO]\n`;
+                        systemPrompt += `\n[INÍCIO DO ARQUIVO: ${f.name}]\n`;
+                        if (f.description) systemPrompt += `> CONTEXTO: ${f.description}\n`;
+                        if (f.usageTrigger) systemPrompt += `> GATILHO: ${f.usageTrigger}\n`;
+                        systemPrompt += `> CONTEÚDO:\n${f.content}\n[FIM DO ARQUIVO: ${f.name}]\n`;
                     }
                 });
+                systemPrompt += "--------------------------------------\n";
             }
 
             // Inject Links
@@ -436,7 +447,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
                 });
             }
 
-            systemPrompt += "\n\nINSTRUÇÃO SOBRE BASE DE CONHECIMENTO: Use as informações acima para responder perguntas do usuário. Se a resposta estiver nos arquivos/links, use-a. Se não estiver, diga que não sabe.";
+            systemPrompt += "\n\nINSTRUÇÃO FINAL DE CONHECIMENTO: Verifique PRIMEIRO a lista de arquivos e Q&A. Se não encontrar a resposta, diga honestamente que não tem essa informação nos manuais disponíveis.";
 
         } catch (e) {
             console.error('Error parsing Knowledge Base:', e);
