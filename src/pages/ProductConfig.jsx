@@ -91,14 +91,67 @@ const ProductConfig = () => {
         name: '',
         price: '',
         description: '',
-        variations: '',
-        colors: '',
-        image: null
+        // variations: '', // DEPRECATED: Replaced by variantItems
+        // colors: '',     // DEPRECATED: Replaced by variantItems
+        image: null,
+        variantItems: [] // New Structure: { id, name, price, sku, image, color, size }
     });
+
+    const [editingVariant, setEditingVariant] = useState(null); // For variant modal/inline form
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    // --- VARIATION LOGIC ---
+    const addVariation = () => {
+        const newId = `var_${Date.now()}`;
+        const newVariant = {
+            id: newId,
+            name: '', // e.g. "Azul - P"
+            price: formData.price, // Default to parent price
+            sku: '',
+            image: null,
+            color: '',
+            size: ''
+        };
+        setFormData(prev => ({
+            ...prev,
+            variantItems: [...(prev.variantItems || []), newVariant]
+        }));
+        setEditingVariant(newId); // Auto-open edit mode? Or just add empty row
+    };
+
+    const updateVariation = (id, field, value) => {
+        setFormData(prev => ({
+            ...prev,
+            variantItems: prev.variantItems.map(v =>
+                v.id === id ? { ...v, [field]: value } : v
+            )
+        }));
+    };
+
+    const removeVariation = (id) => {
+        setFormData(prev => ({
+            ...prev,
+            variantItems: prev.variantItems.filter(v => v.id !== id)
+        }));
+    };
+
+    const handleVariantImageChange = (id, e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.size > 300 * 1024) {
+                alert('Imagem muito grande (Max 300KB)');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                updateVariation(id, 'image', reader.result);
+            };
+            reader.readAsDataURL(file);
+        }
     };
 
     const handleImageChange = (e) => {
@@ -132,7 +185,7 @@ const ProductConfig = () => {
 
         const success = await saveProductsToApi(newProductsState);
         if (success) {
-            setFormData({ name: '', price: '', description: '', variations: '', colors: '', image: null });
+            setFormData({ name: '', price: '', description: '', variantItems: [], image: null });
             setShowForm(false);
         }
     };
@@ -157,7 +210,7 @@ const ProductConfig = () => {
                 {!showForm && (
                     <button
                         onClick={() => {
-                            setFormData({ name: '', price: '', description: '', variations: '', colors: '', image: null });
+                            setFormData({ name: '', price: '', description: '', variantItems: [], image: null });
                             setShowForm(true);
                         }}
                         disabled={saving}
@@ -225,28 +278,67 @@ const ProductConfig = () => {
                         />
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Variações (P, M, G)</label>
-                            <input
-                                type="text"
-                                name="variations"
-                                value={formData.variations}
-                                onChange={handleInputChange}
-                                placeholder="Separadas por vírgula"
-                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }}
-                            />
+                    {/* VARIATIONS SECTION */}
+                    <div style={{ marginBottom: '24px', padding: '16px', background: '#F9FAFB', borderRadius: 'var(--radius-md)', border: '1px solid #E5E7EB' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-dark)' }}>Variações do Produto</label>
+                            <button
+                                type="button"
+                                onClick={addVariation}
+                                style={{
+                                    fontSize: '12px',
+                                    padding: '6px 12px',
+                                    background: 'var(--bg-white)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: 'var(--radius-sm)',
+                                    cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '4px'
+                                }}
+                            >
+                                <Plus size={14} /> Adicionar Variação
+                            </button>
                         </div>
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Cores</label>
-                            <input
-                                type="text"
-                                name="colors"
-                                value={formData.colors}
-                                onChange={handleInputChange}
-                                placeholder="Ex: Azul, Vermelho"
-                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }}
-                            />
+
+                        {(!formData.variantItems || formData.variantItems.length === 0) && (
+                            <p style={{ fontSize: '13px', color: 'var(--text-light)', fontStyle: 'italic' }}>Nenhuma variação adicionada (Produto Simples).</p>
+                        )}
+
+                        <div style={{ display: 'grid', gap: '12px' }}>
+                            {formData.variantItems?.map((variant, index) => (
+                                <div key={variant.id} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr 1fr 40px', gap: '8px', alignItems: 'center', background: 'white', padding: '10px', borderRadius: '4px', border: '1px solid #E5E7EB' }}>
+                                    {/* Image Upload Small */}
+                                    <label style={{ cursor: 'pointer', width: '32px', height: '32px', borderRadius: '4px', border: '1px dashed #ccc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                                        {variant.image ? <img src={variant.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ImageIcon size={14} color="#ccc" />}
+                                        <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleVariantImageChange(variant.id, e)} />
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        placeholder="Cor (Ex: Azul)"
+                                        value={variant.color}
+                                        onChange={(e) => updateVariation(variant.id, 'color', e.target.value)}
+                                        style={{ padding: '6px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ddd' }}
+                                    />
+                                    <input
+                                        type="text"
+                                        placeholder="Tamanho (Ex: G)"
+                                        value={variant.size}
+                                        onChange={(e) => updateVariation(variant.id, 'size', e.target.value)}
+                                        style={{ padding: '6px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ddd' }}
+                                    />
+                                    <input
+                                        type="number"
+                                        placeholder="Preço (Ex: 99.90)"
+                                        value={variant.price}
+                                        onChange={(e) => updateVariation(variant.id, 'price', e.target.value)}
+                                        style={{ padding: '6px', fontSize: '13px', borderRadius: '4px', border: '1px solid #ddd' }}
+                                    />
+
+                                    <button type="button" onClick={() => removeVariation(variant.id)} style={{ color: '#EF4444', cursor: 'pointer', display: 'flex', justifyContent: 'center' }}>
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            ))}
                         </div>
                     </div>
 
@@ -332,23 +424,27 @@ const ProductConfig = () => {
                                         <div>
                                             <h4 style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{product.name}</h4>
                                             <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>R$ {product.price}</p>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
-                                                {product.variations && (
-                                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                                        {product.variations.split(',').map((v, i) => (
-                                                            <span key={i} style={{ background: 'var(--bg-main)', padding: '2px 8px', borderRadius: '12px', fontSize: '12px', color: 'var(--text-medium)' }}>
-                                                                {v.trim()}
-                                                            </span>
+                                            <div style={{ marginTop: '8px' }}>
+                                                {product.variantItems && product.variantItems.length > 0 ? (
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                        {product.variantItems.map((v, i) => (
+                                                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--bg-main)', padding: '2px 8px', borderRadius: '12px', border: '1px solid #E5E7EB' }}>
+                                                                {v.image && <img src={v.image} style={{ width: '16px', height: '16px', borderRadius: '50%', objectFit: 'cover' }} />}
+                                                                <span style={{ fontSize: '12px', color: 'var(--text-medium)' }}>
+                                                                    {v.color} {v.size ? `(${v.size})` : ''} - R$ {v.price}
+                                                                </span>
+                                                            </div>
                                                         ))}
                                                     </div>
-                                                )}
-                                                {product.colors && (
-                                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                                        {product.colors.split(',').map((c, i) => (
-                                                            <span key={`c-${i}`} style={{ border: '1px solid #E5E7EB', padding: '2px 8px', borderRadius: '12px', fontSize: '12px', color: 'var(--text-medium)' }}>
-                                                                {c.trim()}
-                                                            </span>
-                                                        ))}
+                                                ) : (
+                                                    // Fallback for Legacy Data
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                        {product.variations && (
+                                                            <span style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Var: {product.variations}</span>
+                                                        )}
+                                                        {product.colors && (
+                                                            <span style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Cor: {product.colors}</span>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>

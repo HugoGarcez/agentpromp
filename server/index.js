@@ -308,10 +308,23 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     // Inject Products
     if (config.products && config.products.length > 0) {
-        const productList = config.products.map(p =>
-            `- ${p.image ? '[TEM_IMAGEM] ' : ''}ID: ${p.id} | Nome: ${p.name} | Preço: R$ ${p.price} | Variações: ${p.variations || 'N/A'} | Cores: ${p.colors || 'N/A'}. ${p.description || ''}`
-        ).join('\n');
-        systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO DE IMAGEM (PRIORIDADE MÁXIMA): Se o usuário pedir foto de um produto que tenha a flag [TEM_IMAGEM], você DEVE responder EXATAMENTE assim: "[SHOW_IMAGE: ID_DO_PRODUTO] Aqui está a foto que pediu!". Não invente desculpas.`;
+        let productList = "";
+        config.products.forEach(p => {
+            // Parent Product Line
+            productList += `- [PRODUTO PAI] ID: ${p.id} | Nome: ${p.name} | Preço Base: R$ ${p.price}. Descrição: ${p.description || ''}\n`;
+
+            // Variations
+            if (p.variantItems && p.variantItems.length > 0) {
+                p.variantItems.forEach(v => {
+                    productList += `  -- [VARIAÇÃO] ID: ${v.id} | Nome: ${p.name} (${v.color || ''} ${v.size || ''}) | Cor: ${v.color || 'N/A'} | Tamanho: ${v.size || 'N/A'} | Preço: R$ ${v.price || p.price} | ${v.image ? '[TEM_IMAGEM]' : ''}\n`;
+                });
+            } else {
+                // Legacy or Simple Product
+                productList += `  -- [ITEM ÚNICO] ID: ${p.id} | ${p.image ? '[TEM_IMAGEM]' : ''} (Use este ID para vender o produto base)\n`;
+            }
+        });
+
+        systemPrompt += `\n\nCONTEXTO DE PRODUTOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO DE IMAGEM (PRIORIDADE MÁXIMA): Se o usuário pedir foto de um produto que tenha a flag [TEM_IMAGEM], você DEVE responder EXATAMENTE assim: "[SHOW_IMAGE: ID_DA_VARIAÇÃO] Aqui está a foto que pediu!".\nIMPORTANTE: Use o ID específico da VARIAÇÃO (ex: var_12345) se o cliente especificou cor/tamanho.`;
     }
 
     // Humanization & Memory Control
@@ -325,6 +338,11 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     if (history && history.length > 0) {
         systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente.
         CRÍTICO: Não ofereça ajuda extra no final da mensagem. Apenas responda.`;
+
+        systemPrompt += `\n\nDIRETRIZES DE CONTINUIDADE (IMPORTANTE):
+        1. MEMÓRIA DE CURTO PRAZO: Ao responder, LEIA O HISTÓRICO RECENTE para identificar sobre qual produto o cliente está falando.
+        2. FOCO NO PRODUTO ATUAL: Se o cliente perguntar "tem outras cores?" ou "qual o preço?", refira-se ao MESMO produto discutido nas mensagens anteriores.
+        3. NÃO ALUCINE: Nunca traga informações de um produto diferente (ex: iPhone) se estamos falando de outro (ex: Camisa), a menos que o cliente mude de assunto explicitamente.`;
     }
 
     console.log('[Chat] System Prompt Context:', systemPrompt); // DEBUG
@@ -350,31 +368,50 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     let aiResponse = completion.choices[0].message.content;
 
-    // --- Image Detection Logic ---
-    let productImageUrl = null;
-    let productCaption = ""; // Initialize caption
-    const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*([a-zA-Z0-9_-]+)\]/); // Support alphanum IDs
-    if (imageMatch && config.products) {
-        const targetId = imageMatch[1];
-        // Weak comparison (String vs ID)
-        const product = config.products.find(p => String(p.id) === String(targetId));
+// --- Image Detection Logic ---
+let productImageUrl = null;
+let productCaption = ""; // Initialize caption
+const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*([a-zA-Z0-9_-]+)\]/); // Support alphanum IDs
 
-        if (product && product.image) {
-            productImageUrl = product.image;
-            // Create Caption: "Nome - Variações / Cores - R$ Preço"
-            const details = [product.variations, product.colors].filter(Boolean).join(' / ');
-            productCaption = `${product.name || 'Produto'} - ${details} - R$ ${product.price || '0,00'}`;
-            // Clean up
-            productCaption = productCaption.replace(' -  -', ' -').trim();
+if (imageMatch && config.products) {
+    const targetId = imageMatch[1];
+    let found = false;
 
-            console.log(`[Chat] Found Product Image for ID ${targetId}: ${productImageUrl}`);
-            console.log(`[Chat] Generated Caption: ${productCaption}`);
-        } else {
-            console.log(`[Chat] AI requested image for ID ${targetId}, but distinct product not found or no image.`);
+    // Search in Parent Products or Variations
+    for (const p of config.products) {
+        // Check Parent
+        if (String(p.id) === String(targetId)) {
+            if (p.image) {
+                productImageUrl = p.image;
+                productCaption = `${p.name} - R$ ${p.price}`;
+                found = true;
+                break;
+            }
         }
-        // Remove the tag from the text displayed to user
-        aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
+
+        // Check Variations
+        if (p.variantItems) {
+            const variant = p.variantItems.find(v => String(v.id) === String(targetId));
+            if (variant && variant.image) {
+                productImageUrl = variant.image;
+                const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
+                found = true;
+                break;
+            }
+        }
     }
+
+    if (found) {
+        console.log(`[Chat] Found Product/Variant Image for ID ${targetId}: ${productImageUrl}`);
+        console.log(`[Chat] Caption: ${productCaption}`);
+    } else {
+        console.log(`[Chat] Image requested for ID ${targetId} but not found.`);
+    }
+
+    // Remove the tag from the text displayed to user
+    aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
+}
 
     // --- Audio Generation Logic ---
     let audioBase64 = null;
