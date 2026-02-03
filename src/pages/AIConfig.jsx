@@ -1,9 +1,3 @@
-import React, { useState } from 'react';
-import FilesTab from '../components/AIConfig/FilesTab';
-import LinksTab from '../components/AIConfig/LinksTab';
-import QATab from '../components/AIConfig/QATab';
-import PromptTab from '../components/AIConfig/PromptTab';
-
 import React, { useState, useEffect } from 'react';
 import FilesTab from '../components/AIConfig/FilesTab';
 import LinksTab from '../components/AIConfig/LinksTab';
