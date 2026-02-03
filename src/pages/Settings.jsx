@@ -197,8 +197,8 @@ DIRETRIZES:
                     // FORCE MERGE: Send voice settings INSIDE integrations to ensure backend saves them
                     integrations: { ...integrations, ...voice },
                     voice, // Keep for backward compat if needed
-                    systemPrompt: finalSystemPrompt,
-                    products: productsToSave // CRITICAL FIX: Send preserved products
+                    systemPrompt: finalSystemPrompt
+                    // products field removed to prevent overwriting managed data from ProductConfig
                 }),
             });
 
