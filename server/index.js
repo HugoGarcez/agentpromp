@@ -386,7 +386,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
         systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
         systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!".\n`;
-        systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes técnicos/formais de um serviço com [TEM_PDF], responda: "[SEND_PDF: ID] Aqui está o PDF com os detalhes.".\n`;
+        systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes de um serviço com [TEM_PDF], EXPLIQUE o serviço em texto e PERGUNTE: "Gostaria de receber o PDF com mais detalhes?". SE O CLIENTE CONFIRMAR, responda: "[SEND_PDF: ID] Enviando o arquivo...".\n`;
         systemPrompt += `3. PAGAMENTO: Se o cliente quiser comprar/contratar e o item tiver [TEM_LINK_PAGAMENTO], envie o link: "[LINK: URL_DO_PAGAMENTO] Clique aqui para finalizar.".\n`;
         systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.`;
     }
@@ -767,7 +767,7 @@ const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
 // MUST be set in .env on the server
 const PROMP_ADMIN_TOKEN = process.env.PROMP_ADMIN_TOKEN;
 
-const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, caption) => {
+const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, caption, pdfBase64 = null) => {
     if (!config.prompUuid || !config.prompToken) {
         console.log('[Promp] Skipping external API execution (Credentials missing).');
         return false;
@@ -776,8 +776,10 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
     // Removing '55' prefix if exists (Promp API usually handles it, or check documentation)
     // Postman doc example: "5515998566622". Okay, keep it.
 
-    // 1. Send Text (ONLY if no audio, to avoid duplication)
-    if (!audioBase64) {
+    // 1. Send Text (ONLY if no audio AND no PDF, to avoid duplication or mixed content issues)
+    // Actually, if we have PDF, we might want to send the text caption separately or as caption.
+    // For PDF, caption is usually supported.
+    if (!audioBase64 && !pdfBase64) {
         try {
             console.log(`[Promp] Sending Text to ${number}...`);
             const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
@@ -801,7 +803,8 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
             console.error('[Promp] Text Exception:', e);
         }
     } else {
-        console.log(`[Promp] Skipping text message because audio is being sent.`);
+        if (pdfBase64) console.log(`[Promp] Sending PDF, skipping separate text message.`);
+        else console.log(`[Promp] Skipping text message because audio is being sent.`);
     }
 
     // 2. Send Image (Hybrid: URL vs Base64 vs Local File)
@@ -849,7 +852,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
 
                 if (!imgResponse.ok) {
                     const errRes = await imgResponse.text();
-                    console.error('[Promp] Image URL Send Failed:', errRes);
+                    console.error('[Promp] Remote URL Image Send Failed:', errRes);
                 } else {
                     console.log('[Promp] SUCCESS: Image sent via URL endpoint.');
                 }
@@ -1164,7 +1167,7 @@ app.post('/webhook/:companyId', async (req, res) => {
 
         // Process Chat
         // Pass dbSessionId to processChatResponse if needed, but we don't really use it there except for logging.
-        const { aiResponse, audioBase64, productImageUrl, productCaption } = await processChatResponse(config, userMessage, history, dbSessionId);
+        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 } = await processChatResponse(config, userMessage, history, dbSessionId);
 
         console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
 
@@ -1183,7 +1186,7 @@ app.post('/webhook/:companyId', async (req, res) => {
         // --- REPLY STRATEGY ---
         let sentViaApi = false;
         if (config.prompUuid && config.prompToken) {
-            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption);
+            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
             console.log(`[Webhook] Sent via API: ${sentViaApi}`);
         } else {
             console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
