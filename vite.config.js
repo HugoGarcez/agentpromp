@@ -9,5 +9,16 @@ export default defineConfig({
       '/api': 'http://localhost:3001',
       '/webhook': 'http://localhost:3001'
     }
+  },
+  build: {
+    chunkSizeWarningLimit: 1600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          pdfjs: ['pdfjs-dist'],
+          xlsx: ['xlsx']
+        }
+      }
+    }
   }
 });
