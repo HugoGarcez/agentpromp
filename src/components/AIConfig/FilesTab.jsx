@@ -1,36 +1,76 @@
 import React, { useState } from 'react';
 import { Upload, File, Trash2 } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+import * as XLSX from 'xlsx';
+
+// Set worker source for PDF.js (Use CDN or local copy if possible, CDN is easier for MVP)
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 const FilesTab = ({ files = [], onUpdate }) => {
 
-    const handleFileUpload = (e) => {
-        const newFiles = Array.from(e.target.files).map(file => {
-            // Read file content as text (for now, simpler relative to binary upload)
-            // Ideally parent handles reading, but doing it here to keep UI logic simple
-            // We'll pass the File object or read it here.
+    // Helper: Read PDF Content
+    const readPdf = async (file) => {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let fullText = "";
 
-            // For MVP: Let's read it here to text if possible, or just pass metadata + file object
-            // To ensure persistence, we likely need to convert to Base64 or Text immediately 
-            // OR uploading to a server endpoint.
-            // Given the requirement "persist system", we'll simulate persistence by storing in the big JSON config for now.
-            // WARNING: Large files in JSON column is bad. But for small text files it's okay.
+        for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map(item => item.str).join(' ');
+            fullText += `\n--- Página ${i} ---\n${pageText}`;
+        }
+        return fullText;
+    };
 
-            return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    resolve({
-                        name: file.name,
-                        size: (file.size / 1024).toFixed(2) + ' KB',
-                        type: file.type,
-                        content: ev.target.result // Text content
-                    });
-                };
-                reader.readAsText(file);
-            });
+    // Helper: Read Excel/CSV Content
+    const readExcel = async (file) => {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer);
+        let fullText = "";
+
+        workbook.SheetNames.forEach(sheetName => {
+            const sheet = workbook.Sheets[sheetName];
+            const text = XLSX.utils.sheet_to_txt(sheet); // or sheet_to_csv
+            fullText += `\n--- Planilha: ${sheetName} ---\n${text}`;
         });
 
-        Promise.all(newFiles).then(readFiles => {
-            onUpdate([...files, ...readFiles]);
+        return fullText;
+    };
+
+    const handleFileUpload = (e) => {
+        const uploadedFiles = Array.from(e.target.files);
+
+        const filePromises = uploadedFiles.map(async (file) => {
+            let content = "";
+            let type = file.type;
+
+            try {
+                if (file.name.endsWith('.pdf')) {
+                    content = await readPdf(file);
+                    type = "application/pdf";
+                } else if (file.name.match(/\.(xlsx|xls|csv)$/i)) {
+                    content = await readExcel(file);
+                    type = "application/vnd.ms-excel";
+                } else {
+                    // Fallback to text
+                    content = await file.text();
+                }
+            } catch (err) {
+                console.error("Error reading file:", file.name, err);
+                content = `[Erro ao ler arquivo: ${err.message}]`;
+            }
+
+            return {
+                name: file.name,
+                size: (file.size / 1024).toFixed(2) + ' KB',
+                type: type,
+                content: content
+            };
+        });
+
+        Promise.all(filePromises).then(newReadFiles => {
+            onUpdate([...files, ...newReadFiles]);
         });
     };
 
@@ -52,12 +92,14 @@ const FilesTab = ({ files = [], onUpdate }) => {
             >
                 <Upload size={32} color="var(--primary-blue)" style={{ marginBottom: '12px' }} />
                 <h3 style={{ fontSize: '16px', fontWeight: 500, marginBottom: '8px' }}>Clique para fazer upload</h3>
-                <p style={{ color: 'var(--text-light)', fontSize: '14px' }}>ou arraste e solte seus arquivos aqui (TXT, MD, CSV)</p>
+                <p style={{ color: 'var(--text-light)', fontSize: '14px' }}>
+                    Arraste ou clique para adicionar (PDF, Excel, CSV, TXT)
+                </p>
                 <input
                     id="fileInput"
                     type="file"
                     multiple
-                    accept=".txt,.md,.csv,.json"
+                    accept=".txt,.md,.csv,.json,.pdf,.xls,.xlsx"
                     style={{ display: 'none' }}
                     onChange={handleFileUpload}
                 />
