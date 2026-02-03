@@ -404,11 +404,11 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         CRÍTICO: Não ofereça ajuda extra no final da mensagem. Apenas responda.`;
 
         systemPrompt += `\n\nDIRETRIZES DE CONTINUIDADE (CRÍTICO - NÃO IGNORE):
-        1. CONTEXTO IMPLÍCITO (OBRIGATÓRIO): Se o usuário fizer uma pergunta sem citar o nome do produto (ex: "Tem tamanho G?", "Qual o preço?", "Tem outras cores?"), você DEVE assumir que ele está falando do ÚLTIMO produto mencionado.
-        2. NÃO TROQUE O ASSUNTO: Se estávamos falando de "Camiseta", e o usuário pergunta "Tem G?", é PROIBIDO falar sobre "iPhone" ou qualquer outro item que não seja a Camiseta.
-        3. FOCADO NO HISTÓRICO: Analise o histórico para saber qual foi o último produto. Se a conversa era sobre roupa, continue falando sobre roupa. Só mude de produto se o usuário disser explicitamente o nome de outro produto (ex: "E o iPhone?").
-        4. ZERO ALUCINAÇÃO: Não invente que o produto tem recursos que não estão na lista.
-        5. REGRA DE OURO: Na dúvida, pergunte "Você está falando de qual produto?" em vez de assumir errado. Mas se o contexto for óbvio (sequencial), assuma o anterior.`;
+        1. CONTEXTO IMPLÍCITO (OBRIGATÓRIO): Se o usuário fizer uma pergunta sem citar o nome do produto ou apenas confirmar algo (ex: "Sim", "Quero", "Manda", "Pode ser", "Quanto custa?"), você DEVE assumir que ele está falando do ÚLTIMO produto/serviço mencionado no histórico.
+        2. REGRA DO PDF: Se você ofereceu um PDF na mensagem anterior e o usuário respondeu "Sim" ou "Quero", NÃO PERGUNTE "Qual PDF?". ISSO É PROIBIDO. Envie IMEDIATAMENTE o PDF do serviço que você acabou de oferecer usando a tag [SEND_PDF: ID].
+        3. NÃO TROQUE O ASSUNTO: Se estávamos falando de "Camiseta", e o usuário pergunta "Tem G?", é PROIBIDO falar sobre "iPhone".
+        4. ZERO ALUCINAÇÃO: Não invente recursos.
+        5. REGRA DE OURO: Só pergunte "Qual produto?" se o histórico estiver VAZIO ou se o usuário mudar de assunto drasticamente. No fluxo de venda, ASSUMA O CONTEXTO ANTERIOR.`;
     }
 
     // Knowledge Base Injection
