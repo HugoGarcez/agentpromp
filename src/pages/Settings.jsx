@@ -30,6 +30,7 @@ const Settings = () => {
 
     const [showToast, setShowToast] = useState(false);
     const [serverProducts, setServerProducts] = useState([]); // Store products from DB to prevent overwrite
+    const [isPrompConnected, setIsPrompConnected] = useState(false);
     const { user } = useAuth();
 
     // Load settings from Backend on mount (Source of Truth)
@@ -76,6 +77,12 @@ const Settings = () => {
                     if (data.products && Array.isArray(data.products)) {
                         setServerProducts(data.products);
                         console.log('Loaded products from server to preserve:', data.products.length);
+                        console.log('Loaded products from server to preserve:', data.products.length);
+                    }
+
+                    // Check Promp Connection
+                    if (data.prompUuid) {
+                        setIsPrompConnected(true);
                     }
                 }
             } catch (e) {
@@ -403,78 +410,103 @@ DIRETRIZES:
                         <div style={{ padding: '24px', border: '1px solid #10B981', borderRadius: 'var(--radius-md)', background: '#F0FDF4', marginBottom: '32px' }}>
                             <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#059669', marginBottom: '8px' }}>Integração Automática Promp</h3>
                             <p style={{ color: '#047857', fontSize: '14px', marginBottom: '16px' }}>
-                                Conecte-se automaticamente à infraestrutura da Promp para enviar respostas pelo WhatsApp oficial.
+                                Conecte-se automaticamente à infraestrutura da Promp para enviar respostas pelos canais de WhatsApp do sistema Promp.
                             </p>
 
-                            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
-                                <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>Identidade do Tenant (CPF/CNPJ)</label>
-                                    <input
-                                        type="text"
-                                        placeholder="000.000.000-00"
-                                        id="prompIdentityInput"
+                            {isPrompConnected ? (
+                                <div style={{ borderTop: '1px solid #10B981', paddingTop: '16px', marginTop: '16px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                                        <div style={{ width: '10px', height: '10px', background: '#059669', borderRadius: '50%' }}></div>
+                                        <strong style={{ color: '#059669' }}>Você está integrado ao sistema Promp.</strong>
+                                    </div>
+                                    <button
+                                        onClick={() => setIsPrompConnected(false)}
                                         style={{
-                                            width: '100%', padding: '10px',
+                                            border: '1px solid #059669',
+                                            background: 'transparent',
+                                            color: '#059669',
+                                            padding: '8px 16px',
                                             borderRadius: 'var(--radius-md)',
-                                            border: '1px solid #10B981',
-                                            background: 'white'
+                                            fontSize: '13px',
+                                            fontWeight: 600,
+                                            cursor: 'pointer'
                                         }}
-                                    />
+                                    >
+                                        Reconfigurar
+                                    </button>
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>ID da Conexão (Opcional)</label>
-                                    <input
-                                        type="text"
-                                        placeholder="ID ou Nome da Sessão"
-                                        id="prompSessionInput"
-                                        style={{
-                                            width: '100%', padding: '10px',
-                                            borderRadius: 'var(--radius-md)',
-                                            border: '1px solid #10B981',
-                                            background: 'white'
-                                        }}
-                                    />
-                                </div>
-                                <button
-                                    onClick={async () => {
-                                        const identity = document.getElementById('prompIdentityInput').value;
-                                        const sessionId = document.getElementById('prompSessionInput').value;
-                                        if (!identity) return alert('Digite a identidade');
+                            ) : (
+                                <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>Identidade do Tenant (CPF/CNPJ)</label>
+                                        <input
+                                            type="text"
+                                            placeholder="000.000.000-00"
+                                            id="prompIdentityInput"
+                                            style={{
+                                                width: '100%', padding: '10px',
+                                                borderRadius: 'var(--radius-md)',
+                                                border: '1px solid #10B981',
+                                                background: 'white'
+                                            }}
+                                        />
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>ID da Conexão (Opcional)</label>
+                                        <input
+                                            type="text"
+                                            placeholder="ID ou Nome da Sessão"
+                                            id="prompSessionInput"
+                                            style={{
+                                                width: '100%', padding: '10px',
+                                                borderRadius: 'var(--radius-md)',
+                                                border: '1px solid #10B981',
+                                                background: 'white'
+                                            }}
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={async () => {
+                                            const identity = document.getElementById('prompIdentityInput').value;
+                                            const sessionId = document.getElementById('prompSessionInput').value;
+                                            if (!identity) return alert('Digite a identidade');
 
-                                        try {
-                                            const token = localStorage.getItem('token');
-                                            const res = await fetch('/api/promp/connect', {
-                                                method: 'POST',
-                                                headers: {
-                                                    'Content-Type': 'application/json',
-                                                    'Authorization': `Bearer ${token}`
-                                                },
-                                                body: JSON.stringify({ identity, sessionId })
-                                            });
-                                            const data = await res.json();
-                                            if (res.ok) {
-                                                alert('Sucesso: ' + data.message);
-                                            } else {
-                                                alert('Erro: ' + data.message);
+                                            try {
+                                                const token = localStorage.getItem('token');
+                                                const res = await fetch('/api/promp/connect', {
+                                                    method: 'POST',
+                                                    headers: {
+                                                        'Content-Type': 'application/json',
+                                                        'Authorization': `Bearer ${token}`
+                                                    },
+                                                    body: JSON.stringify({ identity, sessionId })
+                                                });
+                                                const data = await res.json();
+                                                if (res.ok) {
+                                                    alert('Sucesso: ' + data.message);
+                                                    setIsPrompConnected(true);
+                                                } else {
+                                                    alert('Erro: ' + data.message);
+                                                }
+                                            } catch (e) {
+                                                alert('Erro de conexão');
                                             }
-                                        } catch (e) {
-                                            alert('Erro de conexão');
-                                        }
-                                    }}
-                                    style={{
-                                        padding: '10px 20px',
-                                        height: '42px',
-                                        background: '#10B981',
-                                        color: 'white',
-                                        border: 'none',
-                                        borderRadius: 'var(--radius-md)',
-                                        fontWeight: 600,
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    Conectar Automaticamente
-                                </button>
-                            </div>
+                                        }}
+                                        style={{
+                                            padding: '10px 20px',
+                                            height: '42px',
+                                            background: '#10B981',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: 'var(--radius-md)',
+                                            fontWeight: 600,
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        Conectar Automaticamente
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         <p style={{ color: 'var(--text-medium)', marginBottom: '24px' }}>
