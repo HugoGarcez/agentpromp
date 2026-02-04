@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Link, Trash2, Plus } from 'lucide-react';
+import { Link, Trash2, Plus, FileText } from 'lucide-react';
+import Modal from '../Modal';
 
 const LinksTab = ({ links = [], onUpdate }) => {
     const [newLink, setNewLink] = useState('');
+    const [selectedContent, setSelectedContent] = useState(null);
 
     const addLink = () => {
         if (newLink) {
@@ -74,12 +76,36 @@ const LinksTab = ({ links = [], onUpdate }) => {
                                         <Link size={20} color="var(--primary-blue)" />
                                         <a href={url} target="_blank" rel="noreferrer" style={{ color: 'var(--primary-blue)', fontSize: '14px', fontWeight: 500 }}>{url}</a>
                                     </div>
-                                    <button
-                                        onClick={() => removeLink(index)}
-                                        style={{ color: 'var(--text-light)', cursor: 'pointer', background: 'none', border: 'none' }}
-                                    >
-                                        <Trash2 size={18} />
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        {content && (
+                                            <button
+                                                onClick={() => setSelectedContent({ url, text: content })}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '4px',
+                                                    fontSize: '12px',
+                                                    color: 'var(--primary-blue)',
+                                                    background: '#EFF6FF',
+                                                    border: '1px solid var(--primary-light)',
+                                                    padding: '6px 10px',
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                    fontWeight: 500
+                                                }}
+                                                title="Ver conteúdo completo"
+                                            >
+                                                <FileText size={14} />
+                                                Ver texto
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => removeLink(index)}
+                                            style={{ color: 'var(--text-light)', cursor: 'pointer', background: 'none', border: 'none', padding: '4px' }}
+                                        >
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {content && (
@@ -96,7 +122,29 @@ const LinksTab = ({ links = [], onUpdate }) => {
                     })}
                 </div>
             </div>
-        </div>
+            </div>
+
+            <Modal
+                isOpen={!!selectedContent}
+                onClose={() => setSelectedContent(null)}
+                title={`Conteúdo: ${selectedContent?.url}`}
+            >
+                <div style={{ 
+                    whiteSpace: 'pre-wrap', 
+                    fontSize: '14px', 
+                    lineHeight: '1.6', 
+                    color: '#374151', 
+                    padding: '16px',
+                    maxHeight: '60vh',
+                    overflowY: 'auto',
+                    background: '#F9FAFB',
+                    borderRadius: '8px',
+                    border: '1px solid #E5E7EB'
+                }}>
+                    {selectedContent?.text}
+                </div>
+            </Modal>
+        </div >
     );
 };
 
