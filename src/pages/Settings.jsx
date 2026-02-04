@@ -250,7 +250,7 @@ DIRETRIZES:
                     }}
                 >
                     <Cpu size={20} />
-                    Integrações LLM
+                    Inteligência Artificial
                 </button>
                 <button
                     onClick={() => setActiveSection('voice')}
@@ -342,45 +342,35 @@ DIRETRIZES:
                     </div>
                 )}
 
-                {/* Integrations Section */}
+                {/* Integrations Section (Now AI Status) */}
                 {activeSection === 'integrations' && (
                     <div>
                         <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <Cpu size={24} color="var(--primary-blue)" />
-                            Integrações de LLM
+                            Inteligência Artificial (Promp IA)
                         </h2>
                         <p style={{ color: 'var(--text-medium)', marginBottom: '24px' }}>
-                            Configure as chaves de API para os modelos de linguagem que o agente utilizará.
+                            Gerencie o motor de inteligência artificial do seu agente.
                         </p>
 
                         <div style={{ display: 'grid', gap: '24px' }}>
-                            <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-                                    <label style={{ fontWeight: 600 }}>OpenAI (GPT-4 / GPT-3.5)</label>
-                                    <span style={{ fontSize: '12px', background: 'var(--bg-main)', padding: '2px 8px', borderRadius: '12px' }}>Recomendado</span>
+                            <div style={{ padding: '24px', border: '1px solid #E5E7EB', borderRadius: 'var(--radius-md)', background: 'white' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <Bot size={24} color="var(--primary-blue)" />
+                                        <div>
+                                            <h3 style={{ fontWeight: 600, fontSize: '16px' }}>Promp IA (Standard)</h3>
+                                            <p style={{ fontSize: '13px', color: '#6B7280' }}>Modelo de Linguagem Otimizado para Vendas</p>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#DCFCE7', color: '#166534', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: 600 }}>
+                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#166534' }}></div>
+                                        ONLINE
+                                    </div>
                                 </div>
-                                <input
-                                    type="password"
-                                    name="openaiKey"
-                                    placeholder="sk-..."
-                                    value={integrations.openaiKey}
-                                    onChange={handleIntegrationChange}
-                                    style={{ width: '100%', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)' }}
-                                />
-                            </div>
-
-                            <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-                                    <label style={{ fontWeight: 600 }}>Google Gemini</label>
-                                </div>
-                                <input
-                                    type="password"
-                                    name="geminiKey"
-                                    placeholder="AIza..."
-                                    value={integrations.geminiKey}
-                                    onChange={handleIntegrationChange}
-                                    style={{ width: '100%', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)' }}
-                                />
+                                <p style={{ fontSize: '14px', color: '#374151', lineHeight: '1.5' }}>
+                                    Sua instância está conectada à infraestrutura global da Promp IA. Não é necessário configuração adicional.
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -407,39 +397,12 @@ DIRETRIZES:
                                 <label htmlFor="voiceEnabled" style={{ fontWeight: 600, cursor: 'pointer' }}>Habilitar Respostas em Áudio</label>
                             </div>
                             <p style={{ color: 'var(--text-medium)', fontSize: '14px', marginLeft: '32px' }}>
-                                Permite que a IA envie áudios utilizando a tecnologia da ElevenLabs.
+                                Permite que a IA envie áudios humanizados utilizando a tecnologia Promp Voice.
                             </p>
                         </div>
 
                         {voice.enabled && (
                             <div style={{ display: 'grid', gap: '24px' }}>
-                                <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
-                                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>ElevenLabs Integration</h3>
-                                    <div style={{ display: 'grid', gap: '16px' }}>
-                                        <div>
-                                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>API Key</label>
-                                            <input
-                                                type="password"
-                                                name="elevenLabsKey"
-                                                value={voice.elevenLabsKey}
-                                                onChange={handleVoiceChange}
-                                                style={{ width: '100%', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)' }}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Voice ID</label>
-                                            <input
-                                                type="text"
-                                                name="voiceId"
-                                                placeholder="Ex: 21m00Tcm4TlvDq8ikWAM"
-                                                value={voice.voiceId}
-                                                onChange={handleVoiceChange}
-                                                style={{ width: '100%', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)' }}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
                                 <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
                                     <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Regras de Envio</h3>
 
