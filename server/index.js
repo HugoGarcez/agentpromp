@@ -588,13 +588,11 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     console.log('[Chat] System Prompt Context:', systemPrompt); // DEBUG
 
-    // --- DYNAMIC CONTEXT INJECTION (FORCE OVERRIDE) ---
-    // Problem: AI forgets context on short replies ("Sim").
-    // Solution: If last AI msg offered PDF and user says "Sim", we force the AI to ACT.
-    // --- DYNAMIC CONTEXT INJECTION (FORCE OVERRIDE) ---
-    // Problem: AI forgets context on short replies ("Sim").
-    // Solution: If last AI msg offered PDF and user says "Sim", we force the AI to ACT.
-    let forceSystemMessage = null;
+    // --- PROMPT REWRITING (Invisible Hand Strategy) ---
+    // Problem: AI hallucinates when user says just "Sim" because it loses context.
+    // Solution: Rewrite "Sim" to "Sim, envie o PDF do [Item Anterior]" before sending to AI.
+
+    let finalUserMessage = message;
 
     if (history && history.length > 0) {
         // Find last assistant message
@@ -605,7 +603,6 @@ const processChatResponse = async (config, message, history, sessionId = null) =
             const userContent = (message || '').toLowerCase();
 
             // Check if AI offered PDF recently (keywords: pdf OR generic file terms AND question words)
-            // Keywords: pdf, arquivo, material, lâmina, apresentação, catálogo
             const fileKeywords = ['pdf', 'arquivo', 'material', 'lâmina', 'apresentação', 'catalogo', 'catálogo'];
             const questionKeywords = ['?', 'gostaria', 'quer', 'deseja', 'posso', 'enviar'];
 
@@ -615,23 +612,31 @@ const processChatResponse = async (config, message, history, sessionId = null) =
             if (hasFileKeyword && hasQuestionKeyword) {
 
                 // Check if User accepted
-                const acceptanceKeywords = ['sim', 'quero', 'pode', 'manda', 'gostaria', 'yes', 'ok'];
+                const acceptanceKeywords = ['sim', 'quero', 'pode', 'manda', 'gostaria', 'yes', 'ok', 'envia', 'isso'];
                 const isAcceptance = acceptanceKeywords.some(kw => userContent.includes(kw));
 
                 if (isAcceptance) {
-                    console.log('[Context] Detected PDF Offer Acceptance. PREPARING FORCE MESSAGE.');
-                    forceSystemMessage = {
-                        role: "system",
-                        content: `### SISTEMA ALERTA: O usuário ACEITOU sua oferta de PDF da mensagem anterior ("${lastAiMsg.content.substring(0, 50)}...").
-            NÃO FAÇA PERGUNTAS. NÃO PERGUNTE "QUAL?".
-            AÇÃO ÚNICA PERMITIDA: Envie o PDF do item discutido imediatamente usando a tag [SEND_PDF: ID].`
-                    };
+                    console.log('[Context] Detected Acceptance of File Offer.');
+
+                    // Extract topic from AI message (simple heuristic: grab first 80 chars for context)
+                    const topicSnippet = lastAiMsg.content.substring(0, 100).replace(/\n/g, ' ');
+
+                    // REWRITE PROMPT
+                    finalUserMessage = `(Mensagem do Sistema: O usuário respondeu "${message}" confirmando o interesse no arquivo oferecido anteriormente.)
+                    
+                    CONTEXTO DA OFERTA ANTERIOR: "${topicSnippet}..."
+                    
+                    AÇÃO OBRIGATÓRIA:
+                    1. Não faça mais perguntas.
+                    2. Envie IMEDIATAMENTE o PDF ou Arquivo relacionado a essa oferta.
+                    3. Use a tag [SEND_PDF: ID] ou [SEND_IMAGE: ID] correta.`;
+
+                    console.log('[Context] REWROTE USER PROMPT:', finalUserMessage);
                 }
             }
         }
     }
-    // --- END DYNAMIC CONTEXT ---
-    // --- END DYNAMIC CONTEXT ---
+    // --- END PROMPT REWRITING ---
 
     // Prepare Messages (History + System)
     let messages = [{ role: "system", content: systemPrompt }];
@@ -644,14 +649,8 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         messages = [...messages, ...cleanHistory];
     }
 
-    // Inject FORCE message right before current user message
-    if (forceSystemMessage) {
-        messages.push(forceSystemMessage);
-        console.log('[Context] Injected FORCE SYSTEM MESSAGE into conversation flow.');
-    }
-
-    // Add current user message
-    messages.push({ role: "user", content: message });
+    // Add current user message (Rewritten or Original)
+    messages.push({ role: "user", content: finalUserMessage });
 
     const completion = await openai.chat.completions.create({
         messages: messages,
