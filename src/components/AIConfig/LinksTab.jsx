@@ -122,18 +122,18 @@ const LinksTab = ({ links = [], onUpdate }) => {
                     })}
                 </div>
             </div>
-            </div>
+
 
             <Modal
                 isOpen={!!selectedContent}
                 onClose={() => setSelectedContent(null)}
                 title={`Conteúdo: ${selectedContent?.url}`}
             >
-                <div style={{ 
-                    whiteSpace: 'pre-wrap', 
-                    fontSize: '14px', 
-                    lineHeight: '1.6', 
-                    color: '#374151', 
+                <div style={{
+                    whiteSpace: 'pre-wrap',
+                    fontSize: '14px',
+                    lineHeight: '1.6',
+                    color: '#374151',
                     padding: '16px',
                     maxHeight: '60vh',
                     overflowY: 'auto',
