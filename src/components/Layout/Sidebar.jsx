@@ -72,6 +72,18 @@ const Sidebar = () => {
             <Shield size={20} className={styles.navIcon} />
             <span>Admin</span>
           </NavLink>
+            <span>Admin</span>
+          </NavLink>
+        )}
+
+        {user?.role === 'ADMIN' && (
+          <NavLink
+            to="/admin-config"
+            className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+          >
+            <Lock size={20} className={styles.navIcon} />
+            <span>Config Global</span>
+          </NavLink>
         )}
       </nav>
 
@@ -97,7 +109,7 @@ const Sidebar = () => {
           <span>{theme === 'light' ? 'Modo Escuro' : 'Modo Claro'}</span>
         </button>
       </div>
-    </aside>
+    </aside >
   );
 };
 

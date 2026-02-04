@@ -61,19 +61,21 @@ function App() {
               <Route path="products" element={<ProductConfig />} />
               <Route path="settings" element={<Settings />} />
 
-              <AdminDashboard />
-            </AdminRoute>
+              <Route path="admin" element={
+                <AdminRoute>
+                  <AdminDashboard />
+                </AdminRoute>
               } />
 
-            <Route path="admin-config" element={
-              <AdminRoute>
-                <AdminConfig />
-              </AdminRoute>
-            } />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+              <Route path="admin-config" element={
+                <AdminRoute>
+                  <AdminConfig />
+                </AdminRoute>
+              } />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     </ThemeProvider >
   );
 }
