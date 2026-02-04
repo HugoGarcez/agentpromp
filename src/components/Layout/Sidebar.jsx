@@ -72,8 +72,6 @@ const Sidebar = () => {
             <Shield size={20} className={styles.navIcon} />
             <span>Admin</span>
           </NavLink>
-            <span>Admin</span>
-          </NavLink>
         )}
 
         {user?.role === 'ADMIN' && (
