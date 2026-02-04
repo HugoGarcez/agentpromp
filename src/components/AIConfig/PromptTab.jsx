@@ -154,7 +154,15 @@ const PromptTab = ({ systemPrompt, onPromptChange, persona, onPersonaChange }) =
                             <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: '#4B5563' }}>Função Principal</label>
                             <select
                                 value={persona?.role || 'assistant'}
-                                onChange={(e) => onPersonaChange({ ...persona, role: e.target.value })}
+                                onChange={(e) => {
+                                    const newRole = e.target.value;
+                                    const updatedPersona = { ...persona, role: newRole };
+                                    onPersonaChange(updatedPersona);
+
+                                    // Auto-update Prompt
+                                    const newPrompt = generatePromptText(updatedPersona);
+                                    onPromptChange(newPrompt);
+                                }}
                                 style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', background: 'white' }}
                             >
                                 <option value="support">Suporte Técnico</option>
