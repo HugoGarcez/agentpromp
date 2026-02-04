@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Send, User, Bot, Sparkles } from 'lucide-react';
+import { Send, User, Bot, Sparkles, Save } from 'lucide-react';
 import PromptTab from '../components/AIConfig/PromptTab';
 
 const TestAI = () => {
@@ -8,9 +8,12 @@ const TestAI = () => {
     ]);
     const [inputText, setInputText] = useState('');
     const [advancedMode, setAdvancedMode] = useState(false);
-    const [systemPrompt, setSystemPrompt] = useState('Você é um assistente virtual útil e educado.');
+    const [systemPrompt, setSystemPrompt] = useState('');
+    const [persona, setPersona] = useState(null);
+    const [fullConfig, setFullConfig] = useState(null); // To preserve other fields when saving
 
     const [isLoading, setIsLoading] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
 
     const [products, setProducts] = useState([]);
 
@@ -27,6 +30,10 @@ const TestAI = () => {
                 });
                 if (resConfig.ok) {
                     const data = await resConfig.json();
+                    setFullConfig(data);
+                    setSystemPrompt(data.systemPrompt || '');
+                    setPersona(data.persona || null);
+
                     if (data.products && Array.isArray(data.products)) {
                         setProducts(data.products);
                     }
@@ -124,6 +131,41 @@ const TestAI = () => {
             setMessages(prev => [...prev, errorMsg]);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleSaveConfig = async () => {
+        try {
+            setIsSaving(true);
+            const token = localStorage.getItem('token');
+            // We use fullConfig to preserve knowledgeBase etc.
+            const payload = {
+                ...fullConfig,
+                systemPrompt,
+                persona
+            };
+
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                alert('Configuração salva com sucesso!');
+                // Update fullConfig so subsequent saves have latest data
+                setFullConfig(payload);
+            } else {
+                throw new Error('Falha ao salvar');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Erro ao salvar configuração.');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -291,12 +333,34 @@ const TestAI = () => {
                     flexDirection: 'column',
                     overflow: 'hidden' // Ensure modal doesn't get clipped weirdly if possible, but standard flow
                 }}>
-                    <div style={{ padding: '16px', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Sparkles size={20} color="var(--primary-blue)" />
-                        <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Configuração do Prompt</h2>
+                    <div style={{ padding: '16px', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Sparkles size={20} color="var(--primary-blue)" />
+                            <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Configuração do Prompt</h2>
+                        </div>
+                        <button
+                            onClick={handleSaveConfig}
+                            disabled={isSaving}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                background: 'var(--primary-blue)', color: 'white',
+                                padding: '6px 12px', borderRadius: '6px',
+                                fontSize: '12px', fontWeight: 500,
+                                cursor: isSaving ? 'wait' : 'pointer',
+                                border: 'none'
+                            }}
+                        >
+                            <Save size={14} />
+                            {isSaving ? 'Salvando...' : 'Salvar'}
+                        </button>
                     </div>
                     <div style={{ padding: '16px', flex: 1, overflowY: 'auto' }}>
-                        <PromptTab onPromptChange={setSystemPrompt} />
+                        <PromptTab
+                            systemPrompt={systemPrompt}
+                            onPromptChange={setSystemPrompt}
+                            persona={persona}
+                            onPersonaChange={setPersona}
+                        />
                     </div>
                 </div>
             )}
