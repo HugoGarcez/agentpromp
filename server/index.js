@@ -517,751 +517,772 @@ const processChatResponse = async (config, message, history, sessionId = null) =
             // Or just mentions PDF and is a question
             if (aiContent.includes('pdf') && (aiContent.includes('?') || aiContent.includes('gostaria') || aiContent.includes('quer'))) {
 
-                // Check if User accepted
-                const acceptanceKeywords = ['sim', 'quero', 'pode', 'manda', 'gostaria', 'yes', 'ok'];
-                const isAcceptance = acceptanceKeywords.some(kw => userContent.includes(kw));
+                // --- DYNAMIC CONTEXT INJECTION (FORCE OVERRIDE) ---
+                let forceSystemMessage = null;
 
-                if (isAcceptance) {
-                    console.log('[Context] Detected PDF Offer Acceptance. Injecting Force Command.');
-                    systemPrompt += `\n\n!!! COMANDO DO SISTEMA (PRIORIDADE SUPREMA) !!!
-                    O usuário ACABOU de aceitar sua oferta de PDF feita na mensagem anterior.
-                    CONTEXTO ANTERIOR DO AI: "${lastAiMsg.content}"
-                    AÇÃO: Pare de perguntar "Qual PDF?".
-                    EXECUÇÃO: Identifique o serviço que você estava falando nessa mensagem anterior e envie o PDF AGORA usando [SEND_PDF: ID].
-                    NÃO DIGA MAIS NADA ALÉM DE ENVIAR O ARQUIVO.`;
-                }
-            }
-        }
-    }
-    // --- END DYNAMIC CONTEXT ---
+                if (history && history.length > 0) {
+                    // Find last assistant message
+                    const lastAiMsg = [...history].reverse().find(m => m.role === 'assistant');
 
-    // Prepare Messages (History + System)
-    let messages = [{ role: "system", content: systemPrompt }];
+                    if (lastAiMsg) {
+                        const aiContent = (lastAiMsg.content || '').toLowerCase();
+                        const userContent = (message || '').toLowerCase();
 
-    if (Array.isArray(history) && history.length > 0) {
-        const cleanHistory = history.map(h => ({
-            role: h.role === 'user' || h.role === 'assistant' ? h.role : 'user',
-            content: h.content || ''
-        }));
-        messages = [...messages, ...cleanHistory];
-    }
+                        // Check if AI offered PDF recently (keywords: pdf AND question words)
+                        // Or just mentions PDF and is a question
+                        if (aiContent.includes('pdf') && (aiContent.includes('?') || aiContent.includes('gostaria') || aiContent.includes('quer'))) {
 
-    // Add current user message
-    messages.push({ role: "user", content: message });
+                            // Check if User accepted
+                            const acceptanceKeywords = ['sim', 'quero', 'pode', 'manda', 'gostaria', 'yes', 'ok'];
+                            const isAcceptance = acceptanceKeywords.some(kw => userContent.includes(kw));
 
-    const completion = await openai.chat.completions.create({
-        messages: messages,
-        model: "gpt-4o-mini", // Better & Cheaper than 3.5-turbo
-    });
-
-    let aiResponse = completion.choices[0].message.content;
-
-    // --- Image Detection Logic ---
-    let productImageUrl = null;
-    let productCaption = ""; // Initialize caption
-    const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*([a-zA-Z0-9_-]+)\]/); // Support alphanum IDs
-
-    if (imageMatch && config.products) {
-        const targetId = imageMatch[1];
-        let found = false;
-
-        // Search in Parent Products or Variations
-        for (const p of config.products) {
-            // Check Parent
-            if (String(p.id) === String(targetId)) {
-                if (p.image) {
-                    productImageUrl = p.image;
-                    productCaption = `${p.name} - R$ ${p.price}`;
-                    found = true;
-                    break;
-                }
-            }
-
-            // Check Variations
-            if (p.variantItems) {
-                const variant = p.variantItems.find(v => String(v.id) === String(targetId));
-                if (variant && variant.image) {
-                    productImageUrl = variant.image;
-                    const details = [variant.color, variant.size].filter(Boolean).join(' / ');
-                    productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
-                    found = true;
-                    break;
-                }
-            }
-        }
-
-        if (found) {
-            console.log(`[Chat] Found Product/Variant Image for ID ${targetId}: ${productImageUrl}`);
-            console.log(`[Chat] Caption: ${productCaption}`);
-        } else {
-            console.log(`[Chat] Image requested for ID ${targetId} but not found.`);
-        }
-
-        // Remove the tag from the text displayed to user
-        aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
-    }
-
-    // --- PDF Logic (Service Details) ---
-    let pdfBase64 = null;
-    let pdfName = null;
-    const pdfMatch = aiResponse.match(/\[SEND_PDF:\s*([a-zA-Z0-9_-]+)\]/);
-
-    if (pdfMatch) {
-        const targetId = pdfMatch[1];
-        let foundPdf = null;
-        let foundName = null;
-
-        // Check Products/Services
-        if (config.products) {
-            const p = config.products.find(p => p.id == targetId); // loose equality for string/number id mix
-            if (p && p.pdf) {
-                foundPdf = p.pdf;
-                foundName = `${p.name}.pdf`; // Fallback name
-            }
-        }
-
-        if (foundPdf) {
-            // Ensure Base64 doesn't have data: prefix for pure transport if needed, 
-            // but usually we keep it or strip it depending on frontend.
-            // Let's strip standard prefixes if present to ensure clean base64 for WhatsApp API
-            console.log(`[DEBUG] Raw PDF found. Length: ${foundPdf.length}`);
-
-            try {
-                pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
-                pdfName = foundName;
-                console.log(`[Chat] Found PDF for ID ${targetId}. Processed Base64 Length: ${pdfBase64.length}`);
-            } catch (e) {
-                console.error(`[Chat] PDF Processing Error:`, e);
-            }
-        } else {
-            console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
-        }
-
-        // Remove tag
-        aiResponse = aiResponse.replace(/\[SEND_PDF:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
-    }
-
-    // --- Audio Generation Logic ---
-    let audioBase64 = null;
-    const integrator = config.integrations || {};
-    const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
-
-    if (isVoiceEnabled && integrator.elevenLabsKey) {
-        let shouldGenerate = true;
-
-        // Probability Check
-        if (integrator.responseType === 'percentage') {
-            const probability = parseInt(integrator.responsePercentage || 50, 10);
-            const randomVal = Math.random() * 100;
-            if (randomVal > probability) {
-                shouldGenerate = false;
-                console.log(`Audio skipped by probability: ${randomVal.toFixed(0)} > ${probability}`);
-            }
-        } else if (integrator.responseType === 'audio_only') {
-            shouldGenerate = false; // Simplified logic for now
-        }
-
-        if (shouldGenerate) {
-            try {
-                let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
-
-                // Fallback for Agent IDs
-                if (voiceId.startsWith('agent_')) {
-                    console.warn(`Invalid Voice ID for TTS detected (${voiceId}). Falling back to default 'Rachel'.`);
-                    voiceId = '21m00Tcm4TlvDq8ikWAM';
-                }
-
-                const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-                    method: 'POST',
-                    headers: {
-                        'xi-api-key': integrator.elevenLabsKey,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        text: aiResponse,
-                        model_id: "eleven_multilingual_v2", // Updated for Portuguese support
-                        voice_settings: {
-                            stability: 0.5,
-                            similarity_boost: 0.75
+                            if (isAcceptance) {
+                                console.log('[Context] Detected PDF Offer Acceptance. PREPARING FORCE MESSAGE.');
+                                forceSystemMessage = {
+                                    role: "system",
+                                    content: `### SISTEMA ALERTA: O usuário ACEITOU sua oferta de PDF da mensagem anterior ("${lastAiMsg.content.substring(0, 50)}...").
+                        NÃO FAÇA PERGUNTAS. NÃO PERGUNTE "QUAL?".
+                        AÇÃO ÚNICA PERMITIDA: Envie o PDF do item discutido imediatamente usando a tag [SEND_PDF: ID].`
+                                };
+                            }
                         }
-                    })
+                    }
+                }
+                // --- END DYNAMIC CONTEXT ---
+
+                // Prepare Messages (History + System)
+                let messages = [{ role: "system", content: systemPrompt }];
+
+                if (Array.isArray(history) && history.length > 0) {
+                    const cleanHistory = history.map(h => ({
+                        role: h.role === 'user' || h.role === 'assistant' ? h.role : 'user',
+                        content: h.content || ''
+                    }));
+                    messages = [...messages, ...cleanHistory];
+                }
+
+                // Inject FORCE message right before current user message
+                if (forceSystemMessage) {
+                    messages.push(forceSystemMessage);
+                    console.log('[Context] Injected FORCE SYSTEM MESSAGE into conversation flow.');
+                }
+
+                // Add current user message
+                messages.push({ role: "user", content: message });
+
+                const completion = await openai.chat.completions.create({
+                    messages: messages,
+                    model: "gpt-4o-mini", // Better & Cheaper than 3.5-turbo
                 });
 
-                if (responseStream.ok) {
-                    const arrayBuffer = await responseStream.arrayBuffer();
-                    audioBase64 = Buffer.from(arrayBuffer).toString('base64');
-                } else {
-                    console.error('ElevenLabs API Error:', await responseStream.text());
-                }
-            } catch (audioError) {
-                console.error('Audio Generation Error:', audioError);
-            }
-        }
-    }
+                let aiResponse = completion.choices[0].message.content;
 
-    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 };
-};
+                // --- Image Detection Logic ---
+                let productImageUrl = null;
+                let productCaption = ""; // Initialize caption
+                const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*([a-zA-Z0-9_-]+)\]/); // Support alphanum IDs
 
-// --- Config History Routes ---
-app.get('/api/config/history', authenticateToken, async (req, res) => {
-    const companyId = req.user.companyId;
-    try {
-        const config = await prisma.agentConfig.findUnique({ where: { companyId } });
-        if (!config) return res.json([]);
+                if (imageMatch && config.products) {
+                    const targetId = imageMatch[1];
+                    let found = false;
 
-        const history = await prisma.promptHistory.findMany({
-            where: { agentConfigId: config.id },
-            orderBy: { createdAt: 'desc' },
-            take: 20
-        });
+                    // Search in Parent Products or Variations
+                    for (const p of config.products) {
+                        // Check Parent
+                        if (String(p.id) === String(targetId)) {
+                            if (p.image) {
+                                productImageUrl = p.image;
+                                productCaption = `${p.name} - R$ ${p.price}`;
+                                found = true;
+                                break;
+                            }
+                        }
 
-        res.json(history);
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao buscar histórico' });
-    }
-});
-
-app.post('/api/config/restore', authenticateToken, async (req, res) => {
-    const { historyId } = req.body;
-    const companyId = req.user.companyId;
-
-    try {
-        const historyItem = await prisma.promptHistory.findUnique({ where: { id: historyId } });
-        if (!historyItem) return res.status(404).json({ message: 'Versão não encontrada' });
-
-        await prisma.agentConfig.update({
-            where: { companyId },
-            data: { systemPrompt: historyItem.systemPrompt }
-        });
-
-        res.json({ success: true, message: 'Prompt restaurado com sucesso' });
-    } catch (error) {
-        res.status(500).json({ message: 'Erro ao restaurar versão' });
-    }
-});
-
-app.get('/api/config', authenticateToken, async (req, res) => {
-    const companyId = req.user.companyId;
-    try {
-        const config = await getCompanyConfig(companyId);
-        res.json(config || {});
-    } catch (error) {
-        console.error('Error fetching config:', error);
-        res.status(500).json({ message: 'Error fetching config' });
-    }
-});
-
-
-
-// --- Chat Endpoint (Protected - Panel Test) ---
-app.post('/api/chat', authenticateToken, async (req, res) => {
-    const companyId = req.user.companyId;
-    const { message, history, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
-
-    if (!message) return res.status(400).json({ error: 'Message required' });
-
-    try {
-        const config = await getCompanyConfig(companyId);
-
-        // Allow override for Test Panel
-        if (!useConfigPrompt && overridePrompt) {
-            config.systemPrompt = overridePrompt;
-        }
-
-        const { aiResponse, audioBase64, productImageUrl } = await processChatResponse(config, message, history, null);
-
-        // Persist Chat (Test Mode - No Session)
-        try {
-            await prisma.testMessage.create({ data: { companyId, sender: 'user', text: message } });
-            await prisma.testMessage.create({ data: { companyId, sender: 'ai', text: aiResponse } });
-        } catch (dbError) {
-            console.error('Failed to save chat history:', dbError);
-        }
-
-        res.json({ response: aiResponse, audio: audioBase64, image: productImageUrl });
-
-    } catch (error) {
-        console.error('Chat API Error:', error);
-        res.status(500).json({ error: error.message || 'Error processing chat' });
-    }
-});
-
-app.get('/api/chat/history', authenticateToken, async (req, res) => {
-    try {
-        const history = await prisma.testMessage.findMany({
-            where: { companyId: req.user.companyId },
-            orderBy: { createdAt: 'asc' }, // Oldest first
-            take: 50 // Limit to last 50
-        });
-
-        // Map to frontend format
-        const formatted = history.map(h => ({
-            id: h.id, // String UUID
-            sender: h.sender,
-            text: h.text
-        }));
-
-        res.json(formatted);
-    } catch (error) {
-        console.error('Error fetching chat history:', error);
-        res.status(500).json({ message: 'Failed to fetch history' });
-    }
-});
-
-
-// --- PROMP API INTEGRATION ---
-
-const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
-// MUST be set in .env on the server
-const PROMP_ADMIN_TOKEN = process.env.PROMP_ADMIN_TOKEN;
-
-const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, caption, pdfBase64 = null) => {
-    if (!config.prompUuid || !config.prompToken) {
-        console.log('[Promp] Skipping external API execution (Credentials missing).');
-        return false;
-    }
-
-    // Removing '55' prefix if exists (Promp API usually handles it, or check documentation)
-    // Postman doc example: "5515998566622". Okay, keep it.
-
-    // 1. Send Text (ONLY if no audio AND no PDF, to avoid duplication or mixed content issues)
-    // Actually, if we have PDF, we might want to send the text caption separately or as caption.
-    // For PDF, caption is usually supported.
-    if (!audioBase64 && !pdfBase64) {
-        try {
-            console.log(`[Promp] Sending Text to ${number}...`);
-            const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${config.prompToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    number: number,
-                    body: text,
-                    externalKey: `ai_${Date.now()}`,
-                    isClosed: false
-                })
-            });
-
-            if (!textResponse.ok) {
-                console.error('[Promp] Text Send Failed:', await textResponse.text());
-            }
-        } catch (e) {
-            console.error('[Promp] Text Exception:', e);
-        }
-    } else {
-        if (pdfBase64) console.log(`[Promp] Sending PDF, skipping separate text message.`);
-        else console.log(`[Promp] Skipping text message because audio is being sent.`);
-    }
-
-    // 2. Send Image (Hybrid: URL vs Base64 vs Local File)
-    if (imageUrl) {
-        try {
-            let finalImageUrl = imageUrl.trim();
-            const isDataUri = finalImageUrl.startsWith('data:');
-            const isHttpUrl = finalImageUrl.startsWith('http://') || finalImageUrl.startsWith('https://');
-
-            console.log(`[Promp] Processing Image. Type: ${isDataUri ? 'Base64' : (isHttpUrl ? 'Remote URL' : 'Local File')}`);
-            console.log(`[Promp] Raw Image String (First 50 chars): ${finalImageUrl.substring(0, 50)}...`);
-
-            if (isDataUri) {
-                // --- CASE A: Base64 Data URI ---
-                const matches = finalImageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-                if (matches && matches.length === 3) {
-                    const mimeType = matches[1];
-                    const base64Data = matches[2];
-                    const ext = mimeType.split('/')[1] || 'jpg';
-                    const fileName = `image_${Date.now()}.${ext}`;
-
-                    console.log(`[Promp] Sending via /base64 endpoint (Data URI). Mime: ${mimeType}`);
-
-                    await sendBase64Image(config, number, base64Data, mimeType, fileName, caption);
-                } else {
-                    console.error('[Promp] Invalid Data URI format.');
-                }
-
-            } else if (isHttpUrl) {
-                // --- CASE B: Remote URL ---
-                console.log(`[Promp] Sending via /url endpoint: ${finalImageUrl}`);
-                const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/url`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${config.prompToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        number: number,
-                        body: caption || "",
-                        mediaUrl: finalImageUrl,
-                        externalKey: `ai_img_${Date.now()}`
-                    })
-                });
-
-                if (!imgResponse.ok) {
-                    const errRes = await imgResponse.text();
-                    console.error('[Promp] Remote URL Image Send Failed:', errRes);
-                } else {
-                    console.log('[Promp] SUCCESS: Image sent via URL endpoint.');
-                }
-
-            } else {
-                // --- CASE C: Local File Path ---
-                // Try to resolve path relative to project root or use absolute path
-                // config/index.js is in 'server', so project root is '..'
-                // But better to check absolute first.
-
-                try {
-                    let filePath = finalImageUrl;
-                    // If relative, assume relative to project root NOT server dir 
-                    // (images usually in stored in public or uploads at root)
-                    if (!path.isAbsolute(filePath)) {
-                        filePath = path.join(__dirname, '..', filePath);
+                        // Check Variations
+                        if (p.variantItems) {
+                            const variant = p.variantItems.find(v => String(v.id) === String(targetId));
+                            if (variant && variant.image) {
+                                productImageUrl = variant.image;
+                                const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                                productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
+                                found = true;
+                                break;
+                            }
+                        }
                     }
 
-                    console.log(`[Promp] Handling Local File: ${filePath}`);
+                    if (found) {
+                        console.log(`[Chat] Found Product/Variant Image for ID ${targetId}: ${productImageUrl}`);
+                        console.log(`[Chat] Caption: ${productCaption}`);
+                    } else {
+                        console.log(`[Chat] Image requested for ID ${targetId} but not found.`);
+                    }
 
-                    // define mimeType mapping
-                    const ext = path.extname(filePath).toLowerCase().replace('.', '');
-                    const mimeTypes = {
-                        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-                        'png': 'image/png', 'gif': 'image/gif',
-                        'webp': 'image/webp'
-                    };
-                    const mimeType = mimeTypes[ext] || 'application/octet-stream';
-
-                    const fileBuffer = await fs.readFile(filePath);
-                    const base64Data = fileBuffer.toString('base64');
-                    const fileName = path.basename(filePath);
-
-                    console.log(`[Promp] Local file read success. Size: ${base64Data.length}. Sending via /base64...`);
-                    await sendBase64Image(config, number, base64Data, mimeType, fileName, caption);
-
-                } catch (readErr) {
-                    console.error('[Promp] Failed to read local image file:', readErr);
+                    // Remove the tag from the text displayed to user
+                    aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
                 }
-            }
-        } catch (e) {
-            console.error('[Promp] Image Send Exception:', e);
-        }
-    }
 
-    // Helper function for Base64 sending
-    async function sendBase64Image(config, number, base64Data, mimeType, fileName, caption) {
-        const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${config.prompToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                number: number,
-                body: caption || "",
-                base64Data: base64Data,
-                mimeType: mimeType,
-                fileName: fileName,
-                externalKey: `ai_img_${Date.now()}`,
-                isClosed: false
-            })
-        });
+                // --- PDF Logic (Service Details) ---
+                let pdfBase64 = null;
+                let pdfName = null;
+                const pdfMatch = aiResponse.match(/\[SEND_PDF:\s*([a-zA-Z0-9_-]+)\]/);
 
-        if (!imgResponse.ok) {
-            const errRes = await imgResponse.text();
-            console.error('[Promp] Base64 Image Send Failed:', errRes);
-        } else {
-            console.log('[Promp] SUCCESS: Image sent via Base64 endpoint.');
-        }
-    }
+                if (pdfMatch) {
+                    const targetId = pdfMatch[1];
+                    let foundPdf = null;
+                    let foundName = null;
 
+                    // Check Products/Services
+                    if (config.products) {
+                        const p = config.products.find(p => p.id == targetId); // loose equality for string/number id mix
+                        if (p && p.pdf) {
+                            foundPdf = p.pdf;
+                            foundName = `${p.name}.pdf`; // Fallback name
+                        }
+                    }
 
-    // 3. Send Audio (if exists)
-    if (audioBase64) {
-        // We need to upload file or send as base64. 
-        // Postman "SendMessageAPITextBase64" endpoint exists: /base64
-        try {
-            console.log(`[Promp] Sending Audio to ${number}...`);
-            const audioResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${config.prompToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    number: number,
-                    body: "Áudio da IA", // Caption
-                    base64Data: audioBase64,
-                    mimeType: "audio/mp3", // ElevenLabs output
-                    fileName: `audio_ia_${Date.now()}.mp3`,
-                    externalKey: `ai_audio_${Date.now()}`,
-                    isClosed: false
-                })
+                    if (foundPdf) {
+                        // Ensure Base64 doesn't have data: prefix for pure transport if needed, 
+                        // but usually we keep it or strip it depending on frontend.
+                        // Let's strip standard prefixes if present to ensure clean base64 for WhatsApp API
+                        console.log(`[DEBUG] Raw PDF found. Length: ${foundPdf.length}`);
+
+                        try {
+                            pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
+                            pdfName = foundName;
+                            console.log(`[Chat] Found PDF for ID ${targetId}. Processed Base64 Length: ${pdfBase64.length}`);
+                        } catch (e) {
+                            console.error(`[Chat] PDF Processing Error:`, e);
+                        }
+                    } else {
+                        console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
+                    }
+
+                    // Remove tag
+                    aiResponse = aiResponse.replace(/\[SEND_PDF:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
+                }
+
+                // --- Audio Generation Logic ---
+                let audioBase64 = null;
+                const integrator = config.integrations || {};
+                const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
+
+                if (isVoiceEnabled && integrator.elevenLabsKey) {
+                    let shouldGenerate = true;
+
+                    // Probability Check
+                    if (integrator.responseType === 'percentage') {
+                        const probability = parseInt(integrator.responsePercentage || 50, 10);
+                        const randomVal = Math.random() * 100;
+                        if (randomVal > probability) {
+                            shouldGenerate = false;
+                            console.log(`Audio skipped by probability: ${randomVal.toFixed(0)} > ${probability}`);
+                        }
+                    } else if (integrator.responseType === 'audio_only') {
+                        shouldGenerate = false; // Simplified logic for now
+                    }
+
+                    if (shouldGenerate) {
+                        try {
+                            let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
+
+                            // Fallback for Agent IDs
+                            if (voiceId.startsWith('agent_')) {
+                                console.warn(`Invalid Voice ID for TTS detected (${voiceId}). Falling back to default 'Rachel'.`);
+                                voiceId = '21m00Tcm4TlvDq8ikWAM';
+                            }
+
+                            const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+                                method: 'POST',
+                                headers: {
+                                    'xi-api-key': integrator.elevenLabsKey,
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    text: aiResponse,
+                                    model_id: "eleven_multilingual_v2", // Updated for Portuguese support
+                                    voice_settings: {
+                                        stability: 0.5,
+                                        similarity_boost: 0.75
+                                    }
+                                })
+                            });
+
+                            if (responseStream.ok) {
+                                const arrayBuffer = await responseStream.arrayBuffer();
+                                audioBase64 = Buffer.from(arrayBuffer).toString('base64');
+                            } else {
+                                console.error('ElevenLabs API Error:', await responseStream.text());
+                            }
+                        } catch (audioError) {
+                            console.error('Audio Generation Error:', audioError);
+                        }
+                    }
+                }
+
+                return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 };
+            };
+
+            // --- Config History Routes ---
+            app.get('/api/config/history', authenticateToken, async (req, res) => {
+                const companyId = req.user.companyId;
+                try {
+                    const config = await prisma.agentConfig.findUnique({ where: { companyId } });
+                    if (!config) return res.json([]);
+
+                    const history = await prisma.promptHistory.findMany({
+                        where: { agentConfigId: config.id },
+                        orderBy: { createdAt: 'desc' },
+                        take: 20
+                    });
+
+                    res.json(history);
+                } catch (error) {
+                    res.status(500).json({ message: 'Erro ao buscar histórico' });
+                }
             });
 
-            if (!audioResponse.ok) {
-                console.error('[Promp] Audio Send Failed:', await audioResponse.text());
-            } else {
-                console.log('[Promp] Audio Sent Successfully');
-            }
-        } catch (e) {
-            console.error('[Promp] Audio Exception:', e);
-        }
-    }
+            app.post('/api/config/restore', authenticateToken, async (req, res) => {
+                const { historyId } = req.body;
+                const companyId = req.user.companyId;
 
-    return true;
-};
+                try {
+                    const historyItem = await prisma.promptHistory.findUnique({ where: { id: historyId } });
+                    if (!historyItem) return res.status(404).json({ message: 'Versão não encontrada' });
 
-app.post('/api/promp/connect', authenticateToken, async (req, res) => {
-    // SessionID manual input support
-    const { identity, sessionId } = req.body;
-    const companyId = req.user.companyId;
+                    await prisma.agentConfig.update({
+                        where: { companyId },
+                        data: { systemPrompt: historyItem.systemPrompt }
+                    });
 
-    if (!PROMP_ADMIN_TOKEN) {
-        return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
-    }
-
-    try {
-        console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
-
-        // 1. List Tenants to get IDs
-        const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
-            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
-        });
-
-        if (!tenantsRes.ok) throw new Error('Failed to list tenants');
-
-        const tenantsData = await tenantsRes.json();
-        const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
-
-        console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
-
-        // 2. Parallel Fetch Details (identity is only in detailed view)
-        const detailPromises = tenantListBasic.map(async (t) => {
-            try {
-                const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ id: t.id })
-                });
-                if (!res.ok) return null;
-                const json = await res.json();
-                const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
-                return tenantObj || json;
-            } catch (e) {
-                return null;
-            }
-        });
-
-        const detailedTenants = await Promise.all(detailPromises);
-
-        // Exact match on identity string (Sanitized)
-        const sanitize = (str) => String(str || '').replace(/\D/g, '');
-        const targetIdentity = sanitize(identity);
-
-        const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
-
-        if (!targetTenant) {
-            console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
-            return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
-        }
-
-        console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
-
-        // 3. Create API (Best Effort)
-        const apiName = "Agente IA Auto";
-
-        // Priority: Manual Session ID > Tenant ID (Fallback)
-        // If manual sessionId is provided, use it blindly.
-        // If not, use tenant.id (which failed before, but is the best guess if no other option).
-        const finalSessionId = sessionId || targetTenant.id;
-
-        const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                name: apiName,
-                sessionId: finalSessionId,
-                userId: targetTenant.adminId || 1,
-                authToken: Math.random().toString(36).substring(7),
-                tenant: targetTenant.id
-            })
-        });
-
-        let apiData = await createApiRes.json();
-
-        if (!createApiRes.ok || !apiData.id) {
-            console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
-            return res.status(400).json({
-                message: `Falha ao criar API Key (Sessão inválida?). Tente informar o ID da Sessão/Conexão manualmente no campo ao lado.`
+                    res.json({ success: true, message: 'Prompt restaurado com sucesso' });
+                } catch (error) {
+                    res.status(500).json({ message: 'Erro ao restaurar versão' });
+                }
             });
-        }
 
-        // SAVE TO DB
-        await prisma.agentConfig.update({
-            where: { companyId },
-            data: {
-                prompIdentity: identity,
-                prompUuid: apiData.id,
-                prompToken: apiData.token
-            }
-        });
-
-        res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
-
-    } catch (error) {
-        console.error('Promp Connect Error:', error);
-        res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
-    }
-});
-
-
-// --- Webhook Integration (Public) ---
-app.post('/webhook/:companyId', async (req, res) => {
-    const { companyId } = req.params;
-    const payload = req.body; // n8n payload
-
-    console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
-
-    // Validate Payload & Ignore "fromMe" (Sent by us/AI)
-    const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe;
-
-    if (isFromMe) {
-        console.log('[Webhook] Ignoring message sent by me (fromMe=true).');
-        return res.json({ status: 'ignored_from_me' });
-    }
-
-    // Check for Status Updates (Delivery, Read) - Ignore them
-    if (payload.type === 'message_status' || payload.status || (payload.messageType && payload.messageType !== 'conversation' && payload.messageType !== 'extendedTextMessage')) {
-        // Be careful not to ignore text if type is missing, but usually type='message_status' is clear.
-        if (payload.type === 'message_status') {
-            console.log('[Webhook] Ignoring status update.');
-            return res.json({ status: 'ignored_status_update' });
-        }
-    }
-
-    // Safety Check for Content
-    // Wuzapi: payload.data.message.conversation OR payload.content.text
-    let userMessage = payload.content?.text || payload.data?.message?.conversation || payload.data?.message?.extendedTextMessage?.text;
-
-    if (!userMessage) {
-        // If it's a media message or something else we don't support yet, ignore gracefully
-        console.log('[Webhook] Payload missing text content. Ignoring.');
-        return res.json({ status: 'ignored_no_text' });
-    }
-
-    // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
-    const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
-    const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid;
-
-    // Clean Sender Number if it has @s.whatsapp.net
-    const cleanNumber = senderNumber ? String(senderNumber).replace('@s.whatsapp.net', '') : null;
-
-    if (!cleanNumber) {
-        console.log('[Webhook] No specific sender number found. Ignoring.');
-        return res.json({ status: 'ignored_no_number' });
-    }
-
-    const metadata = JSON.stringify(payload);
-
-    try {
-        const config = await getCompanyConfig(companyId);
-        if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
-
-        console.log(`[Webhook] Processing message for ${cleanNumber}: "${userMessage.substring(0, 50)}..."`);
-
-        // Fetch History
-        let history = [];
-
-        // STRATEGY: Try fetching by sessionId. If fails (or sessionId null), try fetching by senderNumber (via metadata or new field... but metadata is lazy).
-        // Let's rely on sessionId first. If sessionId is missing, we MIGHT lose history.
-        // However, if the webhook provides ticket.id (which it seems to), we are good.
-        // Issue: Previous logs show ticket.id changing.
-        // Fallback: Query by metadata contains senderNumber? No, too slow.
-        // Fix: Use sessionId (ticket.id) if available. If ticket.id IS available, trust it.
-        // If ticket.id changes, it might be a new ticket/support case.
-        // BUT, for a persistent AI, we might want to fetch history by 'sender' NOT 'sessionId'.
-        // Let's Try: Find messages where companyId matches and metadata CONTAINS cleanNumber. (Slow regex)
-        // BETTER: Use 'sessionId' field in DB to store 'cleanNumber' as a fallback identifier if ticket ID is unstable?
-        // NO, 'sessionId' is for ticket grouping.
-        // Let's stick to sessionId for now but improve the lookup debugging.
-
-        let lookupId = sessionId ? String(sessionId) : null;
-
-        // Hack for Promp/Uazapi: If ticket ID changes effectively, maybe we should use the phone number as the session ID for the AI memory?
-        // If we use cleanNumber as sessionId, memory persists across tickets!
-        // This solves "New Ticket = Context Loss".
-        // Let's try using cleanNumber as the memory key primarily, OR combine them.
-        // DECISION: Use cleanNumber as the 'sessionId' for AI memory purposes (DB storage).
-        // This ensures the AI remembers the user regardless of the support ticket status.
-        const dbSessionId = cleanNumber; // Using Phone Number as Session ID for persistence
-
-        if (dbSessionId) {
-            const storedMessages = await prisma.testMessage.findMany({
-                where: { companyId, sessionId: String(dbSessionId) },
-                orderBy: { createdAt: 'asc' },
-                take: 20
+            app.get('/api/config', authenticateToken, async (req, res) => {
+                const companyId = req.user.companyId;
+                try {
+                    const config = await getCompanyConfig(companyId);
+                    res.json(config || {});
+                } catch (error) {
+                    console.error('Error fetching config:', error);
+                    res.status(500).json({ message: 'Error fetching config' });
+                }
             });
-            history = storedMessages.map(m => ({
-                role: m.sender === 'user' ? 'user' : 'assistant',
-                content: m.text
-            }));
-            console.log(`[Webhook] Fetched ${history.length} msgs of history for ${dbSessionId}`);
-        }
 
-        // Process Chat
-        // Pass dbSessionId to processChatResponse if needed, but we don't really use it there except for logging.
-        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 } = await processChatResponse(config, userMessage, history, dbSessionId);
 
-        console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
 
-        // Persist Chat
-        try {
-            await prisma.testMessage.create({
-                data: { companyId, sender: 'user', text: userMessage, sessionId: String(dbSessionId), metadata }
+            // --- Chat Endpoint (Protected - Panel Test) ---
+            app.post('/api/chat', authenticateToken, async (req, res) => {
+                const companyId = req.user.companyId;
+                const { message, history, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
+
+                if (!message) return res.status(400).json({ error: 'Message required' });
+
+                try {
+                    const config = await getCompanyConfig(companyId);
+
+                    // Allow override for Test Panel
+                    if (!useConfigPrompt && overridePrompt) {
+                        config.systemPrompt = overridePrompt;
+                    }
+
+                    const { aiResponse, audioBase64, productImageUrl } = await processChatResponse(config, message, history, null);
+
+                    // Persist Chat (Test Mode - No Session)
+                    try {
+                        await prisma.testMessage.create({ data: { companyId, sender: 'user', text: message } });
+                        await prisma.testMessage.create({ data: { companyId, sender: 'ai', text: aiResponse } });
+                    } catch (dbError) {
+                        console.error('Failed to save chat history:', dbError);
+                    }
+
+                    res.json({ response: aiResponse, audio: audioBase64, image: productImageUrl });
+
+                } catch (error) {
+                    console.error('Chat API Error:', error);
+                    res.status(500).json({ error: error.message || 'Error processing chat' });
+                }
             });
-            await prisma.testMessage.create({
-                data: { companyId, sender: 'ai', text: aiResponse, sessionId: String(dbSessionId) }
+
+            app.get('/api/chat/history', authenticateToken, async (req, res) => {
+                try {
+                    const history = await prisma.testMessage.findMany({
+                        where: { companyId: req.user.companyId },
+                        orderBy: { createdAt: 'asc' }, // Oldest first
+                        take: 50 // Limit to last 50
+                    });
+
+                    // Map to frontend format
+                    const formatted = history.map(h => ({
+                        id: h.id, // String UUID
+                        sender: h.sender,
+                        text: h.text
+                    }));
+
+                    res.json(formatted);
+                } catch (error) {
+                    console.error('Error fetching chat history:', error);
+                    res.status(500).json({ message: 'Failed to fetch history' });
+                }
             });
-        } catch (dbError) {
-            console.error('[Webhook] Failed to save chat:', dbError);
-        }
 
-        // --- REPLY STRATEGY ---
-        let sentViaApi = false;
-        if (config.prompUuid && config.prompToken) {
-            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
-            console.log(`[Webhook] Sent via API: ${sentViaApi}`);
-        } else {
-            console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
-        }
 
-        if (sentViaApi) {
-            res.json({ status: 'sent_via_api' });
-        } else {
-            res.json({
-                text: aiResponse,
-                audio: audioBase64,
-                image: productImageUrl,
-                sessionId: sessionId
+            // --- PROMP API INTEGRATION ---
+
+            const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
+            // MUST be set in .env on the server
+            const PROMP_ADMIN_TOKEN = process.env.PROMP_ADMIN_TOKEN;
+
+            const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, caption, pdfBase64 = null) => {
+                if (!config.prompUuid || !config.prompToken) {
+                    console.log('[Promp] Skipping external API execution (Credentials missing).');
+                    return false;
+                }
+
+                // Removing '55' prefix if exists (Promp API usually handles it, or check documentation)
+                // Postman doc example: "5515998566622". Okay, keep it.
+
+                // 1. Send Text (ONLY if no audio AND no PDF, to avoid duplication or mixed content issues)
+                // Actually, if we have PDF, we might want to send the text caption separately or as caption.
+                // For PDF, caption is usually supported.
+                if (!audioBase64 && !pdfBase64) {
+                    try {
+                        console.log(`[Promp] Sending Text to ${number}...`);
+                        const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${config.prompToken}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                number: number,
+                                body: text,
+                                externalKey: `ai_${Date.now()}`,
+                                isClosed: false
+                            })
+                        });
+
+                        if (!textResponse.ok) {
+                            console.error('[Promp] Text Send Failed:', await textResponse.text());
+                        }
+                    } catch (e) {
+                        console.error('[Promp] Text Exception:', e);
+                    }
+                } else {
+                    if (pdfBase64) console.log(`[Promp] Sending PDF, skipping separate text message.`);
+                    else console.log(`[Promp] Skipping text message because audio is being sent.`);
+                }
+
+                // 2. Send Image (Hybrid: URL vs Base64 vs Local File)
+                if (imageUrl) {
+                    try {
+                        let finalImageUrl = imageUrl.trim();
+                        const isDataUri = finalImageUrl.startsWith('data:');
+                        const isHttpUrl = finalImageUrl.startsWith('http://') || finalImageUrl.startsWith('https://');
+
+                        console.log(`[Promp] Processing Image. Type: ${isDataUri ? 'Base64' : (isHttpUrl ? 'Remote URL' : 'Local File')}`);
+                        console.log(`[Promp] Raw Image String (First 50 chars): ${finalImageUrl.substring(0, 50)}...`);
+
+                        if (isDataUri) {
+                            // --- CASE A: Base64 Data URI ---
+                            const matches = finalImageUrl.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+                            if (matches && matches.length === 3) {
+                                const mimeType = matches[1];
+                                const base64Data = matches[2];
+                                const ext = mimeType.split('/')[1] || 'jpg';
+                                const fileName = `image_${Date.now()}.${ext}`;
+
+                                console.log(`[Promp] Sending via /base64 endpoint (Data URI). Mime: ${mimeType}`);
+
+                                await sendBase64Image(config, number, base64Data, mimeType, fileName, caption);
+                            } else {
+                                console.error('[Promp] Invalid Data URI format.');
+                            }
+
+                        } else if (isHttpUrl) {
+                            // --- CASE B: Remote URL ---
+                            console.log(`[Promp] Sending via /url endpoint: ${finalImageUrl}`);
+                            const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/url`, {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Bearer ${config.prompToken}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    number: number,
+                                    body: caption || "",
+                                    mediaUrl: finalImageUrl,
+                                    externalKey: `ai_img_${Date.now()}`
+                                })
+                            });
+
+                            if (!imgResponse.ok) {
+                                const errRes = await imgResponse.text();
+                                console.error('[Promp] Remote URL Image Send Failed:', errRes);
+                            } else {
+                                console.log('[Promp] SUCCESS: Image sent via URL endpoint.');
+                            }
+
+                        } else {
+                            // --- CASE C: Local File Path ---
+                            // Try to resolve path relative to project root or use absolute path
+                            // config/index.js is in 'server', so project root is '..'
+                            // But better to check absolute first.
+
+                            try {
+                                let filePath = finalImageUrl;
+                                // If relative, assume relative to project root NOT server dir 
+                                // (images usually in stored in public or uploads at root)
+                                if (!path.isAbsolute(filePath)) {
+                                    filePath = path.join(__dirname, '..', filePath);
+                                }
+
+                                console.log(`[Promp] Handling Local File: ${filePath}`);
+
+                                // define mimeType mapping
+                                const ext = path.extname(filePath).toLowerCase().replace('.', '');
+                                const mimeTypes = {
+                                    'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+                                    'png': 'image/png', 'gif': 'image/gif',
+                                    'webp': 'image/webp'
+                                };
+                                const mimeType = mimeTypes[ext] || 'application/octet-stream';
+
+                                const fileBuffer = await fs.readFile(filePath);
+                                const base64Data = fileBuffer.toString('base64');
+                                const fileName = path.basename(filePath);
+
+                                console.log(`[Promp] Local file read success. Size: ${base64Data.length}. Sending via /base64...`);
+                                await sendBase64Image(config, number, base64Data, mimeType, fileName, caption);
+
+                            } catch (readErr) {
+                                console.error('[Promp] Failed to read local image file:', readErr);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[Promp] Image Send Exception:', e);
+                    }
+                }
+
+                // Helper function for Base64 sending
+                async function sendBase64Image(config, number, base64Data, mimeType, fileName, caption) {
+                    const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${config.prompToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            number: number,
+                            body: caption || "",
+                            base64Data: base64Data,
+                            mimeType: mimeType,
+                            fileName: fileName,
+                            externalKey: `ai_img_${Date.now()}`,
+                            isClosed: false
+                        })
+                    });
+
+                    if (!imgResponse.ok) {
+                        const errRes = await imgResponse.text();
+                        console.error('[Promp] Base64 Image Send Failed:', errRes);
+                    } else {
+                        console.log('[Promp] SUCCESS: Image sent via Base64 endpoint.');
+                    }
+                }
+
+
+                // 3. Send Audio (if exists)
+                if (audioBase64) {
+                    // We need to upload file or send as base64. 
+                    // Postman "SendMessageAPITextBase64" endpoint exists: /base64
+                    try {
+                        console.log(`[Promp] Sending Audio to ${number}...`);
+                        const audioResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${config.prompToken}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                number: number,
+                                body: "Áudio da IA", // Caption
+                                base64Data: audioBase64,
+                                mimeType: "audio/mp3", // ElevenLabs output
+                                fileName: `audio_ia_${Date.now()}.mp3`,
+                                externalKey: `ai_audio_${Date.now()}`,
+                                isClosed: false
+                            })
+                        });
+
+                        if (!audioResponse.ok) {
+                            console.error('[Promp] Audio Send Failed:', await audioResponse.text());
+                        } else {
+                            console.log('[Promp] Audio Sent Successfully');
+                        }
+                    } catch (e) {
+                        console.error('[Promp] Audio Exception:', e);
+                    }
+                }
+
+                return true;
+            };
+
+            app.post('/api/promp/connect', authenticateToken, async (req, res) => {
+                // SessionID manual input support
+                const { identity, sessionId } = req.body;
+                const companyId = req.user.companyId;
+
+                if (!PROMP_ADMIN_TOKEN) {
+                    return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
+                }
+
+                try {
+                    console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
+
+                    // 1. List Tenants to get IDs
+                    const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
+                        headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
+                    });
+
+                    if (!tenantsRes.ok) throw new Error('Failed to list tenants');
+
+                    const tenantsData = await tenantsRes.json();
+                    const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
+
+                    console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
+
+                    // 2. Parallel Fetch Details (identity is only in detailed view)
+                    const detailPromises = tenantListBasic.map(async (t) => {
+                        try {
+                            const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
+                                method: 'POST',
+                                headers: {
+                                    'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ id: t.id })
+                            });
+                            if (!res.ok) return null;
+                            const json = await res.json();
+                            const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
+                            return tenantObj || json;
+                        } catch (e) {
+                            return null;
+                        }
+                    });
+
+                    const detailedTenants = await Promise.all(detailPromises);
+
+                    // Exact match on identity string (Sanitized)
+                    const sanitize = (str) => String(str || '').replace(/\D/g, '');
+                    const targetIdentity = sanitize(identity);
+
+                    const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
+
+                    if (!targetTenant) {
+                        console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
+                        return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
+                    }
+
+                    console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
+
+                    // 3. Create API (Best Effort)
+                    const apiName = "Agente IA Auto";
+
+                    // Priority: Manual Session ID > Tenant ID (Fallback)
+                    // If manual sessionId is provided, use it blindly.
+                    // If not, use tenant.id (which failed before, but is the best guess if no other option).
+                    const finalSessionId = sessionId || targetTenant.id;
+
+                    const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            name: apiName,
+                            sessionId: finalSessionId,
+                            userId: targetTenant.adminId || 1,
+                            authToken: Math.random().toString(36).substring(7),
+                            tenant: targetTenant.id
+                        })
+                    });
+
+                    let apiData = await createApiRes.json();
+
+                    if (!createApiRes.ok || !apiData.id) {
+                        console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
+                        return res.status(400).json({
+                            message: `Falha ao criar API Key (Sessão inválida?). Tente informar o ID da Sessão/Conexão manualmente no campo ao lado.`
+                        });
+                    }
+
+                    // SAVE TO DB
+                    await prisma.agentConfig.update({
+                        where: { companyId },
+                        data: {
+                            prompIdentity: identity,
+                            prompUuid: apiData.id,
+                            prompToken: apiData.token
+                        }
+                    });
+
+                    res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
+
+                } catch (error) {
+                    console.error('Promp Connect Error:', error);
+                    res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+                }
             });
-        }
 
-    } catch (error) {
-        console.error('[Webhook] Error:', error);
-        res.status(500).json({ error: error.message || 'Processing failed' });
-    }
-});
 
-// Handle React Routing (SPA) - must be the last route
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../dist/index.html'));
-});
+            // --- Webhook Integration (Public) ---
+            app.post('/webhook/:companyId', async (req, res) => {
+                const { companyId } = req.params;
+                const payload = req.body; // n8n payload
 
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-});
+                console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
+
+                // Validate Payload & Ignore "fromMe" (Sent by us/AI)
+                const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe;
+
+                if (isFromMe) {
+                    console.log('[Webhook] Ignoring message sent by me (fromMe=true).');
+                    return res.json({ status: 'ignored_from_me' });
+                }
+
+                // Check for Status Updates (Delivery, Read) - Ignore them
+                if (payload.type === 'message_status' || payload.status || (payload.messageType && payload.messageType !== 'conversation' && payload.messageType !== 'extendedTextMessage')) {
+                    // Be careful not to ignore text if type is missing, but usually type='message_status' is clear.
+                    if (payload.type === 'message_status') {
+                        console.log('[Webhook] Ignoring status update.');
+                        return res.json({ status: 'ignored_status_update' });
+                    }
+                }
+
+                // Safety Check for Content
+                // Wuzapi: payload.data.message.conversation OR payload.content.text
+                let userMessage = payload.content?.text || payload.data?.message?.conversation || payload.data?.message?.extendedTextMessage?.text;
+
+                if (!userMessage) {
+                    // If it's a media message or something else we don't support yet, ignore gracefully
+                    console.log('[Webhook] Payload missing text content. Ignoring.');
+                    return res.json({ status: 'ignored_no_text' });
+                }
+
+                // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
+                const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
+                const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid;
+
+                // Clean Sender Number if it has @s.whatsapp.net
+                const cleanNumber = senderNumber ? String(senderNumber).replace('@s.whatsapp.net', '') : null;
+
+                if (!cleanNumber) {
+                    console.log('[Webhook] No specific sender number found. Ignoring.');
+                    return res.json({ status: 'ignored_no_number' });
+                }
+
+                const metadata = JSON.stringify(payload);
+
+                try {
+                    const config = await getCompanyConfig(companyId);
+                    if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
+
+                    console.log(`[Webhook] Processing message for ${cleanNumber}: "${userMessage.substring(0, 50)}..."`);
+
+                    // Fetch History
+                    let history = [];
+
+                    // STRATEGY: Try fetching by sessionId. If fails (or sessionId null), try fetching by senderNumber (via metadata or new field... but metadata is lazy).
+                    // Let's rely on sessionId first. If sessionId is missing, we MIGHT lose history.
+                    // However, if the webhook provides ticket.id (which it seems to), we are good.
+                    // Issue: Previous logs show ticket.id changing.
+                    // Fallback: Query by metadata contains senderNumber? No, too slow.
+                    // Fix: Use sessionId (ticket.id) if available. If ticket.id IS available, trust it.
+                    // If ticket.id changes, it might be a new ticket/support case.
+                    // BUT, for a persistent AI, we might want to fetch history by 'sender' NOT 'sessionId'.
+                    // Let's Try: Find messages where companyId matches and metadata CONTAINS cleanNumber. (Slow regex)
+                    // BETTER: Use 'sessionId' field in DB to store 'cleanNumber' as a fallback identifier if ticket ID is unstable?
+                    // NO, 'sessionId' is for ticket grouping.
+                    // Let's stick to sessionId for now but improve the lookup debugging.
+
+                    let lookupId = sessionId ? String(sessionId) : null;
+
+                    // Hack for Promp/Uazapi: If ticket ID changes effectively, maybe we should use the phone number as the session ID for the AI memory?
+                    // If we use cleanNumber as sessionId, memory persists across tickets!
+                    // This solves "New Ticket = Context Loss".
+                    // Let's try using cleanNumber as the memory key primarily, OR combine them.
+                    // DECISION: Use cleanNumber as the 'sessionId' for AI memory purposes (DB storage).
+                    // This ensures the AI remembers the user regardless of the support ticket status.
+                    const dbSessionId = cleanNumber; // Using Phone Number as Session ID for persistence
+
+                    if (dbSessionId) {
+                        const storedMessages = await prisma.testMessage.findMany({
+                            where: { companyId, sessionId: String(dbSessionId) },
+                            orderBy: { createdAt: 'asc' },
+                            take: 20
+                        });
+                        history = storedMessages.map(m => ({
+                            role: m.sender === 'user' ? 'user' : 'assistant',
+                            content: m.text
+                        }));
+                        console.log(`[Webhook] Fetched ${history.length} msgs of history for ${dbSessionId}`);
+                    }
+
+                    // Process Chat
+                    // Pass dbSessionId to processChatResponse if needed, but we don't really use it there except for logging.
+                    const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 } = await processChatResponse(config, userMessage, history, dbSessionId);
+
+                    console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
+
+                    // Persist Chat
+                    try {
+                        await prisma.testMessage.create({
+                            data: { companyId, sender: 'user', text: userMessage, sessionId: String(dbSessionId), metadata }
+                        });
+                        await prisma.testMessage.create({
+                            data: { companyId, sender: 'ai', text: aiResponse, sessionId: String(dbSessionId) }
+                        });
+                    } catch (dbError) {
+                        console.error('[Webhook] Failed to save chat:', dbError);
+                    }
+
+                    // --- REPLY STRATEGY ---
+                    let sentViaApi = false;
+                    if (config.prompUuid && config.prompToken) {
+                        sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
+                        console.log(`[Webhook] Sent via API: ${sentViaApi}`);
+                    } else {
+                        console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
+                    }
+
+                    if (sentViaApi) {
+                        res.json({ status: 'sent_via_api' });
+                    } else {
+                        res.json({
+                            text: aiResponse,
+                            audio: audioBase64,
+                            image: productImageUrl,
+                            sessionId: sessionId
+                        });
+                    }
+
+                } catch (error) {
+                    console.error('[Webhook] Error:', error);
+                    res.status(500).json({ error: error.message || 'Processing failed' });
+                }
+            });
+
+            // Handle React Routing (SPA) - must be the last route
+            app.get('*', (req, res) => {
+                res.sendFile(path.join(__dirname, '../dist/index.html'));
+            });
+
+            app.listen(PORT, () => {
+                console.log(`Server running on http://localhost:${PORT}`);
+            });
