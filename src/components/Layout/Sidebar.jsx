@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Settings, Moon, Sun, Shield } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Settings, Moon, Sun, Shield, Lock } from 'lucide-react';
 import styles from './Sidebar.module.css';
 import logo from '../../assets/logo.png';
 import logoDark from '../../assets/logo-dark.png';
