@@ -37,7 +37,8 @@ const AIConfig = () => {
 
                     if (data.knowledgeBase) {
                         setFiles(data.knowledgeBase.files || []);
-                        setLinks((data.knowledgeBase.links || []).map(l => typeof l === 'object' ? l.url : l));
+                        // Fix: Store full objects to preserve scraped content
+                        setLinks((data.knowledgeBase.links || []).map(l => typeof l === 'string' ? { url: l, content: '' } : l));
                         setQa(data.knowledgeBase.qa || []);
                     }
                 }

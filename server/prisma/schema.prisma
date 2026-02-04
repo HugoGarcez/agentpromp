@@ -59,6 +59,8 @@ model PromptHistory {
   createdAt     DateTime    @default(now())
 }
 
+
+
 model TestMessage {
   id        String   @id @default(uuid())
   companyId String
@@ -67,4 +69,13 @@ model TestMessage {
   sessionId String?  // Optional: For grouping messages by ticket/session (e.g. from Webhook)
   metadata  String?  // Optional: JSON string for extra data (e.g. n8n payload)
   createdAt DateTime @default(now())
+}
+
+model GlobalConfig {
+  id                String   @id @default(uuid())
+  openaiKey         String?
+  geminiKey         String?
+  elevenLabsKey     String?
+  elevenLabsVoiceId String?
+  updatedAt         DateTime @updatedAt
 }

@@ -10,6 +10,7 @@ import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import AdminDashboard from './pages/AdminDashboard';
+import AdminConfig from './pages/AdminConfig';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -60,16 +61,20 @@ function App() {
               <Route path="products" element={<ProductConfig />} />
               <Route path="settings" element={<Settings />} />
 
-              <Route path="admin" element={
-                <AdminRoute>
-                  <AdminDashboard />
-                </AdminRoute>
+              <AdminDashboard />
+            </AdminRoute>
               } />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      </AuthProvider>
-    </ThemeProvider>
+
+            <Route path="admin-config" element={
+              <AdminRoute>
+                <AdminConfig />
+              </AdminRoute>
+            } />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+    </ThemeProvider >
   );
 }
 

@@ -24,7 +24,7 @@ const QATab = ({ qaList = [], onUpdate }) => {
                     <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Pergunta</label>
                     <input
                         type="text"
-                        placeholder="Ex: Qual o horário de atendimento?"
+                        placeholder="Ex: Qual o horário de atendimento? / Entregam em todo Brasil?"
                         value={question}
                         onChange={(e) => setQuestion(e.target.value)}
                         style={{
@@ -39,7 +39,7 @@ const QATab = ({ qaList = [], onUpdate }) => {
                 <div style={{ marginBottom: '16px' }}>
                     <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Resposta</label>
                     <textarea
-                        placeholder="Ex: Nosso atendimento é das 9h às 18h."
+                        placeholder="Ex: Funcionamos de seg a sex das 9h às 18h. Entregamos via Correios para todo o país."
                         value={answer}
                         onChange={(e) => setAnswer(e.target.value)}
                         rows={4}

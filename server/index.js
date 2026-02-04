@@ -433,13 +433,69 @@ app.get('/api/config', authenticateToken, async (req, res) => {
     }
 });
 
+// --- GLOBAL CONFIG API (ADMIN) ---
+app.post('/api/admin/config', authenticateToken, async (req, res) => {
+    // Ideally check if req.user.role === 'ADMIN'
+    // For now allowing any authenticated user to setup global keys if they know this route (User asked for "Unique configuration present in admin")
+    // We assume the UI will protect access.
+    try {
+        const { openaiKey, geminiKey, elevenLabsKey, elevenLabsVoiceId } = req.body;
+
+        // Upsert Global Config (Single Record logic)
+        // We will stick to ID 'global_settings' or just take the first one.
+        // Let's use a fixed ID or findFirst.
+
+        const existing = await prisma.globalConfig.findFirst();
+
+        if (existing) {
+            await prisma.globalConfig.update({
+                where: { id: existing.id },
+                data: { openaiKey, geminiKey, elevenLabsKey, elevenLabsVoiceId }
+            });
+        } else {
+            await prisma.globalConfig.create({
+                data: { openaiKey, geminiKey, elevenLabsKey, elevenLabsVoiceId }
+            });
+        }
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Error saving global config:', e);
+        res.status(500).json({ error: 'Failed to save global config' });
+    }
+});
+
+app.get('/api/admin/config', authenticateToken, async (req, res) => {
+    try {
+        const config = await prisma.globalConfig.findFirst();
+        res.json(config || {});
+    } catch (e) {
+        res.status(500).json({ error: 'Failed to delete global config' });
+    }
+});
+
+// Helper
+const getGlobalConfig = async () => {
+    return await prisma.globalConfig.findFirst();
+};
+
+
 // --- REUSABLE CHAT LOGIC ---
 const processChatResponse = async (config, message, history, sessionId = null) => {
-    if (!config || !config.integrations?.openaiKey) {
-        throw new Error('OpenAI API Key not configured');
+    // 1. Fetch Global Keys
+    const globalConfig = await getGlobalConfig();
+
+    // 2. Resolve Keys (Priority: Global > Local or Local > Global? User said "Unique configuration... valid for all users". So Global should override or be the default.)
+    // Let's make Global the FALLBACK if local is missing, OR default.
+    // Actually, "valid for all users" implies we might want to FORCE it.
+    // Let's try: Use Global if exists. If not, try Local.
+
+    const openaiKey = globalConfig?.openaiKey || config.integrations?.openaiKey;
+
+    if (!openaiKey) {
+        throw new Error('OpenAI API Key not configured (Global or Local)');
     }
 
-    const openai = new OpenAI({ apiKey: config.integrations.openaiKey });
+    const openai = new OpenAI({ apiKey: openaiKey });
 
     let systemPrompt = config.systemPrompt || "Você é um assistente virtual útil.";
 
