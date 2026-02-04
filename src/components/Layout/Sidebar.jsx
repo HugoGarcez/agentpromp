@@ -50,11 +50,15 @@ const Sidebar = () => {
           <span>Produtos</span>
         </NavLink>
 
-        {/* Placeholder for other items from reference */}
-        <div className={styles.navItem}>
+        <a
+          href="https://app.promp.com.br/#/chats/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.navItem}
+        >
           <MessageSquare size={20} className={styles.navIcon} />
           <span>Atendimento</span>
-        </div>
+        </a>
 
         <NavLink
           to="/settings"
