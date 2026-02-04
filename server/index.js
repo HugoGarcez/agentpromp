@@ -845,16 +845,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
                 }
             });
 
-            app.get('/api/config', authenticateToken, async (req, res) => {
-                const companyId = req.user.companyId;
-                try {
-                    const config = await getCompanyConfig(companyId);
-                    res.json(config || {});
-                } catch (error) {
-                    console.error('Error fetching config:', error);
-                    res.status(500).json({ message: 'Error fetching config' });
-                }
-            });
+
 
 
 
@@ -1370,3 +1361,4 @@ const processChatResponse = async (config, message, history, sessionId = null) =
             app.listen(PORT, () => {
                 console.log(`Server running on http://localhost:${PORT}`);
             });
+        }
