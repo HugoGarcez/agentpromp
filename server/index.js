@@ -10,6 +10,8 @@ import { promises as fs } from 'fs';
 import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+import axios from 'axios';
+import FormData from 'form-data';
 
 // Load environment variables
 dotenv.config();
@@ -602,9 +604,15 @@ const processChatResponse = async (config, message, history, sessionId = null) =
             const aiContent = (lastAiMsg.content || '').toLowerCase();
             const userContent = (message || '').toLowerCase();
 
-            // Check if AI offered PDF recently (keywords: pdf AND question words)
-            // Or just mentions PDF and is a question
-            if (aiContent.includes('pdf') && (aiContent.includes('?') || aiContent.includes('gostaria') || aiContent.includes('quer'))) {
+            // Check if AI offered PDF recently (keywords: pdf OR generic file terms AND question words)
+            // Keywords: pdf, arquivo, material, lâmina, apresentação, catálogo
+            const fileKeywords = ['pdf', 'arquivo', 'material', 'lâmina', 'apresentação', 'catalogo', 'catálogo'];
+            const questionKeywords = ['?', 'gostaria', 'quer', 'deseja', 'posso', 'enviar'];
+
+            const hasFileKeyword = fileKeywords.some(kw => aiContent.includes(kw));
+            const hasQuestionKeyword = questionKeywords.some(kw => aiContent.includes(kw));
+
+            if (hasFileKeyword && hasQuestionKeyword) {
 
                 // Check if User accepted
                 const acceptanceKeywords = ['sim', 'quero', 'pode', 'manda', 'gostaria', 'yes', 'ok'];
@@ -902,6 +910,40 @@ const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
 // MUST be set in .env on the server
 const PROMP_ADMIN_TOKEN = process.env.PROMP_ADMIN_TOKEN;
 
+// --- MULTIPART MEDIA SENDER (New Strategy) ---
+const sendPrompMedia = async (config, number, fileBuffer, fileName, mimeType, caption) => {
+    if (!config.prompUuid || !config.prompToken) return false;
+
+    try {
+        const form = new FormData();
+        form.append('number', number);
+        form.append('body', caption || "Arquivo enviado");
+        form.append('externalKey', `media_${Date.now()}`);
+        form.append('isClosed', 'false');
+
+        // Specific field 'media' as requested
+        form.append('media', fileBuffer, {
+            filename: fileName,
+            contentType: mimeType
+        });
+
+        console.log(`[Promp] Uploading Multipart Media (${fileName}) to ${number}...`);
+
+        const response = await axios.post(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, form, {
+            headers: {
+                'Authorization': `Bearer ${config.prompToken}`,
+                ...form.getHeaders()
+            }
+        });
+
+        console.log('[Promp] Multipart Upload Success:', response.data);
+        return true;
+    } catch (error) {
+        console.error('[Promp] Multipart Upload Failed:', error.response ? error.response.data : error.message);
+        return false;
+    }
+};
+
 const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, caption, pdfBase64 = null) => {
     if (!config.prompUuid || !config.prompToken) {
         console.log('[Promp] Skipping external API execution (Credentials missing).');
@@ -940,6 +982,21 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
     } else {
         if (pdfBase64) console.log(`[Promp] Sending PDF, skipping separate text message.`);
         else console.log(`[Promp] Skipping text message because audio is being sent.`);
+    }
+
+    // 4. Send PDF (Multipart Strategy)
+    if (pdfBase64) {
+        try {
+            console.log(`[Promp] Preparing PDF for Multipart Upload to ${number}...`);
+            let cleanPdf = pdfBase64.replace(/^data:application\/pdf;base64,/, '').trim();
+            cleanPdf = cleanPdf.replace(/[\r\n]+/g, '');
+
+            const pdfBuffer = Buffer.from(cleanPdf, 'base64');
+
+            await sendPrompMedia(config, number, pdfBuffer, `documento_${Date.now()}.pdf`, 'application/pdf', caption || "Segue o PDF solicitado.");
+        } catch (e) {
+            console.error('[Promp] PDF Send Exception:', e);
+        }
     }
 
     // 2. Send Image (Hybrid: URL vs Base64 vs Local File)
