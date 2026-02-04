@@ -122,6 +122,12 @@ const Login = () => {
                         />
                     </div>
 
+                    <div style={{ textAlign: 'right', marginBottom: '24px' }}>
+                        <a href="/forgot-password" style={{ fontSize: '14px', color: 'var(--primary-blue)', textDecoration: 'none' }}>
+                            Esqueci minha senha
+                        </a>
+                    </div>
+
                     <button
                         type="submit"
                         style={{

@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 .env
 debug_output.json
+reset_pass.js
+server/reset_pass.js

@@ -7,6 +7,8 @@ import ProductConfig from './pages/ProductConfig';
 import TestAI from './pages/TestAI';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import AdminDashboard from './pages/AdminDashboard';
 
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -44,6 +46,8 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
 
             <Route path="/" element={
               <PrivateRoute>

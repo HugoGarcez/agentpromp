@@ -7,7 +7,13 @@ import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { promises as fs } from 'fs';
+import bcrypt from 'bcryptjs';
+import { promises as fs } from 'fs';
 import dotenv from 'dotenv';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 
 // Load environment variables
 dotenv.config();
@@ -124,6 +130,88 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
 
 
 
+
+
+// --- Forgot Password Routes ---
+
+// Email Transporter Config
+const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    port: process.env.SMTP_PORT || 587,
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+    },
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    try {
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user) return res.status(404).json({ message: 'Email não encontrado' });
+
+        // Generate Token
+        const token = crypto.randomBytes(20).toString('hex');
+        const expires = new Date(Date.now() + 3600000); // 1 hour
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                resetToken: token,
+                resetTokenExpires: expires
+            }
+        });
+
+        // Use FRONTEND_URL or fallback to localhost
+        const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+
+        await transporter.sendMail({
+            from: process.env.SMTP_FROM || '"Promp AI" <noreply@promp.com.br>',
+            to: email,
+            subject: 'Recuperação de Senha - Promp AI',
+            html: `<p>Você solicitou a redefinição de senha.</p>
+                   <p>Clique no link abaixo para criar uma nova senha:</p>
+                   <a href="${resetLink}">${resetLink}</a>
+                   <p>Este link expira em 1 hora.</p>`
+        });
+
+        res.json({ message: 'Email de recuperação enviado.' });
+    } catch (error) {
+        console.error('Forgot Password Error:', error);
+        res.status(500).json({ message: 'Erro ao processar solicitação' });
+    }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+    const { token, newPassword } = req.body;
+    try {
+        const user = await prisma.user.findFirst({
+            where: {
+                resetToken: token,
+                resetTokenExpires: { gt: new Date() }
+            }
+        });
+
+        if (!user) return res.status(400).json({ message: 'Token inválido ou expirado' });
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        await prisma.user.update({
+            where: { id: user.id },
+            data: {
+                password: hashedPassword,
+                resetToken: null,
+                resetTokenExpires: null
+            }
+        });
+
+        res.json({ message: 'Senha redefinida com sucesso' });
+    } catch (error) {
+        console.error('Reset Password Error:', error);
+        res.status(500).json({ message: 'Erro ao redefinir senha' });
+    }
+});
 
 
 // --- Admin Routes ---

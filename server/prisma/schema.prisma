@@ -25,6 +25,10 @@ model User {
   company   Company  @relation(fields: [companyId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  
+  // Password Reset
+  resetToken        String? // Hashed or raw token
+  resetTokenExpires DateTime?
 }
 
 model AgentConfig {
