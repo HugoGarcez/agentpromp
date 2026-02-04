@@ -7,11 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { promises as fs } from 'fs';
-import bcrypt from 'bcryptjs';
-import { promises as fs } from 'fs';
 import dotenv from 'dotenv';
-import nodemailer from 'nodemailer';
-import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 
