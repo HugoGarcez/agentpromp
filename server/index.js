@@ -1333,42 +1333,59 @@ app.post('/webhook/:companyId', async (req, res) => {
         // NO, 'sessionId' is for ticket grouping.
         // Let's stick to sessionId for now but improve the lookup debugging.
 
-        let lookupId = sessionId ? String(sessionId) : null;
+        // --- DATABASE MEMORY FIX (Persistent Session + Chronological Order) ---
+        // 1. Session ID: Use cleanNumber (Phone) if available to ensure persistence across tickets.
+        //    Fallback to ticket.id if needed, but phone is better for long-term memory.
+        const dbSessionId = cleanNumber || sessionId || 'unknown_session';
 
-        // Hack for Promp/Uazapi: If ticket ID changes effectively, maybe we should use the phone number as the session ID for the AI memory?
-        // If we use cleanNumber as sessionId, memory persists across tickets!
-        // This solves "New Ticket = Context Loss".
-        // Let's try using cleanNumber as the memory key primarily, OR combine them.
-        // DECISION: Use cleanNumber as the 'sessionId' for AI memory purposes (DB storage).
-        // This ensures the AI remembers the user regardless of the support ticket status.
-        const dbSessionId = cleanNumber; // Using Phone Number as Session ID for persistence
+        if (cleanNumber) {
+            try {
+                // 2. Fetch History: Get 20 *MOST RECENT* messages (descending)
+                const storedMessages = await prisma.testMessage.findMany({
+                    where: {
+                        companyId: String(companyId),
+                        sessionId: String(dbSessionId)
+                    },
+                    orderBy: { createdAt: 'desc' }, // Get newest first
+                    take: 20
+                });
 
-        if (dbSessionId) {
-            const storedMessages = await prisma.testMessage.findMany({
-                where: { companyId, sessionId: String(dbSessionId) },
-                orderBy: { createdAt: 'asc' },
-                take: 20
-            });
-            history = storedMessages.map(m => ({
-                role: m.sender === 'user' ? 'user' : 'assistant',
-                content: m.text
-            }));
-            console.log(`[Webhook] Fetched ${history.length} msgs of history for ${dbSessionId}`);
+                // 3. Reverse to Chronological Order for OpenAI (Oldest -> Newest)
+                history = storedMessages.reverse().map(m => ({
+                    role: m.sender === 'user' ? 'user' : 'assistant',
+                    content: m.text
+                }));
+
+                console.log(`[Webhook] Fetched ${history.length} msgs of Persistent History for ${dbSessionId}`);
+            } catch (histError) {
+                console.error('[Webhook] History Fetch Error:', histError);
+            }
         }
 
         // Process Chat
-        // Pass dbSessionId to processChatResponse if needed, but we don't really use it there except for logging.
+        // Pass dbSessionId for logging context
         const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 } = await processChatResponse(config, userMessage, history, dbSessionId);
 
         console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
 
-        // Persist Chat
+        // Persist Chat (Using Persistent Session ID)
         try {
             await prisma.testMessage.create({
-                data: { companyId, sender: 'user', text: userMessage, sessionId: String(dbSessionId), metadata }
+                data: {
+                    companyId: String(companyId),
+                    sender: 'user',
+                    text: userMessage, // Save raw user message (Sim). AI runtime context will handle the rest.
+                    sessionId: String(dbSessionId),
+                    metadata
+                }
             });
             await prisma.testMessage.create({
-                data: { companyId, sender: 'ai', text: aiResponse, sessionId: String(dbSessionId) }
+                data: {
+                    companyId: String(companyId),
+                    sender: 'ai',
+                    text: aiResponse,
+                    sessionId: String(dbSessionId)
+                }
             });
         } catch (dbError) {
             console.error('[Webhook] Failed to save chat:', dbError);
