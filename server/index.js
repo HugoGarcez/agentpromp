@@ -489,10 +489,12 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     // Actually, "valid for all users" implies we might want to FORCE it.
     // Let's try: Use Global if exists. If not, try Local.
 
-    const openaiKey = globalConfig?.openaiKey || config.integrations?.openaiKey;
+    // 2. STICT MODE: Use ONLY Global Keys.
+    // User Requirement: "Garanta que a IA só vai funcionar com a APi da config global"
+    const openaiKey = globalConfig?.openaiKey;
 
     if (!openaiKey) {
-        throw new Error('OpenAI API Key not configured (Global or Local)');
+        throw new Error('Global OpenAI API Key not configured by Admin.');
     }
 
     const openai = new OpenAI({ apiKey: openaiKey });

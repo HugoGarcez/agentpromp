@@ -125,6 +125,60 @@ const PromptTab = ({ systemPrompt, onPromptChange, persona, onPersonaChange }) =
                 </div>
             </div>
 
+            {/* Persona Settings UI */}
+            <div style={{
+                background: '#F9FAFB',
+                padding: '20px',
+                borderRadius: '8px',
+                border: '1px solid #E5E7EB',
+                marginBottom: '24px'
+            }}>
+                <h4 style={{ fontSize: '14px', fontWeight: 600, color: '#374151', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    ⚡ Configuração Rápida (Persona)
+                </h4>
+
+                <div style={{ display: 'grid', gap: '16px' }}>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: '#4B5563' }}>Nome do Agente</label>
+                        <input
+                            type="text"
+                            value={persona?.name || ''}
+                            onChange={(e) => onPersonaChange({ ...persona, name: e.target.value })}
+                            placeholder="Ex: Ana da Promp"
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: '#4B5563' }}>Função Principal</label>
+                            <select
+                                value={persona?.role || 'assistant'}
+                                onChange={(e) => onPersonaChange({ ...persona, role: e.target.value })}
+                                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', background: 'white' }}
+                            >
+                                <option value="support">Suporte Técnico</option>
+                                <option value="sales">Vendas & Conversão</option>
+                                <option value="assistant">Assistente Geral</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: '#4B5563' }}>Tom de Voz</label>
+                            <select
+                                value={persona?.tone || 'formal'}
+                                onChange={(e) => onPersonaChange({ ...persona, tone: e.target.value })}
+                                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', background: 'white' }}
+                            >
+                                <option value="friendly">Amigável 😄</option>
+                                <option value="formal">Formal 👔</option>
+                                <option value="enthusiastic">Entusiasmado 🚀</option>
+                                <option value="empathetic">Empático 🌿</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <textarea
                 value={systemPrompt || ''}
                 onChange={(e) => onPromptChange(e.target.value)}

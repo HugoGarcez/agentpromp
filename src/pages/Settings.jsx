@@ -3,7 +3,7 @@ import { Save, Bot, Cpu, Mic, Volume2, Globe } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Settings = () => {
-    const [activeSection, setActiveSection] = useState('persona');
+    const [activeSection, setActiveSection] = useState('integrations');
 
     // State for different settings
     const [persona, setPersona] = useState({
@@ -226,19 +226,7 @@ DIRETRIZES:
                 boxShadow: 'var(--shadow-sm)',
                 padding: '16px'
             }}>
-                <button
-                    onClick={() => setActiveSection('persona')}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '12px',
-                        borderRadius: 'var(--radius-md)', marginBottom: '4px',
-                        background: activeSection === 'persona' ? 'var(--primary-light)' : 'transparent',
-                        color: activeSection === 'persona' ? 'var(--primary-blue)' : 'var(--text-medium)',
-                        fontWeight: 500
-                    }}
-                >
-                    <Bot size={20} />
-                    Persona & IA
-                </button>
+
                 <button
                     onClick={() => setActiveSection('integrations')}
                     style={{
@@ -289,58 +277,7 @@ DIRETRIZES:
                 padding: '32px'
             }}>
 
-                {/* Persona Section */}
-                {activeSection === 'persona' && (
-                    <div>
-                        <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <Bot size={24} color="var(--primary-blue)" />
-                            Configuração da Persona
-                        </h2>
-
-                        <div style={{ display: 'grid', gap: '24px' }}>
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Nome do Agente</label>
-                                <input
-                                    type="text"
-                                    name="name"
-                                    value={persona.name}
-                                    onChange={handlePersonaChange}
-                                    style={{ width: '100%', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)' }}
-                                />
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Função Principal</label>
-                                    <select
-                                        name="role"
-                                        value={persona.role}
-                                        onChange={handlePersonaChange}
-                                        style={{ width: '100%', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)' }}
-                                    >
-                                        <option value="support">Suporte Técnico (Resolver problemas)</option>
-                                        <option value="sales">Vendas (Focar em conversão)</option>
-                                        <option value="assistant">Assistente Geral (Auxiliar)</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Tom de Voz</label>
-                                    <select
-                                        name="tone"
-                                        value={persona.tone}
-                                        onChange={handlePersonaChange}
-                                        style={{ width: '100%', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)' }}
-                                    >
-                                        <option value="friendly">Amigável e Casual</option>
-                                        <option value="formal">Profissional e Formal</option>
-                                        <option value="enthusiastic">Entusiasmado e Energético</option>
-                                        <option value="empathetic">Empático e Calmo</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                {/* Persona Section MOVED to AI Config */}
 
                 {/* Integrations Section (Now AI Status) */}
                 {activeSection === 'integrations' && (
