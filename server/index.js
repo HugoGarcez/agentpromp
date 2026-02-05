@@ -569,7 +569,8 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!".\n`;
         systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes de um serviço com [TEM_PDF], EXPLIQUE o serviço em texto e PERGUNTE: "Gostaria de receber o PDF com mais detalhes?". SE O CLIENTE CONFIRMAR, responda: "[SEND_PDF: ID] Enviando o arquivo...".\n`;
         systemPrompt += `3. PAGAMENTO: Se o cliente quiser comprar/contratar e o item tiver [TEM_LINK_PAGAMENTO], envie o link: "[LINK: URL_DO_PAGAMENTO] Clique aqui para finalizar.".\n`;
-        systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.`;
+        systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.\n`;
+        systemPrompt += `5. UNIDADES DE MEDIDA (CRÍTICO): Cada produto tem sua própria unidade (Unidade, Kg, Rolo, Metro, etc.). JAMAIS GENERALIZE. Se o Produto A é "Rolo" e o Produto B é "Kg", fale exatamente assim. Nunca diga que "todos são vendidos por rolo". Verifique item por item.`;
     }
 
     // Humanization & Memory Control
@@ -768,7 +769,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
         // Search in Parent Products or Variations
         for (const p of config.products) {
-            // Check Parent
+            // Check Parent (ID exact match)
             if (String(p.id) === String(targetId)) {
                 if (p.image) {
                     productImageUrl = p.image;
@@ -778,8 +779,23 @@ const processChatResponse = async (config, message, history, sessionId = null) =
                 }
             }
 
+            // Check Parent (Name loose match - Fallback)
+            // If the ID looks like a name (contains letters/spaces not typical for our IDs?)
+            // We just check if targetId string matches product name logic
+            if (!found && p.name.toLowerCase().includes(String(targetId).toLowerCase())) {
+                if (p.image) {
+                    productImageUrl = p.image;
+                    productCaption = `${p.name} - R$ ${p.price}`;
+                    found = true;
+                    // We don't break immediately in case there's a better ID match later? 
+                    // No, existing ID match loop prioritized. This is fallback.
+                    break;
+                }
+            }
+
             // Check Variations
             if (p.variantItems) {
+                // Check Variant ID
                 const variant = p.variantItems.find(v => String(v.id) === String(targetId));
                 if (variant && variant.image) {
                     productImageUrl = variant.image;
@@ -792,14 +808,15 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         }
 
         if (found) {
-            console.log(`[Chat] Found Product/Variant Image for ID ${targetId}`);
+            console.log(`[Chat] Found Product/Variant Image for Target '${targetId}'`);
             // Remove the tag successfully
-            aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
+            aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]?\\s*\\]`, 'gi'), '').trim();
         } else {
-            console.log(`[Chat] Image requested for ID ${targetId} but not found.`);
+            console.log(`[Chat] Image requested for Target '${targetId}' but not found.`);
             // REPLACEMENT FEEDBACK: Keep tag or show error
-            // We replace with a visible error to help debugging
-            aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ Imagem não encontrada: ${targetId})`);
+            // Escape regex special chars in targetId just in case
+            const safeId = targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${safeId}['"]?\\s*\\]`, 'gi'), `(❌ Imagem não encontrada: ${targetId})`);
         }
     }
 
