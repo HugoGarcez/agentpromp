@@ -1278,6 +1278,31 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
         // If not, use tenant.id (which failed before, but is the best guess if no other option).
         const finalSessionId = sessionId || targetTenant.id;
 
+        // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
+        // We must find a valid User ID *inside* this specific tenant.
+        let targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
+
+        // Inspect 'users' array if available
+        if (!targetUserId && Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
+            targetUserId = targetTenant.users[0].id;
+            console.log(`[Promp] Found User ID from 'users' array: ${targetUserId}`);
+        }
+
+        // Inspect 'admin' object if available
+        if (!targetUserId && targetTenant.admin && targetTenant.admin.id) {
+            targetUserId = targetTenant.admin.id;
+            console.log(`[Promp] Found User ID from 'admin' object: ${targetUserId}`);
+        }
+
+        // Final Fallback (Try 1, but warn)
+        if (!targetUserId) {
+            console.warn('[Promp] WARNING: No explicit User ID found in Tenant object. Defaulting to 1 (Risk of failure).');
+            console.log('[Promp] Tenant Keys:', Object.keys(targetTenant).join(', '));
+            targetUserId = 1;
+        }
+
+        console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
+
         const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
             method: 'POST',
             headers: {
@@ -1287,7 +1312,9 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             body: JSON.stringify({
                 name: apiName,
                 sessionId: finalSessionId,
-                userId: targetTenant.adminId || targetTenant.userId || targetTenant.ownerId || 1,
+                name: apiName,
+                sessionId: finalSessionId,
+                userId: targetUserId,
                 authToken: Math.random().toString(36).substring(7),
                 tenant: targetTenant.id
             })
