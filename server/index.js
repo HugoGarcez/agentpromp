@@ -1280,12 +1280,36 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
 
         // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
         // We must find a valid User ID *inside* this specific tenant.
-        let targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
 
-        // Inspect 'users' array if available
+        // Strategy 1: Match by Email (Identity Alignment)
+        // Check if the current logged-in Agent user exists in the Target Tenant's user list
+        let targetUserId = null;
+
+        try {
+            const currentUser = await prisma.user.findUnique({
+                where: { id: req.user.userId }
+            });
+
+            if (currentUser && currentUser.email && Array.isArray(targetTenant.users)) {
+                const matchedUser = targetTenant.users.find(u => u.email === currentUser.email);
+                if (matchedUser) {
+                    targetUserId = matchedUser.id;
+                    console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUser.email} -> User ID: ${targetUserId}`);
+                }
+            }
+        } catch (authErr) {
+            console.error('[Promp] Auth lookup failed (skipping email match):', authErr);
+        }
+
+        // Strategy 2: Admin/Owner Fallback (if no email match)
+        if (!targetUserId) {
+            targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
+        }
+
+        // Inspect 'users' array if available (Fallback to first user)
         if (!targetUserId && Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
             targetUserId = targetTenant.users[0].id;
-            console.log(`[Promp] Found User ID from 'users' array: ${targetUserId}`);
+            console.log(`[Promp] Found User ID from 'users' array (First User): ${targetUserId}`);
         }
 
         // Inspect 'admin' object if available
