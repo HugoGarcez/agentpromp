@@ -1329,8 +1329,9 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
                         });
                     }
                 } else {
-                    // If we can't validate, we should probably fail if strict, or warn. 
-                    return res.status(400).json({ message: `Não foi possível buscar a lista de usuários para validar o ID informado. Detalhes: ${fetchDebug || 'Retorno inválido da API'}` });
+                    // If we can't validate (API failure), TRUST THE USER.
+                    console.warn(`[Promp] Validation skipped (API error: ${fetchDebug || 'Unknown'}). Trusting Manual ID: ${manualIdInt}`);
+                    targetUserId = manualIdInt;
                 }
             }
         }
