@@ -1381,52 +1381,51 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             }
 
         }
-    }
 
         console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
 
-    const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            name: apiName,
-            sessionId: finalSessionId,
-            userId: targetUserId,
-            authToken: Math.random().toString(36).substring(7),
-            tenant: targetTenant.id
-        })
-    });
-
-    let apiData = await createApiRes.json();
-
-    if (!createApiRes.ok || !apiData.id) {
-        console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
-        // Return ACTUAL error from upstream + Context
-        return res.status(400).json({
-            message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
+        const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: apiName,
+                sessionId: finalSessionId,
+                userId: targetUserId,
+                authToken: Math.random().toString(36).substring(7),
+                tenant: targetTenant.id
+            })
         });
-    }
 
-    // SAVE TO DB
-    await prisma.agentConfig.update({
-        where: { companyId },
-        data: {
-            prompIdentity: identity,
-            prompUuid: apiData.id,
-            prompToken: apiData.token
+        let apiData = await createApiRes.json();
+
+        if (!createApiRes.ok || !apiData.id) {
+            console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
+            // Return ACTUAL error from upstream + Context
+            return res.status(400).json({
+                message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
+            });
         }
-    });
 
-    res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
+        // SAVE TO DB
+        await prisma.agentConfig.update({
+            where: { companyId },
+            data: {
+                prompIdentity: identity,
+                prompUuid: apiData.id,
+                prompToken: apiData.token
+            }
+        });
 
-} catch (error) {
-    console.error('Promp Connect Error:', error);
-    res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
-}
-    });
+        res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
+
+    } catch (error) {
+        console.error('Promp Connect Error:', error);
+        res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+    }
+});
 
 
 // --- Webhook Integration (Public) ---
