@@ -1212,332 +1212,383 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
 };
 
 app.post('/api/promp/connect', authenticateToken, async (req, res) => {
-    // SessionID manual input support
-    const { identity, sessionId } = req.body;
-    const companyId = req.user.companyId;
+    app.post('/api/promp/connect', authenticateToken, async (req, res) => {
+        // SessionID manual input support
+        const { identity, sessionId, manualUserId } = req.body;
+        const companyId = req.user.companyId;
+        const companyId = req.user.companyId;
 
-    if (!PROMP_ADMIN_TOKEN) {
-        return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
-    }
+        if (!PROMP_ADMIN_TOKEN) {
+            return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
+        }
 
-    try {
-        console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
+        try {
+            console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
 
-        // 1. List Tenants to get IDs
-        const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
-            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
-        });
+            // 1. List Tenants to get IDs
+            const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
+                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
+            });
 
-        if (!tenantsRes.ok) throw new Error('Failed to list tenants');
+            if (!tenantsRes.ok) throw new Error('Failed to list tenants');
 
-        const tenantsData = await tenantsRes.json();
-        const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
+            const tenantsData = await tenantsRes.json();
+            const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
 
-        console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
+            console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
 
-        // 2. Parallel Fetch Details (identity is only in detailed view)
-        const detailPromises = tenantListBasic.map(async (t) => {
-            try {
-                const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
+            // 2. Parallel Fetch Details (identity is only in detailed view)
+            const detailPromises = tenantListBasic.map(async (t) => {
+                try {
+                    const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ id: t.id })
+                    });
+                    if (!res.ok) return null;
+                    const json = await res.json();
+                    const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
+                    return tenantObj || json;
+                } catch (e) {
+                    return null;
+                }
+            });
+
+            const detailedTenants = await Promise.all(detailPromises);
+
+            // Exact match on identity string (Sanitized)
+            const sanitize = (str) => String(str || '').replace(/\D/g, '');
+            const targetIdentity = sanitize(identity);
+
+            const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
+
+            if (!targetTenant) {
+                console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
+                return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
+            }
+
+            console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
+
+            // 3. Create API (Best Effort)
+            const apiName = "Agente IA Auto";
+
+            // Priority: Manual Session ID > Tenant ID (Fallback)
+            // If manual sessionId is provided, use it blindly.
+            // If not, use tenant.id (which failed before, but is the best guess if no other option).
+            const finalSessionId = sessionId || targetTenant.id;
+
+            // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
+            // We must find a valid User ID *inside* this specific tenant.
+
+            let targetUserId = null;
+
+            // Strategy 0: Manual User ID (Override - Highest Priority)
+            if (manualUserId) {
+                const manualIdInt = parseInt(manualUserId);
+                if (!isNaN(manualIdInt)) {
+                    console.log(`[Promp] Manual User ID provided: ${manualIdInt}. Validating against Tenant...`);
+
+                    let tenantUsers = targetTenant.users;
+                    // Fetch if missing
+                    if (!tenantUsers || !Array.isArray(tenantUsers) || tenantUsers.length === 0) {
+                        try {
+                            const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
+                                method: 'POST',
+                                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ tenantId: targetTenant.id })
+                            });
+                            if (usersRes.ok) {
+                                const usersData = await usersRes.json();
+                                tenantUsers = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
+                                // Save locally for other strategies if needed
+                                targetTenant.users = tenantUsers;
+                                console.log(`[Promp] Fetched ${tenantUsers.length} users for validation.`);
+                            }
+                        } catch (e) { console.error('Error fetching users for manual validation:', e); }
+                    }
+
+                    if (Array.isArray(tenantUsers)) {
+                        const exists = tenantUsers.find(u => u.id === manualIdInt);
+                        if (exists) {
+                            targetUserId = manualIdInt;
+                            console.log(`[Promp] MANUAL USER ID VALIDATED and SELECTED: ${targetUserId}`);
+                        } else {
+                            console.warn(`[Promp] Manual User ID ${manualIdInt} NOT FOUND in Tenant #${targetTenant.id}.`);
+                            return res.status(400).json({
+                                message: `O ID de usuário informado (${manualIdInt}) não foi encontrado neste Tenant (ID: ${targetTenant.id}). IDs disponíveis: ${tenantUsers.map(u => u.id + ' (' + u.name + ')').join(', ')}`
+                            });
+                        }
+                    } else {
+                        // If we can't validate, we should probably fail if strict, or warn. 
+                        // User said "MUST be the same". So let's fail if we can't find it.
+                        return res.status(400).json({ message: 'Não foi possível buscar a lista de usuários para validar o ID informado.' });
+                    }
+                }
+            }
+
+            // Strategy 1: Match by Email (Identity Alignment)
+            if (!targetUserId) {
+
+                // Strategy 1: Match by Email (Identity Alignment)
+                // Check if the current logged-in Agent user exists in the Target Tenant's user list
+                let targetUserId = null;
+
+                try {
+                    const currentUser = await prisma.user.findUnique({
+                        where: { id: req.user.userId }
+                    });
+
+                    if (currentUser && currentUser.email) {
+                        const currentUserEmail = currentUser.email.trim().toLowerCase();
+
+                        if (Array.isArray(targetTenant.users)) {
+                            // Case-insensitive match
+                            const matchedUser = targetTenant.users.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
+
+                            if (matchedUser) {
+                                targetUserId = matchedUser.id;
+                                console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUserEmail} -> User ID: ${targetUserId}`);
+                            } else {
+                                console.log(`[Promp] No match for ${currentUserEmail} in tenant users:`, targetTenant.users.map(u => u.email));
+                            }
+                        }
+                    }
+                } catch (authErr) {
+                    console.error('[Promp] Auth lookup failed (skipping email match):', authErr);
+                }
+
+                // Strategy 2: Admin/Owner Fallback (if no email match)
+                if (!targetUserId) {
+                    targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
+                }
+
+                // Inspect 'users' array if available (Fallback to first user)
+                if (!targetUserId && Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
+                    targetUserId = targetTenant.users[0].id;
+                    console.log(`[Promp] Found User ID from 'users' array (First User): ${targetUserId}`);
+                }
+
+                // Inspect 'admin' object if available
+                if (!targetUserId && targetTenant.admin && targetTenant.admin.id) {
+                    targetUserId = targetTenant.admin.id;
+                    console.log(`[Promp] Found User ID from 'admin' object: ${targetUserId}`);
+                }
+
+                // Final Fallback (Try 1, but warn)
+                if (!targetUserId) {
+                    console.warn('[Promp] WARNING: No explicit User ID found in Tenant object. Defaulting to 1 (Risk of failure).');
+                    console.log('[Promp] Tenant Keys:', Object.keys(targetTenant).join(', '));
+                    targetUserId = 1;
+                }
+
+                console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
+
+                const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ id: t.id })
+                    body: JSON.stringify({
+                        name: apiName,
+                        sessionId: finalSessionId,
+                        userId: targetUserId,
+                        authToken: Math.random().toString(36).substring(7),
+                        tenant: targetTenant.id
+                    })
                 });
-                if (!res.ok) return null;
-                const json = await res.json();
-                const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
-                return tenantObj || json;
-            } catch (e) {
-                return null;
-            }
-        });
 
-        const detailedTenants = await Promise.all(detailPromises);
+                let apiData = await createApiRes.json();
 
-        // Exact match on identity string (Sanitized)
-        const sanitize = (str) => String(str || '').replace(/\D/g, '');
-        const targetIdentity = sanitize(identity);
+                if (!createApiRes.ok || !apiData.id) {
+                    console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
+                    // Return ACTUAL error from upstream + Context
+                    return res.status(400).json({
+                        message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
+                    });
+                }
 
-        const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
-
-        if (!targetTenant) {
-            console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
-            return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
-        }
-
-        console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
-
-        // 3. Create API (Best Effort)
-        const apiName = "Agente IA Auto";
-
-        // Priority: Manual Session ID > Tenant ID (Fallback)
-        // If manual sessionId is provided, use it blindly.
-        // If not, use tenant.id (which failed before, but is the best guess if no other option).
-        const finalSessionId = sessionId || targetTenant.id;
-
-        // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
-        // We must find a valid User ID *inside* this specific tenant.
-
-        // Strategy 1: Match by Email (Identity Alignment)
-        // Check if the current logged-in Agent user exists in the Target Tenant's user list
-        let targetUserId = null;
-
-        try {
-            const currentUser = await prisma.user.findUnique({
-                where: { id: req.user.userId }
-            });
-
-            if (currentUser && currentUser.email) {
-                const currentUserEmail = currentUser.email.trim().toLowerCase();
-
-                if (Array.isArray(targetTenant.users)) {
-                    // Case-insensitive match
-                    const matchedUser = targetTenant.users.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
-
-                    if (matchedUser) {
-                        targetUserId = matchedUser.id;
-                        console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUserEmail} -> User ID: ${targetUserId}`);
-                    } else {
-                        console.log(`[Promp] No match for ${currentUserEmail} in tenant users:`, targetTenant.users.map(u => u.email));
+                // SAVE TO DB
+                await prisma.agentConfig.update({
+                    where: { companyId },
+                    data: {
+                        prompIdentity: identity,
+                        prompUuid: apiData.id,
+                        prompToken: apiData.token
                     }
-                }
-            }
-        } catch (authErr) {
-            console.error('[Promp] Auth lookup failed (skipping email match):', authErr);
-        }
-
-        // Strategy 2: Admin/Owner Fallback (if no email match)
-        if (!targetUserId) {
-            targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
-        }
-
-        // Inspect 'users' array if available (Fallback to first user)
-        if (!targetUserId && Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
-            targetUserId = targetTenant.users[0].id;
-            console.log(`[Promp] Found User ID from 'users' array (First User): ${targetUserId}`);
-        }
-
-        // Inspect 'admin' object if available
-        if (!targetUserId && targetTenant.admin && targetTenant.admin.id) {
-            targetUserId = targetTenant.admin.id;
-            console.log(`[Promp] Found User ID from 'admin' object: ${targetUserId}`);
-        }
-
-        // Final Fallback (Try 1, but warn)
-        if (!targetUserId) {
-            console.warn('[Promp] WARNING: No explicit User ID found in Tenant object. Defaulting to 1 (Risk of failure).');
-            console.log('[Promp] Tenant Keys:', Object.keys(targetTenant).join(', '));
-            targetUserId = 1;
-        }
-
-        console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
-
-        const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                name: apiName,
-                sessionId: finalSessionId,
-                userId: targetUserId,
-                authToken: Math.random().toString(36).substring(7),
-                tenant: targetTenant.id
-            })
-        });
-
-        let apiData = await createApiRes.json();
-
-        if (!createApiRes.ok || !apiData.id) {
-            console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
-            // Return ACTUAL error from upstream + Context
-            return res.status(400).json({
-                message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
-            });
-        }
-
-        // SAVE TO DB
-        await prisma.agentConfig.update({
-            where: { companyId },
-            data: {
-                prompIdentity: identity,
-                prompUuid: apiData.id,
-                prompToken: apiData.token
-            }
-        });
-
-        res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
-
-    } catch (error) {
-        console.error('Promp Connect Error:', error);
-        res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
-    }
-});
-
-
-// --- Webhook Integration (Public) ---
-app.post('/webhook/:companyId', async (req, res) => {
-    const { companyId } = req.params;
-    const payload = req.body; // n8n payload
-
-    console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
-
-    // Validate Payload & Ignore "fromMe" (Sent by us/AI)
-    const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe;
-
-    if (isFromMe) {
-        console.log('[Webhook] Ignoring message sent by me (fromMe=true).');
-        return res.json({ status: 'ignored_from_me' });
-    }
-
-    // Check for Status Updates (Delivery, Read) - Ignore them
-    if (payload.type === 'message_status' || payload.status || (payload.messageType && payload.messageType !== 'conversation' && payload.messageType !== 'extendedTextMessage')) {
-        // Be careful not to ignore text if type is missing, but usually type='message_status' is clear.
-        if (payload.type === 'message_status') {
-            console.log('[Webhook] Ignoring status update.');
-            return res.json({ status: 'ignored_status_update' });
-        }
-    }
-
-    // Safety Check for Content
-    // Wuzapi: payload.data.message.conversation OR payload.content.text
-    let userMessage = payload.content?.text || payload.data?.message?.conversation || payload.data?.message?.extendedTextMessage?.text;
-
-    if (!userMessage) {
-        // If it's a media message or something else we don't support yet, ignore gracefully
-        console.log('[Webhook] Payload missing text content. Ignoring.');
-        return res.json({ status: 'ignored_no_text' });
-    }
-
-    // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
-    const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
-    const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid;
-
-    // Clean Sender Number if it has @s.whatsapp.net
-    const cleanNumber = senderNumber ? String(senderNumber).replace('@s.whatsapp.net', '') : null;
-
-    if (!cleanNumber) {
-        console.log('[Webhook] No specific sender number found. Ignoring.');
-        return res.json({ status: 'ignored_no_number' });
-    }
-
-    const metadata = JSON.stringify(payload);
-
-    try {
-        const config = await getCompanyConfig(companyId);
-        if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
-
-        console.log(`[Webhook] Processing message for ${cleanNumber}: "${userMessage.substring(0, 50)}..."`);
-
-        // Fetch History
-        let history = [];
-
-        // STRATEGY: Try fetching by sessionId. If fails (or sessionId null), try fetching by senderNumber (via metadata or new field... but metadata is lazy).
-        // Let's rely on sessionId first. If sessionId is missing, we MIGHT lose history.
-        // However, if the webhook provides ticket.id (which it seems to), we are good.
-        // Issue: Previous logs show ticket.id changing.
-        // Fallback: Query by metadata contains senderNumber? No, too slow.
-        // Fix: Use sessionId (ticket.id) if available. If ticket.id IS available, trust it.
-        // If ticket.id changes, it might be a new ticket/support case.
-        // BUT, for a persistent AI, we might want to fetch history by 'sender' NOT 'sessionId'.
-        // Let's Try: Find messages where companyId matches and metadata CONTAINS cleanNumber. (Slow regex)
-        // BETTER: Use 'sessionId' field in DB to store 'cleanNumber' as a fallback identifier if ticket ID is unstable?
-        // NO, 'sessionId' is for ticket grouping.
-        // Let's stick to sessionId for now but improve the lookup debugging.
-
-        // --- DATABASE MEMORY FIX (Persistent Session + Chronological Order) ---
-        // 1. Session ID: Use cleanNumber (Phone) if available to ensure persistence across tickets.
-        //    Fallback to ticket.id if needed, but phone is better for long-term memory.
-        const dbSessionId = cleanNumber || sessionId || 'unknown_session';
-
-        if (cleanNumber) {
-            try {
-                // 2. Fetch History: Get 20 *MOST RECENT* messages (descending)
-                const storedMessages = await prisma.testMessage.findMany({
-                    where: {
-                        companyId: String(companyId),
-                        sessionId: String(dbSessionId)
-                    },
-                    orderBy: { createdAt: 'desc' }, // Get newest first
-                    take: 20
                 });
 
-                // 3. Reverse to Chronological Order for OpenAI (Oldest -> Newest)
-                history = storedMessages.reverse().map(m => ({
-                    role: m.sender === 'user' ? 'user' : 'assistant',
-                    content: m.text
-                }));
+                res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
 
-                console.log(`[Webhook] Fetched ${history.length} msgs of Persistent History for ${dbSessionId}`);
-            } catch (histError) {
-                console.error('[Webhook] History Fetch Error:', histError);
+            } catch (error) {
+                console.error('Promp Connect Error:', error);
+                res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+            }
+        });
+
+
+    // --- Webhook Integration (Public) ---
+    app.post('/webhook/:companyId', async (req, res) => {
+        const { companyId } = req.params;
+        const payload = req.body; // n8n payload
+
+        console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
+
+        // Validate Payload & Ignore "fromMe" (Sent by us/AI)
+        const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe;
+
+        if (isFromMe) {
+            console.log('[Webhook] Ignoring message sent by me (fromMe=true).');
+            return res.json({ status: 'ignored_from_me' });
+        }
+
+        // Check for Status Updates (Delivery, Read) - Ignore them
+        if (payload.type === 'message_status' || payload.status || (payload.messageType && payload.messageType !== 'conversation' && payload.messageType !== 'extendedTextMessage')) {
+            // Be careful not to ignore text if type is missing, but usually type='message_status' is clear.
+            if (payload.type === 'message_status') {
+                console.log('[Webhook] Ignoring status update.');
+                return res.json({ status: 'ignored_status_update' });
             }
         }
 
-        // Process Chat
-        // Pass dbSessionId for logging context
-        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 } = await processChatResponse(config, userMessage, history, dbSessionId);
+        // Safety Check for Content
+        // Wuzapi: payload.data.message.conversation OR payload.content.text
+        let userMessage = payload.content?.text || payload.data?.message?.conversation || payload.data?.message?.extendedTextMessage?.text;
 
-        console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
+        if (!userMessage) {
+            // If it's a media message or something else we don't support yet, ignore gracefully
+            console.log('[Webhook] Payload missing text content. Ignoring.');
+            return res.json({ status: 'ignored_no_text' });
+        }
 
-        // Persist Chat (Using Persistent Session ID)
+        // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
+        const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
+        const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid;
+
+        // Clean Sender Number if it has @s.whatsapp.net
+        const cleanNumber = senderNumber ? String(senderNumber).replace('@s.whatsapp.net', '') : null;
+
+        if (!cleanNumber) {
+            console.log('[Webhook] No specific sender number found. Ignoring.');
+            return res.json({ status: 'ignored_no_number' });
+        }
+
+        const metadata = JSON.stringify(payload);
+
         try {
-            await prisma.testMessage.create({
-                data: {
-                    companyId: String(companyId),
-                    sender: 'user',
-                    text: userMessage, // Save raw user message (Sim). AI runtime context will handle the rest.
-                    sessionId: String(dbSessionId),
-                    metadata
+            const config = await getCompanyConfig(companyId);
+            if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
+
+            console.log(`[Webhook] Processing message for ${cleanNumber}: "${userMessage.substring(0, 50)}..."`);
+
+            // Fetch History
+            let history = [];
+
+            // STRATEGY: Try fetching by sessionId. If fails (or sessionId null), try fetching by senderNumber (via metadata or new field... but metadata is lazy).
+            // Let's rely on sessionId first. If sessionId is missing, we MIGHT lose history.
+            // However, if the webhook provides ticket.id (which it seems to), we are good.
+            // Issue: Previous logs show ticket.id changing.
+            // Fallback: Query by metadata contains senderNumber? No, too slow.
+            // Fix: Use sessionId (ticket.id) if available. If ticket.id IS available, trust it.
+            // If ticket.id changes, it might be a new ticket/support case.
+            // BUT, for a persistent AI, we might want to fetch history by 'sender' NOT 'sessionId'.
+            // Let's Try: Find messages where companyId matches and metadata CONTAINS cleanNumber. (Slow regex)
+            // BETTER: Use 'sessionId' field in DB to store 'cleanNumber' as a fallback identifier if ticket ID is unstable?
+            // NO, 'sessionId' is for ticket grouping.
+            // Let's stick to sessionId for now but improve the lookup debugging.
+
+            // --- DATABASE MEMORY FIX (Persistent Session + Chronological Order) ---
+            // 1. Session ID: Use cleanNumber (Phone) if available to ensure persistence across tickets.
+            //    Fallback to ticket.id if needed, but phone is better for long-term memory.
+            const dbSessionId = cleanNumber || sessionId || 'unknown_session';
+
+            if (cleanNumber) {
+                try {
+                    // 2. Fetch History: Get 20 *MOST RECENT* messages (descending)
+                    const storedMessages = await prisma.testMessage.findMany({
+                        where: {
+                            companyId: String(companyId),
+                            sessionId: String(dbSessionId)
+                        },
+                        orderBy: { createdAt: 'desc' }, // Get newest first
+                        take: 20
+                    });
+
+                    // 3. Reverse to Chronological Order for OpenAI (Oldest -> Newest)
+                    history = storedMessages.reverse().map(m => ({
+                        role: m.sender === 'user' ? 'user' : 'assistant',
+                        content: m.text
+                    }));
+
+                    console.log(`[Webhook] Fetched ${history.length} msgs of Persistent History for ${dbSessionId}`);
+                } catch (histError) {
+                    console.error('[Webhook] History Fetch Error:', histError);
                 }
-            });
-            await prisma.testMessage.create({
-                data: {
-                    companyId: String(companyId),
-                    sender: 'ai',
+            }
+
+            // Process Chat
+            // Pass dbSessionId for logging context
+            const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 } = await processChatResponse(config, userMessage, history, dbSessionId);
+
+            console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
+
+            // Persist Chat (Using Persistent Session ID)
+            try {
+                await prisma.testMessage.create({
+                    data: {
+                        companyId: String(companyId),
+                        sender: 'user',
+                        text: userMessage, // Save raw user message (Sim). AI runtime context will handle the rest.
+                        sessionId: String(dbSessionId),
+                        metadata
+                    }
+                });
+                await prisma.testMessage.create({
+                    data: {
+                        companyId: String(companyId),
+                        sender: 'ai',
+                        text: aiResponse,
+                        sessionId: String(dbSessionId)
+                    }
+                });
+            } catch (dbError) {
+                console.error('[Webhook] Failed to save chat:', dbError);
+            }
+
+            // --- REPLY STRATEGY ---
+            let sentViaApi = false;
+            if (config.prompUuid && config.prompToken) {
+                sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
+                console.log(`[Webhook] Sent via API: ${sentViaApi}`);
+            } else {
+                console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
+            }
+
+            if (sentViaApi) {
+                res.json({ status: 'sent_via_api' });
+            } else {
+                res.json({
                     text: aiResponse,
-                    sessionId: String(dbSessionId)
-                }
-            });
-        } catch (dbError) {
-            console.error('[Webhook] Failed to save chat:', dbError);
+                    audio: audioBase64,
+                    image: productImageUrl,
+                    sessionId: sessionId
+                });
+            }
+
+        } catch (error) {
+            console.error('[Webhook] Error:', error);
+            res.status(500).json({ error: error.message || 'Processing failed' });
         }
+    });
 
-        // --- REPLY STRATEGY ---
-        let sentViaApi = false;
-        if (config.prompUuid && config.prompToken) {
-            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
-            console.log(`[Webhook] Sent via API: ${sentViaApi}`);
-        } else {
-            console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
-        }
+    // Handle React Routing (SPA) - must be the last route
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, '../dist/index.html'));
+    });
 
-        if (sentViaApi) {
-            res.json({ status: 'sent_via_api' });
-        } else {
-            res.json({
-                text: aiResponse,
-                audio: audioBase64,
-                image: productImageUrl,
-                sessionId: sessionId
-            });
-        }
-
-    } catch (error) {
-        console.error('[Webhook] Error:', error);
-        res.status(500).json({ error: error.message || 'Processing failed' });
-    }
-});
-
-// Handle React Routing (SPA) - must be the last route
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../dist/index.html'));
-});
-
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-});
+    app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+    });
