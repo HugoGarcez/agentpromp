@@ -262,125 +262,126 @@ const TestAI = () => {
                                 boxShadow: msg.sender === 'ai' ? 'var(--shadow-sm)' : 'none',
                                 border: msg.sender === 'ai' ? '1px solid var(--border-color)' : 'none'
                             }}>
-                                {msg.text}
-                            </p>
-                            {/* MEDIA RENDER (Image) */}
-                            {msg.image && (
-                                <div style={{ marginTop: '12px' }}>
-                                    <img src={msg.image} alt="Product" style={{ maxWidth: '100%', borderRadius: '8px', border: '1px solid #E5E7EB' }} />
-                                </div>
-                            )}
-                            {/* MEDIA RENDER (PDF) */}
-                            {msg.pdf && (
-                                <div style={{ marginTop: '12px', padding: '12px', background: '#F0FDFA', borderRadius: '8px', border: '1px solid #99F6E4', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ padding: '8px', background: 'white', borderRadius: '50%' }}>📝</div>
-                                    <div style={{ flex: 1 }}>
-                                        <p style={{ fontSize: '12px', color: '#0F766E', fontWeight: 600, margin: 0 }}>{msg.pdfName || 'Arquivo PDF'}</p>
-                                        <p style={{ fontSize: '11px', color: '#6B7280', margin: 0 }}>Clique para baixar</p>
+                                <p style={{ fontSize: '14px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                                    {msg.text}
+                                </p>
+                                {/* MEDIA RENDER (Image) */}
+                                {msg.image && (
+                                    <div style={{ marginTop: '12px' }}>
+                                        <img src={msg.image} alt="Product" style={{ maxWidth: '100%', borderRadius: '8px', border: '1px solid #E5E7EB' }} />
                                     </div>
-                                    <a
-                                        href={`data:application/pdf;base64,${msg.pdf}`}
-                                        download={msg.pdfName || 'arquivo.pdf'}
-                                        style={{ textDecoration: 'none', background: '#0D9488', color: 'white', fontSize: '12px', padding: '6px 12px', borderRadius: '4px', fontWeight: 500 }}
-                                    >
-                                        Baixar
-                                    </a>
-                                </div>
-                            )}
-                            {msg.audio && (
-                                <div style={{ marginTop: '8px' }}>
-                                    <audio
-                                        controls
-                                        autoPlay
-                                        src={`data:audio/mpeg;base64,${msg.audio}`}
-                                        style={{ width: '100%', height: '32px' }}
-                                    />
-                                </div>
-                            )}
-                        </div>
+                                )}
+                                {/* MEDIA RENDER (PDF) */}
+                                {msg.pdf && (
+                                    <div style={{ marginTop: '12px', padding: '12px', background: '#F0FDFA', borderRadius: '8px', border: '1px solid #99F6E4', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <div style={{ padding: '8px', background: 'white', borderRadius: '50%' }}>📝</div>
+                                        <div style={{ flex: 1 }}>
+                                            <p style={{ fontSize: '12px', color: '#0F766E', fontWeight: 600, margin: 0 }}>{msg.pdfName || 'Arquivo PDF'}</p>
+                                            <p style={{ fontSize: '11px', color: '#6B7280', margin: 0 }}>Clique para baixar</p>
+                                        </div>
+                                        <a
+                                            href={`data:application/pdf;base64,${msg.pdf}`}
+                                            download={msg.pdfName || 'arquivo.pdf'}
+                                            style={{ textDecoration: 'none', background: '#0D9488', color: 'white', fontSize: '12px', padding: '6px 12px', borderRadius: '4px', fontWeight: 500 }}
+                                        >
+                                            Baixar
+                                        </a>
+                                    </div>
+                                )}
+                                {msg.audio && (
+                                    <div style={{ marginTop: '8px' }}>
+                                        <audio
+                                            controls
+                                            autoPlay
+                                            src={`data:audio/mpeg;base64,${msg.audio}`}
+                                            style={{ width: '100%', height: '32px' }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     ))}
-            </div>
+                </div>
 
-            <form onSubmit={handleSendMessage} style={{ padding: '16px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-white)', display: 'flex', gap: '12px' }}>
-                <input
-                    type="text"
-                    placeholder="Digite sua mensagem..."
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    style={{
-                        flex: 1,
-                        padding: '12px',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--border-color)',
-                        outline: 'none',
-                        background: 'var(--bg-main)',
-                        color: 'var(--text-dark)'
-                    }}
-                />
-                <button
-                    type="submit"
-                    disabled={!inputText.trim() || isLoading}
-                    style={{
-                        background: isLoading ? '#9CA3AF' : 'var(--primary-blue)',
-                        color: 'white',
-                        width: '48px',
-                        borderRadius: 'var(--radius-md)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        opacity: (!inputText.trim() || isLoading) ? 0.5 : 1,
-                        cursor: (!inputText.trim() || isLoading) ? 'not-allowed' : 'pointer'
-                    }}
-                >
-                    <Send size={20} />
-                </button>
-            </form>
-        </div>
-
-            {/* Advanced Panel */ }
-    {
-        advancedMode && (
-            <div style={{
-                background: 'var(--bg-white)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-sm)',
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden' // Ensure modal doesn't get clipped weirdly if possible, but standard flow
-            }}>
-                <div style={{ padding: '16px', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Sparkles size={20} color="var(--primary-blue)" />
-                        <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Configuração do Prompt</h2>
-                    </div>
-                    <button
-                        onClick={handleSaveConfig}
-                        disabled={isSaving}
+                <form onSubmit={handleSendMessage} style={{ padding: '16px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-white)', display: 'flex', gap: '12px' }}>
+                    <input
+                        type="text"
+                        placeholder="Digite sua mensagem..."
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
                         style={{
-                            display: 'flex', alignItems: 'center', gap: '6px',
-                            background: 'var(--primary-blue)', color: 'white',
-                            padding: '6px 12px', borderRadius: '6px',
-                            fontSize: '12px', fontWeight: 500,
-                            cursor: isSaving ? 'wait' : 'pointer',
-                            border: 'none'
+                            flex: 1,
+                            padding: '12px',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--border-color)',
+                            outline: 'none',
+                            background: 'var(--bg-main)',
+                            color: 'var(--text-dark)'
+                        }}
+                    />
+                    <button
+                        type="submit"
+                        disabled={!inputText.trim() || isLoading}
+                        style={{
+                            background: isLoading ? '#9CA3AF' : 'var(--primary-blue)',
+                            color: 'white',
+                            width: '48px',
+                            borderRadius: 'var(--radius-md)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            opacity: (!inputText.trim() || isLoading) ? 0.5 : 1,
+                            cursor: (!inputText.trim() || isLoading) ? 'not-allowed' : 'pointer'
                         }}
                     >
-                        <Save size={14} />
-                        {isSaving ? 'Salvando...' : 'Salvar'}
+                        <Send size={20} />
                     </button>
-                </div>
-                <div style={{ padding: '16px', flex: 1, overflowY: 'auto' }}>
-                    <PromptTab
-                        systemPrompt={systemPrompt}
-                        onPromptChange={setSystemPrompt}
-                        persona={persona}
-                        onPersonaChange={setPersona}
-                    />
-                </div>
+                </form>
             </div>
-        )
-    }
+
+            {/* Advanced Panel */}
+            {
+                advancedMode && (
+                    <div style={{
+                        background: 'var(--bg-white)',
+                        borderRadius: 'var(--radius-md)',
+                        boxShadow: 'var(--shadow-sm)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden' // Ensure modal doesn't get clipped weirdly if possible, but standard flow
+                    }}>
+                        <div style={{ padding: '16px', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Sparkles size={20} color="var(--primary-blue)" />
+                                <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Configuração do Prompt</h2>
+                            </div>
+                            <button
+                                onClick={handleSaveConfig}
+                                disabled={isSaving}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    background: 'var(--primary-blue)', color: 'white',
+                                    padding: '6px 12px', borderRadius: '6px',
+                                    fontSize: '12px', fontWeight: 500,
+                                    cursor: isSaving ? 'wait' : 'pointer',
+                                    border: 'none'
+                                }}
+                            >
+                                <Save size={14} />
+                                {isSaving ? 'Salvando...' : 'Salvar'}
+                            </button>
+                        </div>
+                        <div style={{ padding: '16px', flex: 1, overflowY: 'auto' }}>
+                            <PromptTab
+                                systemPrompt={systemPrompt}
+                                onPromptChange={setSystemPrompt}
+                                persona={persona}
+                                onPersonaChange={setPersona}
+                            />
+                        </div>
+                    </div>
+                )
+            }
         </div >
     );
 };
