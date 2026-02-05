@@ -1418,10 +1418,16 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             });
         }
 
-        // SAVE TO DB
-        await prisma.agentConfig.update({
+        // SAVE TO DB (Upsert to create if missing)
+        await prisma.agentConfig.upsert({
             where: { companyId },
-            data: {
+            update: {
+                prompIdentity: identity,
+                prompUuid: apiData.id,
+                prompToken: apiData.token
+            },
+            create: {
+                companyId,
                 prompIdentity: identity,
                 prompUuid: apiData.id,
                 prompToken: apiData.token
