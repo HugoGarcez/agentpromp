@@ -1290,6 +1290,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
                 console.log(`[Promp] Manual User ID provided: ${manualIdInt}. Validating against Tenant...`);
 
                 let fetchDebug = '';
+                let tenantUsers = targetTenant.users;
                 // Fetch if missing
                 if (!tenantUsers || !Array.isArray(tenantUsers) || tenantUsers.length === 0) {
                     try {
