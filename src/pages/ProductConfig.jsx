@@ -81,7 +81,18 @@ const ProductConfig = () => {
 
         // Common New Fields
         paymentLink: '',
-        hasPaymentLink: false
+        hasPaymentLink: false,
+
+        // NEW: Unit & Payment Methods
+        unit: 'Unidade',
+        customUnit: '',
+        paymentPrices: [
+            { id: 'pix', label: 'Pix', active: false, price: '' },
+            { id: 'cash', label: 'Dinheiro', active: false, price: '' },
+            { id: 'card', label: 'Cartão', active: false, price: '' },
+            { id: 'check', label: 'Cheque', active: false, price: '' },
+            { id: 'presential', label: 'Presencial', active: false, price: '' }
+        ]
     };
 
     const [formData, setFormData] = useState(initialFormState);
@@ -143,6 +154,32 @@ const ProductConfig = () => {
             const reader = new FileReader();
             reader.onloadend = () => setFormData(prev => ({ ...prev, pdf: reader.result }));
             reader.readAsDataURL(file);
+        }
+    };
+
+    // --- PAYMENT METHOD LOGIC ---
+    const togglePaymentMethod = (id) => {
+        setFormData(prev => ({
+            ...prev,
+            paymentPrices: prev.paymentPrices.map(p => p.id === id ? { ...p, active: !p.active } : p)
+        }));
+    };
+
+    const updatePaymentPrice = (id, newPrice) => {
+        setFormData(prev => ({
+            ...prev,
+            paymentPrices: prev.paymentPrices.map(p => p.id === id ? { ...p, price: newPrice } : p)
+        }));
+    };
+
+    const addCustomPaymentMethod = () => {
+        const name = prompt("Nome do novo método de pagamento:");
+        if (name) {
+            const newId = `custom_${Date.now()}`;
+            setFormData(prev => ({
+                ...prev,
+                paymentPrices: [...prev.paymentPrices, { id: newId, label: name, active: true, price: '' }]
+            }));
         }
     };
 
@@ -234,10 +271,60 @@ const ProductConfig = () => {
                             <input type="text" name="name" value={formData.name} onChange={handleInputChange} required
                                 style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
                         </div>
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Preço (R$)</label>
-                            <input type="number" name="price" value={formData.price} onChange={handleInputChange} required step="0.01"
-                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Preço Base (R$)</label>
+                                <input type="number" name="price" value={formData.price} onChange={handleInputChange} required step="0.01"
+                                    style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
+                            </div>
+                            <div style={{ width: '120px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Unidade</label>
+                                <select name="unit" value={formData.unit} onChange={handleInputChange}
+                                    style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }}>
+                                    <option value="Unidade">Unidade</option>
+                                    <option value="Kg">Kg</option>
+                                    <option value="Rolo">Rolo</option>
+                                    <option value="Metros">Metros</option>
+                                    <option value="Outro">Outro...</option>
+                                </select>
+                            </div>
+                            {formData.unit === 'Outro' && (
+                                <div style={{ width: '100px' }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Qual?</label>
+                                    <input type="text" name="customUnit" value={formData.customUnit} onChange={handleInputChange} placeholder="Ex: Litro"
+                                        style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* PAYMENT METHODS MATRIX */}
+                    <div style={{ marginBottom: '16px', padding: '16px', background: '#F0FDFA', borderRadius: '8px', border: '1px solid #99F6E4' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                            <label style={{ fontSize: '14px', fontWeight: 600, color: '#0F766E' }}>Preços por Pagamento (Matriz)</label>
+                            <button type="button" onClick={addCustomPaymentMethod} style={{ fontSize: '11px', background: 'white', border: '1px solid #0F766E', color: '#0F766E', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>+ Novo Método</button>
+                        </div>
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                            {formData.paymentPrices?.map(pm => (
+                                <div key={pm.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', opacity: pm.active ? 1 : 0.6 }}>
+                                    <input type="checkbox" checked={pm.active} onChange={() => togglePaymentMethod(pm.id)} style={{ cursor: 'pointer' }} />
+                                    <span style={{ fontSize: '14px', minWidth: '80px', fontWeight: 500 }}>{pm.label}</span>
+                                    {pm.active && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}>
+                                            <span style={{ fontSize: '12px', color: '#6B7280' }}>R$</span>
+                                            <input
+                                                type="number"
+                                                placeholder={formData.price || "Preço"}
+                                                value={pm.price}
+                                                onChange={(e) => updatePaymentPrice(pm.id, e.target.value)}
+                                                step="0.01"
+                                                style={{ padding: '6px', borderRadius: '4px', border: '1px solid #D1D5DB', width: '100px' }}
+                                            />
+                                            <span style={{ fontSize: '11px', color: '#9CA3AF' }}>(Deixe vazio p/ usar base)</span>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
                         </div>
                     </div>
 

@@ -510,8 +510,45 @@ const processChatResponse = async (config, message, history, sessionId = null) =
             const pdfTag = p.pdf ? `[TEM_PDF] (ID: ${p.id})` : '';
             const paymentLinkCtx = p.hasPaymentLink ? `[TEM_LINK_PAGAMENTO] (Link: ${p.paymentLink})` : '';
 
-            // Item Header
-            productList += `- [${typeLabel}] ID: ${p.id} | Nome: ${p.name} | Preço: R$ ${p.price}. ${pdfTag} ${paymentLinkCtx}\n`;
+            // Unit Logic
+            let unitLabel = p.unit || 'Unidade';
+            if (p.unit === 'Outro' && p.customUnit) unitLabel = p.customUnit;
+
+            // Price Logic (Matrix)
+            let priceDisplay = `R$ ${p.price}`;
+            let activeMethods = p.paymentPrices ? p.paymentPrices.filter(pm => pm.active) : [];
+            let priceDetails = "";
+
+            if (activeMethods.length > 0) {
+                // Find Min Price among active methods (or base price if specific price is not set)
+                let minPrice = parseFloat(p.price);
+                let cheapestMethod = "Base";
+
+                let specificPrices = [];
+
+                activeMethods.forEach(pm => {
+                    let methodPrice = pm.price ? parseFloat(pm.price) : parseFloat(p.price);
+                    if (!isNaN(methodPrice)) {
+                        specificPrices.push(`${pm.label}: R$ ${methodPrice.toFixed(2)}`);
+                        if (methodPrice < minPrice) {
+                            minPrice = methodPrice;
+                            cheapestMethod = pm.label;
+                        }
+                    }
+                });
+
+                if (minPrice < parseFloat(p.price)) {
+                    priceDisplay = `A partir de R$ ${minPrice.toFixed(2)} (no ${cheapestMethod})`;
+                }
+
+                if (specificPrices.length > 0) {
+                    priceDetails = ` [Tabela: ${specificPrices.join(', ')}]`;
+                }
+            }
+
+            // Item Header with Enhanced Price info
+            productList += `- [${typeLabel}] ID: ${p.id} | Nome: ${p.name} | Preço: ${priceDisplay} / ${unitLabel}${priceDetails}. ${pdfTag} ${paymentLinkCtx}\n`;
+
             if (p.description) productList += `  Descrição: ${p.description}\n`;
             if (p.paymentConditions) productList += `  Condições: ${p.paymentConditions}\n`;
 
