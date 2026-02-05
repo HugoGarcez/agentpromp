@@ -1290,11 +1290,19 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
                 where: { id: req.user.userId }
             });
 
-            if (currentUser && currentUser.email && Array.isArray(targetTenant.users)) {
-                const matchedUser = targetTenant.users.find(u => u.email === currentUser.email);
-                if (matchedUser) {
-                    targetUserId = matchedUser.id;
-                    console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUser.email} -> User ID: ${targetUserId}`);
+            if (currentUser && currentUser.email) {
+                const currentUserEmail = currentUser.email.trim().toLowerCase();
+
+                if (Array.isArray(targetTenant.users)) {
+                    // Case-insensitive match
+                    const matchedUser = targetTenant.users.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
+
+                    if (matchedUser) {
+                        targetUserId = matchedUser.id;
+                        console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUserEmail} -> User ID: ${targetUserId}`);
+                    } else {
+                        console.log(`[Promp] No match for ${currentUserEmail} in tenant users:`, targetTenant.users.map(u => u.email));
+                    }
                 }
             }
         } catch (authErr) {
