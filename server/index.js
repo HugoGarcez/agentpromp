@@ -897,7 +897,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         }
     }
 
-    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 };
+    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
 };
 
 // --- Config History Routes ---
@@ -957,7 +957,7 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
             config.systemPrompt = overridePrompt;
         }
 
-        const { aiResponse, audioBase64, productImageUrl } = await processChatResponse(config, message, history, null);
+        const { aiResponse, audioBase64, productImageUrl, pdfBase64, pdfName } = await processChatResponse(config, message, history, null);
 
         // Persist Chat (Test Mode - No Session)
         try {
@@ -967,7 +967,7 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
             console.error('Failed to save chat history:', dbError);
         }
 
-        res.json({ response: aiResponse, audio: audioBase64, image: productImageUrl });
+        res.json({ response: aiResponse, audio: audioBase64, image: productImageUrl, pdf: pdfBase64, pdfName });
 
     } catch (error) {
         console.error('Chat API Error:', error);
