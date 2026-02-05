@@ -1289,23 +1289,31 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             if (!isNaN(manualIdInt)) {
                 console.log(`[Promp] Manual User ID provided: ${manualIdInt}. Validating against Tenant...`);
 
-                let tenantUsers = targetTenant.users;
+                let fetchDebug = '';
                 // Fetch if missing
                 if (!tenantUsers || !Array.isArray(tenantUsers) || tenantUsers.length === 0) {
                     try {
+                        console.log(`[Promp] Fetching users for Tenant ${targetTenant.id} (manual validation)...`);
                         const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
                             method: 'POST',
                             headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
                             body: JSON.stringify({ tenantId: targetTenant.id })
                         });
+
                         if (usersRes.ok) {
                             const usersData = await usersRes.json();
                             tenantUsers = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
-                            // Save locally for other strategies if needed
                             targetTenant.users = tenantUsers;
-                            console.log(`[Promp] Fetched ${tenantUsers.length} users for validation.`);
+                            console.log(`[Promp] Fetched ${tenantUsers.length} users.`);
+                        } else {
+                            const errText = await usersRes.text();
+                            fetchDebug = `Status: ${usersRes.status}, Resp: ${errText}`;
+                            console.error('[Promp] Fetch User List Failed:', fetchDebug);
                         }
-                    } catch (e) { console.error('Error fetching users for manual validation:', e); }
+                    } catch (e) {
+                        fetchDebug = `Exception: ${e.message}`;
+                        console.error('Error fetching users for manual validation:', e);
+                    }
                 }
 
                 if (Array.isArray(tenantUsers)) {
@@ -1321,8 +1329,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
                     }
                 } else {
                     // If we can't validate, we should probably fail if strict, or warn. 
-                    // User said "MUST be the same". So let's fail if we can't find it.
-                    return res.status(400).json({ message: 'Não foi possível buscar a lista de usuários para validar o ID informado.' });
+                    return res.status(400).json({ message: `Não foi possível buscar a lista de usuários para validar o ID informado. Detalhes: ${fetchDebug || 'Retorno inválido da API'}` });
                 }
             }
         }
