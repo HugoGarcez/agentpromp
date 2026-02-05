@@ -1287,7 +1287,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             body: JSON.stringify({
                 name: apiName,
                 sessionId: finalSessionId,
-                userId: targetTenant.adminId || 1,
+                userId: targetTenant.adminId || targetTenant.userId || targetTenant.ownerId || 1,
                 authToken: Math.random().toString(36).substring(7),
                 tenant: targetTenant.id
             })
@@ -1297,8 +1297,9 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
 
         if (!createApiRes.ok || !apiData.id) {
             console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
+            // Return ACTUAL error from upstream
             return res.status(400).json({
-                message: `Falha ao criar API Key (Sessão inválida?). Tente informar o ID da Sessão/Conexão manualmente no campo ao lado.`
+                message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. Tente informar o ID da Sessão manualmente.`
             });
         }
 
