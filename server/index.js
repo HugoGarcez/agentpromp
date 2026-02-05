@@ -757,7 +757,10 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     // --- Image Detection Logic ---
     let productImageUrl = null;
     let productCaption = ""; // Initialize caption
-    const imageMatch = aiResponse.match(/\[SHOW_IMAGE:\s*([a-zA-Z0-9_-]+)\]/); // Support alphanum IDs
+
+    // Robust Regex: Optional quotes, spaces, dots/dashes
+    const imageTagRegex = /\[SHOW_IMAGE:\s*['"]?([a-zA-Z0-9_.-]+)['"]?\s*\]/i;
+    const imageMatch = aiResponse.match(imageTagRegex);
 
     if (imageMatch && config.products) {
         const targetId = imageMatch[1];
@@ -789,20 +792,22 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         }
 
         if (found) {
-            console.log(`[Chat] Found Product/Variant Image for ID ${targetId}: ${productImageUrl}`);
-            console.log(`[Chat] Caption: ${productCaption}`);
+            console.log(`[Chat] Found Product/Variant Image for ID ${targetId}`);
+            // Remove the tag successfully
+            aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
         } else {
             console.log(`[Chat] Image requested for ID ${targetId} but not found.`);
+            // REPLACEMENT FEEDBACK: Keep tag or show error
+            // We replace with a visible error to help debugging
+            aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ Imagem não encontrada: ${targetId})`);
         }
-
-        // Remove the tag from the text displayed to user
-        aiResponse = aiResponse.replace(/\[SHOW_IMAGE:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
     }
 
     // --- PDF Logic (Service Details) ---
     let pdfBase64 = null;
     let pdfName = null;
-    const pdfMatch = aiResponse.match(/\[SEND_PDF:\s*([a-zA-Z0-9_-]+)\]/);
+    const pdfTagRegex = /\[SEND_PDF:\s*['"]?([a-zA-Z0-9_.-]+)['"]?\s*\]/i;
+    const pdfMatch = aiResponse.match(pdfTagRegex);
 
     if (pdfMatch) {
         const targetId = pdfMatch[1];
@@ -811,7 +816,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
         // Check Products/Services
         if (config.products) {
-            const p = config.products.find(p => p.id == targetId); // loose equality for string/number id mix
+            const p = config.products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
             if (p && p.pdf) {
                 foundPdf = p.pdf;
                 foundName = `${p.name}.pdf`; // Fallback name
@@ -819,24 +824,19 @@ const processChatResponse = async (config, message, history, sessionId = null) =
         }
 
         if (foundPdf) {
-            // Ensure Base64 doesn't have data: prefix for pure transport if needed, 
-            // but usually we keep it or strip it depending on frontend.
-            // Let's strip standard prefixes if present to ensure clean base64 for WhatsApp API
-            console.log(`[DEBUG] Raw PDF found. Length: ${foundPdf.length}`);
-
             try {
                 pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
                 pdfName = foundName;
-                console.log(`[Chat] Found PDF for ID ${targetId}. Processed Base64 Length: ${pdfBase64.length}`);
+                console.log(`[Chat] Found PDF for ID ${targetId}.`);
+                // Remove tag
+                aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
             } catch (e) {
                 console.error(`[Chat] PDF Processing Error:`, e);
             }
         } else {
             console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
+            aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
         }
-
-        // Remove tag
-        aiResponse = aiResponse.replace(/\[SEND_PDF:\s*[a-zA-Z0-9_-]+\]/g, '').trim();
     }
 
     // --- Audio Generation Logic ---
