@@ -1312,8 +1312,6 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             body: JSON.stringify({
                 name: apiName,
                 sessionId: finalSessionId,
-                name: apiName,
-                sessionId: finalSessionId,
                 userId: targetUserId,
                 authToken: Math.random().toString(36).substring(7),
                 tenant: targetTenant.id
@@ -1324,9 +1322,9 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
 
         if (!createApiRes.ok || !apiData.id) {
             console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
-            // Return ACTUAL error from upstream
+            // Return ACTUAL error from upstream + Context
             return res.status(400).json({
-                message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. Tente informar o ID da Sessão manualmente.`
+                message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
             });
         }
 
