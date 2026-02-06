@@ -641,17 +641,17 @@ DIRETRIZES:
                         </div>
 
                         <div style={{ background: '#F9FAFB', padding: 24, borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 24 }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Seu Número de WhatsApp (Opcional)</label>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Números Ignorados (Anti-Loop)</label>
                             <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
                                 <input
                                     type="text"
-                                    placeholder="Ex: 5521999999999 (Apenas números)"
-                                    value={followUp.botNumber || ''}
-                                    onChange={(e) => handleFollowUpChange('botNumber', e.target.value.replace(/\D/g, ''))}
+                                    placeholder="Ex: 5521999999999 (Separe por vírgula)"
+                                    value={followUp.ignoreNumbers || ''}
+                                    onChange={(e) => handleFollowUpChange('ignoreNumbers', e.target.value)}
                                     style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }}
                                 />
                                 <span style={{ fontSize: 12, color: '#6B7280' }}>
-                                    Informe o número conectado se você usa o celular para responder manualmente. Isso evita que a IA responda às suas próprias mensagens.
+                                    Insira aqui o número dos atendentes ou do próprio robô para evitar que a IA responda a mensagens internas (Loop).
                                 </span>
                             </div>
                         </div>
