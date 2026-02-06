@@ -1521,8 +1521,28 @@ app.post('/webhook/:companyId', async (req, res) => {
 
     console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
 
-    // Validate Payload & Ignore "fromMe" (Sent by us/AI)
-    const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
+
+    // Load Config EARLY (needed for Bot Number check)
+    let followUpCfg = null;
+    try {
+        const config = await getCompanyConfig(companyId);
+        followUpCfg = config?.followUpConfig ? JSON.parse(config.followUpConfig) : null;
+    } catch (e) {
+        console.error('[Webhook] Failed to load config:', e);
+    }
+
+    // CHECK IF SENDER IS THE BOT (Manual Phone Response)
+    // Some providers send 'fromMe: false' even for agent messages sent via phone.
+    // We check if the sender number matches the configured 'botNumber'.
+    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
+    const cleanSender = rawSender ? String(rawSender).replace('@s.whatsapp.net', '') : '';
+
+    let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
+
+    if (!isFromMe && followUpCfg?.botNumber && cleanSender === followUpCfg.botNumber) {
+        console.log(`[Webhook] Detected Agent Message via Phone (Sender matches Bot Number: ${followUpCfg.botNumber}). Forcing isFromMe=true.`);
+        isFromMe = true;
+    }
 
     if (isFromMe) {
         console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
@@ -1530,14 +1550,26 @@ app.post('/webhook/:companyId', async (req, res) => {
         // --- START FOLLOW-UP TIMER ---
         try {
             // Recipient is usually remoteJid (Wuzapi) or chatid (CodeChat)
-            const senderNumber = payload.key?.remoteJid || payload.to || payload.data?.key?.remoteJid || payload.msg?.chatid;
-            // Wuzapi: key.remoteJid is the chat ID (recipient).
-            if (senderNumber) {
-                const cleanNumber = String(senderNumber).replace('@s.whatsapp.net', '');
+            // IF manual send: payload.msg.chatid is likely the RECIPIENT.
+            // But if triggered via "fromMe=false" logic, rawSender is the AGENT.
+            // We need the DESTINATION number to start the timer for THAT contact.
 
-                // Load Config to get delay
-                const config = await getCompanyConfig(companyId);
-                const followUpCfg = config?.followUpConfig ? JSON.parse(config.followUpConfig) : null;
+            // Heuristic: If we forced isFromMe based on Sender, then the Target is... where?
+            // In Wuzapi/CodeChat outbound via phone:
+            // msg.chatid -> Target (Client)
+            // msg.sender -> Source (Agent)
+
+            let targetNumber = payload.key?.remoteJid || payload.to || payload.data?.key?.remoteJid || payload.msg?.chatid;
+
+            // If the "target" is actually the Agent (because logic mismatch), swap?
+            // "5522992371763" (Agent) sent to "5521..." (Client).
+            // msg.chatid = "5521..." (Client)
+            // msg.sender = "5522..." (Agent)
+            // So 'targetNumber' should be msg.chatid.
+
+            if (targetNumber) {
+                const cleanNumber = String(targetNumber).replace('@s.whatsapp.net', '');
+
 
                 if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
                     const firstAttempt = followUpCfg.attempts[0];
