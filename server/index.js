@@ -329,6 +329,7 @@ const getCompanyConfig = async (companyId) => {
         integrations: config.integrations ? JSON.parse(config.integrations) : undefined,
         products: config.products ? JSON.parse(config.products) : undefined,
         knowledgeBase: config.knowledgeBase ? JSON.parse(config.knowledgeBase) : undefined,
+        followUpConfig: config.followUpConfig ? JSON.parse(config.followUpConfig) : undefined,
     };
 };
 
@@ -1511,8 +1512,60 @@ app.post('/webhook/:companyId', async (req, res) => {
     const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe;
 
     if (isFromMe) {
-        console.log('[Webhook] Ignoring message sent by me (fromMe=true).');
-        return res.json({ status: 'ignored_from_me' });
+        console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
+
+        // --- START FOLLOW-UP TIMER ---
+        try {
+            const senderNumber = payload.key?.remoteJid || payload.to || payload.data?.key?.remoteJid; // For outbound, 'remoteJid' is usually the recipient? Or 'to'?
+            // Wuzapi: key.remoteJid is the chat ID (recipient).
+            if (senderNumber) {
+                const cleanNumber = String(senderNumber).replace('@s.whatsapp.net', '');
+
+                // Load Config to get delay
+                const config = await getCompanyConfig(companyId);
+                const followUpCfg = config?.followUpConfig ? JSON.parse(config.followUpConfig) : null;
+
+                if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
+                    const firstAttempt = followUpCfg.attempts[0];
+                    // Calculate Next Date
+                    const now = new Date();
+                    let nextDate = new Date();
+                    if (firstAttempt.delayUnit === 'minutes') nextDate.setMinutes(now.getMinutes() + firstAttempt.delayValue);
+                    if (firstAttempt.delayUnit === 'hours') nextDate.setHours(now.getHours() + firstAttempt.delayValue);
+                    if (firstAttempt.delayUnit === 'days') nextDate.setDate(now.getDate() + firstAttempt.delayValue);
+
+                    // UPSERT STATE
+                    // Note: Prisma upsert requires unique where. ContactState has @@unique([companyId, remoteJid])
+                    // However, remoteJid in DB usually stores '@s.whatsapp.net'. Let's keep it consistent.
+                    // If cleanNumber is used elsewhere, we should standardize. 
+                    // Let's use the full JID in DB for safety, or clean? 
+                    // Existing code uses 'cleanNumber' for Promp API. Let's store full JID 'senderNumber'.
+
+                    await prisma.contactState.upsert({
+                        where: { companyId_remoteJid: { companyId, remoteJid: senderNumber } },
+                        create: {
+                            companyId,
+                            remoteJid: senderNumber,
+                            isActive: true, // Start!
+                            attemptIndex: 0,
+                            lastOutbound: now,
+                            nextFollowUp: nextDate
+                        },
+                        update: {
+                            isActive: true, // Restart!
+                            attemptIndex: 0, // Reset to first attempt
+                            lastOutbound: now,
+                            nextFollowUp: nextDate
+                        }
+                    });
+                    console.log(`[FollowUp] Timer STARTED for ${cleanNumber}`);
+                }
+            }
+        } catch (e) {
+            console.error('[FollowUp] Error starting timer:', e);
+        }
+
+        return res.json({ status: 'ignored_from_me_but_timer_started' });
     }
 
     // Check for Status Updates (Delivery, Read) - Ignore them
@@ -1544,6 +1597,25 @@ app.post('/webhook/:companyId', async (req, res) => {
     if (!cleanNumber) {
         console.log('[Webhook] No specific sender number found. Ignoring.');
         return res.json({ status: 'ignored_no_number' });
+    }
+
+    // --- STOP FOLLOW-UP TIMER (User Replied) ---
+    try {
+        // If user replies, we stop any pending sequence
+        // We use updateMany just in case record doesn't exist (avoid error) or findUnique check
+        // Ideally:
+        const jid = senderNumber.includes('@') ? senderNumber : `${senderNumber}@s.whatsapp.net`;
+
+        await prisma.contactState.updateMany({
+            where: {
+                companyId: companyId,
+                remoteJid: jid // We must match what we saved (likely full JID)
+            },
+            data: { isActive: false }
+        });
+        console.log(`[FollowUp] Timer STOPPED for ${cleanNumber}`);
+    } catch (e) {
+        // Ignore error
     }
 
     const metadata = JSON.stringify(payload);
@@ -1653,6 +1725,156 @@ app.post('/webhook/:companyId', async (req, res) => {
         res.status(500).json({ error: error.message || 'Processing failed' });
     }
 });
+
+// --- INTELLIGENT FOLLOW-UP SCHEDULER ---
+const FOLLOW_UP_INTERVAL_MS = 60 * 1000; // Check every 60s
+
+// Helper to calculate date
+const calculateNextDate = (value, unit) => {
+    const now = new Date();
+    if (unit === 'minutes') now.setMinutes(now.getMinutes() + value);
+    if (unit === 'hours') now.setHours(now.getHours() + value);
+    if (unit === 'days') now.setDate(now.getDate() + value);
+    return now;
+};
+
+setInterval(async () => {
+    try {
+        const now = new Date();
+        // 1. Find contacts due for follow-up
+        const pendingContacts = await prisma.contactState.findMany({
+            where: {
+                isActive: true,
+                nextFollowUp: { lte: now }
+            }
+        });
+
+        if (pendingContacts.length > 0) {
+            console.log(`[FollowUp] Found ${pendingContacts.length} contacts pending follow-up.`);
+        }
+
+        for (const contact of pendingContacts) {
+            try {
+                // 2. Load Config
+                const config = await getCompanyConfig(contact.companyId);
+                const followUpCfg = config?.followUpConfig ? JSON.parse(config.followUpConfig) : null;
+
+                // Stop if disabled globally
+                if (!followUpCfg || !followUpCfg.enabled) {
+                    await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
+                    continue;
+                }
+
+                // 3. Check attempts config
+                const attempts = followUpCfg.attempts || [];
+                const currentAttemptIndex = contact.attemptIndex;
+
+                if (currentAttemptIndex >= attempts.length) {
+                    // Exhausted all attempts
+                    await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
+                    continue;
+                }
+
+                const currentAttemptConfig = attempts[currentAttemptIndex];
+                if (!currentAttemptConfig.active) {
+                    // If this specific attempt is disabled, skip to next or stop? 
+                    // Usually we might want to skip. Let's increment index and schedule next immediately (soft skip).
+                    // Or just stop? User said "pause an attempt".
+                    // Let's increment and reschedule for next attempt if exists.
+                    const nextIndex = currentAttemptIndex + 1;
+                    if (nextIndex < attempts.length) {
+                        const nextCfg = attempts[nextIndex];
+                        const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
+                        await prisma.contactState.update({
+                            where: { id: contact.id },
+                            data: { attemptIndex: nextIndex, nextFollowUp: nextDate }
+                        });
+                    } else {
+                        await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
+                    }
+                    continue;
+                }
+
+                // 4. Generate AI Message
+                const persona = config.persona ? JSON.parse(config.persona) : {};
+                const tone = followUpCfg.tone || 'serious';
+
+                let tonePrompt = "";
+                if (tone === 'animated') tonePrompt = "Estilo: Energético, motivador, use emojis positivos 🚀.";
+                if (tone === 'serious') tonePrompt = "Estilo: Profissional, direto, sem gírias.";
+                if (tone === 'ice_breaker') tonePrompt = "Estilo: Leve, bem-humorado, simpático 😄.";
+
+                const systemInstruction = `
+                Você é ${persona.name || 'Assistente'}, da empresa.
+                O cliente parou de responder.
+                Objetivo: Retomar a conversa de forma natural (Follow-up).
+                ${tonePrompt}
+                NÃO seja repetitivo. NÃO pareça um robô.
+                Faça uma pergunta para engajar.
+                Seja curto (máx 2 frases).
+                `;
+
+                // Fetch recent history for context (Last 3 messages)
+                const history = await prisma.testMessage.findMany({
+                    where: { companyId: contact.companyId }, // Ideally filter by session/phone which we map to remoteJid?
+                    // Note: Schema links by sessionId. Webhook maps remoteJid to sessionId if possible.
+                    // For now, without robust session mapping, we skip history or use metadata context.
+                    take: 3,
+                    orderBy: { createdAt: 'desc' }
+                });
+
+                // Reverse to chronological
+                const recentMsgs = history.reverse().map(m => `${m.sender}: ${m.text}`).join('\n');
+
+                const completion = await openai.chat.completions.create({
+                    messages: [
+                        { role: "system", content: systemInstruction },
+                        { role: "user", content: `Histórico recente:\n${recentMsgs}\n\nGere uma mensagem de follow-up.` }
+                    ],
+                    model: "gpt-4o-mini",
+                });
+
+                const aiMessage = completion.choices[0].message.content;
+                console.log(`[FollowUp] Generated for ${contact.remoteJid}: "${aiMessage}"`);
+
+                // 5. Send Message
+                // Use existing sendPrompMessage
+                const cleanNumber = contact.remoteJid.replace('@s.whatsapp.net', '');
+                await sendPrompMessage(config, cleanNumber, aiMessage, null, null, null);
+
+                // 6. Schedule Next Attempt
+                const nextIndex = currentAttemptIndex + 1;
+                if (nextIndex < attempts.length) {
+                    const nextCfg = attempts[nextIndex];
+                    const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
+                    await prisma.contactState.update({
+                        where: { id: contact.id },
+                        data: { attemptIndex: nextIndex, nextFollowUp: nextDate, lastOutbound: now }
+                    });
+                } else {
+                    // Finished Sequence
+                    await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false, lastOutbound: now } });
+                }
+
+                // Log Message
+                await prisma.testMessage.create({
+                    data: {
+                        companyId: contact.companyId,
+                        sender: 'ai',
+                        text: aiMessage + " [Follow-up Auto]",
+                        sessionId: "followup_auto"
+                    }
+                });
+
+            } catch (err) {
+                console.error(`[FollowUp] Error processing contact ${contact.id}:`, err);
+            }
+        }
+
+    } catch (e) {
+        console.error('[FollowUp] Scheduler Error:', e);
+    }
+}, FOLLOW_UP_INTERVAL_MS);
 
 // Handle React Routing (SPA) - must be the last route
 app.get('*', (req, res) => {

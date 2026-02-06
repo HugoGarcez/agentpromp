@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Save, Bot, Cpu, Mic, Volume2, Globe } from 'lucide-react';
+import { Save, Bot, Cpu, Mic, Volume2, Globe, Clock, MessageCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Settings = () => {
@@ -26,6 +26,19 @@ const Settings = () => {
         voiceId: '',
         responseType: 'audio_only', // audio_only, percentage
         responsePercentage: 50
+    });
+
+    // NEW: Follow-up Config State
+    const [followUp, setFollowUp] = useState({
+        enabled: false,
+        tone: 'serious', // 'animated', 'serious', 'ice_breaker'
+        attempts: [
+            { id: 1, delayValue: 30, delayUnit: 'minutes', active: true },
+            { id: 2, delayValue: 2, delayUnit: 'hours', active: true },
+            { id: 3, delayValue: 1, delayUnit: 'days', active: true },
+            { id: 4, delayValue: 3, delayUnit: 'days', active: true },
+            { id: 5, delayValue: 7, delayUnit: 'days', active: true }
+        ]
     });
 
     const [showToast, setShowToast] = useState(false);
@@ -73,11 +86,21 @@ const Settings = () => {
                         setVoice(voiceData);
                     }
 
+                    // Populate Follow-up Config
+                    if (data.followUpConfig) {
+                        try {
+                            const parsedFollowUp = JSON.parse(data.followUpConfig);
+                            setFollowUp({
+                                enabled: parsedFollowUp.enabled || false,
+                                tone: parsedFollowUp.tone || 'serious',
+                                attempts: parsedFollowUp.attempts || followUp.attempts
+                            });
+                        } catch (e) { console.error("Error parsing followUpConfig", e); }
+                    }
+
                     // CRITICAL: Preserve products from DB
                     if (data.products && Array.isArray(data.products)) {
                         setServerProducts(data.products);
-                        console.log('Loaded products from server to preserve:', data.products.length);
-                        console.log('Loaded products from server to preserve:', data.products.length);
                     }
 
                     // Check Promp Connection
@@ -109,6 +132,17 @@ const Settings = () => {
     const handleVoiceChange = (e) => {
         const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
         setVoice({ ...voice, [e.target.name]: value });
+    };
+
+    // --- FOLLOW UP HANDLERS ---
+    const updateFollowUpAttempt = (index, field, value) => {
+        const newAttempts = [...followUp.attempts];
+        newAttempts[index] = { ...newAttempts[index], [field]: value };
+        setFollowUp({ ...followUp, attempts: newAttempts });
+    };
+
+    const handleFollowUpChange = (field, value) => {
+        setFollowUp(prev => ({ ...prev, [field]: value }));
     };
 
     const handleSave = async () => {
@@ -185,7 +219,6 @@ DIRETRIZES:
             const token = localStorage.getItem('token');
 
             // Determine products list to save
-            // Priority: Server Products (from DB) > Local Storage > Empty Array
             let productsToSave = serverProducts;
             if (!productsToSave || productsToSave.length === 0) {
                 const localProds = JSON.parse(localStorage.getItem('promp_ai_products') || '[]');
@@ -203,8 +236,11 @@ DIRETRIZES:
                     // FORCE MERGE: Send voice settings INSIDE integrations to ensure backend saves them
                     integrations: { ...integrations, ...voice },
                     voice, // Keep for backward compat if needed
-                    systemPrompt: finalSystemPrompt
+                    systemPrompt: finalSystemPrompt,
                     // products field removed to prevent overwriting managed data from ProductConfig
+
+                    // NEW: Save Follow-up Config
+                    followUpConfig: JSON.stringify(followUp)
                 }),
             });
 
@@ -273,6 +309,21 @@ DIRETRIZES:
                     <Globe size={20} />
                     Webhook
                 </button>
+
+                {/* FOLLOW UP TAB */}
+                <button
+                    onClick={() => setActiveSection('followup')}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '12px',
+                        borderRadius: 'var(--radius-md)',
+                        background: activeSection === 'followup' ? 'var(--primary-light)' : 'transparent',
+                        color: activeSection === 'followup' ? 'var(--primary-blue)' : 'var(--text-medium)',
+                        fontWeight: 500
+                    }}
+                >
+                    <Clock size={20} />
+                    Follow-up (IA)
+                </button>
             </div>
 
             {/* Main Content */}
@@ -283,8 +334,6 @@ DIRETRIZES:
                 boxShadow: 'var(--shadow-sm)',
                 padding: '32px'
             }}>
-
-                {/* Persona Section MOVED to AI Config */}
 
                 {/* Integrations Section (Now AI Status) */}
                 {activeSection === 'integrations' && (
@@ -567,6 +616,80 @@ DIRETRIZES:
                     </div>
                 )}
 
+                {/* Follow-up Section */}
+                {activeSection === 'followup' && (
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+                            <div>
+                                <h2 style={{ fontSize: '20px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <Clock size={24} color="var(--primary-blue)" />
+                                    Follow-up Inteligente com IA
+                                </h2>
+                                <p style={{ color: 'var(--text-medium)', marginTop: 8 }}>
+                                    Recupere conversas "frias" automaticamente. A IA envia mensagens personalizadas quando o cliente para de responder.
+                                </p>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <span style={{ fontSize: 14, fontWeight: 600, color: followUp.enabled ? '#10B981' : '#6B7280' }}>
+                                    {followUp.enabled ? 'ATIVADO' : 'DESATIVADO'}
+                                </span>
+                                <label className="switch">
+                                    <input type="checkbox" checked={followUp.enabled} onChange={(e) => handleFollowUpChange('enabled', e.target.checked)} />
+                                    <span className="slider round"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div style={{ background: '#F9FAFB', padding: 24, borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 24 }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Tom de Voz do Follow-up</label>
+                            <select
+                                value={followUp.tone}
+                                onChange={(e) => handleFollowUpChange('tone', e.target.value)}
+                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }}
+                            >
+                                <option value="animated">Animado (Energia, oportunidade 🚀)</option>
+                                <option value="serious">Sério (Profissional, objetivo 👔)</option>
+                                <option value="ice_breaker">Quebra-gelo (Leve, simpático 😄)</option>
+                            </select>
+                            <p style={{ fontSize: 12, color: '#6B7280', marginTop: 8 }}>O tom selecionado será usado pela IA para gerar todas as mensagens de recuperação.</p>
+                        </div>
+
+                        <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Sequência de Tentativas</h3>
+                        <div style={{ display: 'grid', gap: 12 }}>
+                            {followUp.attempts.map((attempt, index) => (
+                                <div key={attempt.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'white', padding: 12, borderRadius: 8, border: '1px solid #E5E7EB', opacity: attempt.active ? 1 : 0.6 }}>
+                                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#EFF6FF', color: '#1E40AF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 'bold' }}>
+                                        {index + 1}
+                                    </div>
+                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 14 }}>Enviar após</span>
+                                        <input
+                                            type="number"
+                                            value={attempt.delayValue}
+                                            onChange={(e) => updateFollowUpAttempt(index, 'delayValue', parseInt(e.target.value))}
+                                            style={{ width: 60, padding: 6, borderRadius: 4, border: '1px solid #D1D5DB' }}
+                                        />
+                                        <select
+                                            value={attempt.delayUnit}
+                                            onChange={(e) => updateFollowUpAttempt(index, 'delayUnit', e.target.value)}
+                                            style={{ padding: 6, borderRadius: 4, border: '1px solid #D1D5DB' }}
+                                        >
+                                            <option value="minutes">Minutos</option>
+                                            <option value="hours">Horas</option>
+                                            <option value="days">Dias</option>
+                                        </select>
+                                        <span style={{ fontSize: 14 }}>sem resposta.</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 12, color: attempt.active ? '#10B981' : '#9CA3AF' }}>{attempt.active ? 'Ativa' : 'Pausada'}</span>
+                                        <input type="checkbox" checked={attempt.active} onChange={(e) => updateFollowUpAttempt(index, 'active', e.target.checked)} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'flex-end' }}>
                     <button
                         onClick={handleSave}
@@ -608,5 +731,4 @@ DIRETRIZES:
         </div>
     );
 };
-
 export default Settings;

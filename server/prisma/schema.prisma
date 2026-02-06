@@ -49,6 +49,26 @@ model AgentConfig {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   history      PromptHistory[]
+  
+  // Follow-up Config
+  followUpConfig String? // JSON: { enabled, attempts: [], tone: '' }
+}
+
+model ContactState {
+    id String @id @default(uuid())
+    companyId String
+    remoteJid String // Phone Number
+    
+    lastOutbound DateTime? // When did we last message them?
+    nextFollowUp DateTime? // When is the next AI msg scheduled?
+    attemptIndex Int @default(0) // 0 to 4
+    isActive Boolean @default(false) // Is the sequence running?
+    metadata String? // JSON: { name: 'Hugo', context: 'Sales' }
+    
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([companyId, remoteJid])
 }
 
 model PromptHistory {
