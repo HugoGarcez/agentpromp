@@ -78,6 +78,7 @@ const ProductConfig = () => {
         // Service Specific
         paymentConditions: '',
         pdf: null, // Base64 PDF
+        active: true, // NEW: Active Status
 
         // Common New Fields
         paymentLink: '',
@@ -214,6 +215,15 @@ const ProductConfig = () => {
         await saveItemsToApi(newItemsState);
     };
 
+    const toggleActiveItem = async (id, currentStatus) => {
+        // Optimistic UI update
+        const newStatus = !currentStatus;
+        const newItemsState = products.map(p => p.id === id ? { ...p, active: newStatus } : p);
+        if (await saveItemsToApi(newItemsState)) {
+            // Success
+        }
+    };
+
     // Helper to open form
     const openForm = (type) => {
         setFormData({ ...initialFormState, type });
@@ -260,9 +270,15 @@ const ProductConfig = () => {
                         <h3 style={{ fontSize: '16px', fontWeight: 600 }}>
                             {formData.id ? 'Editar' : 'Novo'} {formData.type === 'service' ? 'Serviço' : 'Produto'}
                         </h3>
-                        <span style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '12px', background: formData.type === 'service' ? '#D1FAE5' : '#DBEAFE', color: formData.type === 'service' ? '#065F46' : '#1E40AF' }}>
-                            {formData.type === 'service' ? 'Serviço' : 'Produto'}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button type="button" onClick={() => setFormData(prev => ({ ...prev, active: !prev.active }))} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontSize: '12px', fontWeight: 500, color: formData.active ? '#10B981' : '#9CA3AF' }}>{formData.active ? 'Ativo' : 'Inativo'}</span>
+                                {formData.active ? <ToggleRight size={24} color="#10B981" /> : <ToggleLeft size={24} color="#9CA3AF" />}
+                            </button>
+                            <span style={{ fontSize: '12px', padding: '4px 8px', borderRadius: '12px', background: formData.type === 'service' ? '#D1FAE5' : '#DBEAFE', color: formData.type === 'service' ? '#065F46' : '#1E40AF' }}>
+                                {formData.type === 'service' ? 'Serviço' : 'Produto'}
+                            </span>
+                        </div>
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
@@ -436,7 +452,7 @@ const ProductConfig = () => {
                     ) : (
                         <div style={{ display: 'grid', gap: '16px' }}>
                             {products.map(item => (
-                                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', border: '1px solid #E5E7EB', borderRadius: 'var(--radius-md)', background: item.type === 'service' ? '#FDFDFD' : 'white' }}>
+                                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', border: '1px solid #E5E7EB', borderRadius: 'var(--radius-md)', background: item.type === 'service' ? '#FDFDFD' : 'white', opacity: (item.active === false) ? 0.6 : 1 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                                         {/* Icon/Image */}
                                         <div style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -471,7 +487,10 @@ const ProductConfig = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <button onClick={() => toggleActiveItem(item.id, item.active !== false)} title={item.active !== false ? "Inativar" : "Ativar"} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+                                            {(item.active !== false) ? <ToggleRight size={24} color="#10B981" /> : <ToggleLeft size={24} color="#9CA3AF" />}
+                                        </button>
                                         <button onClick={() => handleEdit(item)} style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer' }}><Edit2 size={18} /></button>
                                         <button onClick={() => deleteItem(item.id)} style={{ background: 'none', border: 'none', color: '#9CA3AF', cursor: 'pointer' }}><Trash2 size={18} /></button>
                                     </div>

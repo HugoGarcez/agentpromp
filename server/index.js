@@ -505,6 +505,9 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     if (config.products && config.products.length > 0) {
         let productList = "";
         config.products.forEach(p => {
+            // FILTER INACTIVE (New Feature)
+            if (p.active === false) return;
+
             const isService = p.type === 'service';
             const typeLabel = isService ? 'SERVIÇO' : 'PRODUTO';
             const pdfTag = p.pdf ? `[TEM_PDF] (ID: ${p.id})` : '';
