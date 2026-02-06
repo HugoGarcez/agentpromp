@@ -1522,14 +1522,15 @@ app.post('/webhook/:companyId', async (req, res) => {
     console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
 
     // Validate Payload & Ignore "fromMe" (Sent by us/AI)
-    const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe;
+    const isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
 
     if (isFromMe) {
         console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
 
         // --- START FOLLOW-UP TIMER ---
         try {
-            const senderNumber = payload.key?.remoteJid || payload.to || payload.data?.key?.remoteJid; // For outbound, 'remoteJid' is usually the recipient? Or 'to'?
+            // Recipient is usually remoteJid (Wuzapi) or chatid (CodeChat)
+            const senderNumber = payload.key?.remoteJid || payload.to || payload.data?.key?.remoteJid || payload.msg?.chatid;
             // Wuzapi: key.remoteJid is the chat ID (recipient).
             if (senderNumber) {
                 const cleanNumber = String(senderNumber).replace('@s.whatsapp.net', '');
@@ -1594,7 +1595,13 @@ app.post('/webhook/:companyId', async (req, res) => {
 
     // Safety Check for Content
     // Wuzapi: payload.data.message.conversation OR payload.content.text
-    let userMessage = payload.content?.text || payload.data?.message?.conversation || payload.data?.message?.extendedTextMessage?.text;
+    // User Log Payload: payload.msg.text Or payload.msg.content
+    let userMessage = payload.content?.text ||
+        payload.data?.message?.conversation ||
+        payload.data?.message?.extendedTextMessage?.text ||
+        payload.msg?.text ||
+        payload.msg?.body ||
+        payload.msg?.content;
 
     if (!userMessage) {
         // If it's a media message or something else we don't support yet, ignore gracefully
@@ -1604,7 +1611,7 @@ app.post('/webhook/:companyId', async (req, res) => {
 
     // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
     const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
-    const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid;
+    const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
 
     // Clean Sender Number if it has @s.whatsapp.net
     const cleanNumber = senderNumber ? String(senderNumber).replace('@s.whatsapp.net', '') : null;
