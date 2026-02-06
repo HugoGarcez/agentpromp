@@ -762,8 +762,8 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     let productImageUrl = null;
     let productCaption = ""; // Initialize caption
 
-    // Robust Regex: Optional quotes, spaces, dots/dashes
-    const imageTagRegex = /\[SHOW_IMAGE:\s*['"]?([a-zA-Z0-9_.-]+)['"]?\s*\]/i;
+    // Robust Regex: Optional quotes, spaces, dots/dashes, AND SPACES in ID
+    const imageTagRegex = /\[SHOW_IMAGE:\s*['"]?([^\]]+?)['"]?\s*\]/i;
     const imageMatch = aiResponse.match(imageTagRegex);
 
     if (imageMatch && config.products) {
@@ -826,7 +826,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     // --- PDF Logic (Service Details) ---
     let pdfBase64 = null;
     let pdfName = null;
-    const pdfTagRegex = /\[SEND_PDF:\s*['"]?([a-zA-Z0-9_.-]+)['"]?\s*\]/i;
+    const pdfTagRegex = /\[SEND_PDF:\s*['"]?([^\]]+?)['"]?\s*\]/i;
     const pdfMatch = aiResponse.match(pdfTagRegex);
 
     if (pdfMatch) {
@@ -1070,7 +1070,8 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
     // 1. Send Text (ONLY if no audio AND no PDF, to avoid duplication or mixed content issues)
     // Actually, if we have PDF, we might want to send the text caption separately or as caption.
     // For PDF, caption is usually supported.
-    if (!audioBase64 && !pdfBase64) {
+    // 1. Send Text (ONLY if no audio, to avoid duplication. For PDF/Image we WANT separate text + media)
+    if (!audioBase64) {
         try {
             console.log(`[Promp] Sending Text to ${number}...`);
             const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
@@ -1094,8 +1095,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
             console.error('[Promp] Text Exception:', e);
         }
     } else {
-        if (pdfBase64) console.log(`[Promp] Sending PDF, skipping separate text message.`);
-        else console.log(`[Promp] Skipping text message because audio is being sent.`);
+        console.log(`[Promp] Skipping text message because audio is being sent.`);
     }
 
     // 4. Send PDF (Multipart Strategy)
