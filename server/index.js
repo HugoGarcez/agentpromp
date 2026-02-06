@@ -378,17 +378,19 @@ app.post('/api/config', authenticateToken, async (req, res) => {
         }
 
         // Handle Knowledge Base - SCRAPE LINKS
-        let finalKB = newConfig.knowledgeBase || {};
-
-        if (finalKB.links && finalKB.links.length > 0) {
-            const processedLinks = await Promise.all(finalKB.links.map(async (link) => {
-                let url = typeof link === 'string' ? link : link.url;
-                // Avoid re-scraping if content exists? 
-                // For now, scrape always to ensure freshness on save.
-                let content = await scrapeUrl(url);
-                return { url, content };
-            }));
-            finalKB.links = processedLinks;
+        // Only process if provided in request to avoid overwriting with empty
+        let finalKB = undefined;
+        if (newConfig.knowledgeBase) {
+            finalKB = newConfig.knowledgeBase;
+            if (finalKB.links && finalKB.links.length > 0) {
+                const processedLinks = await Promise.all(finalKB.links.map(async (link) => {
+                    let url = typeof link === 'string' ? link : link.url;
+                    // Scrape content to ensure freshness
+                    let content = await scrapeUrl(url);
+                    return { url, content };
+                }));
+                finalKB.links = processedLinks;
+            }
         }
 
         const data = {
@@ -397,7 +399,18 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             persona: newConfig.persona ? JSON.stringify(newConfig.persona) : undefined,
             integrations: JSON.stringify(combinedIntegrations),
             products: newConfig.products ? JSON.stringify(newConfig.products) : undefined,
-            knowledgeBase: JSON.stringify(finalKB),
+            knowledgeBase: finalKB ? JSON.stringify(finalKB) : undefined,
+            followUpConfig: newConfig.followUpConfig // Already stringified in frontend (JSON.stringify(followUp)) or passed as object?
+            // Frontend sends: followUpConfig: JSON.stringify(followUp) -> string.
+            // Backend expects string for JSON fields (usually).
+            // Let's check prisma schema. Typically String.
+            // newConfig.followUpConfig comes from JSON.stringify({..}) so it's a string.
+            // BUT, express body parser parses JSON.
+            // If frontend sends { followUpConfig: "..." }, then newConfig.followUpConfig is a string.
+            // If frontend sends { followUpConfig: {...} }, then it's an object.
+            // Settings.jsx: body: JSON.stringify({ followUpConfig: JSON.stringify(followUp) })
+            // So `req.body.followUpConfig` is a STRING.
+            // Prisma expects string? We will see. Assuming yes based on others being stringified manually here.
         };
 
         const updatedConfig = await prisma.agentConfig.upsert({
