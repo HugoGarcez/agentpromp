@@ -1571,7 +1571,9 @@ app.post('/webhook/:companyId', async (req, res) => {
                             nextFollowUp: nextDate
                         }
                     });
-                    console.log(`[FollowUp] Timer STARTED for ${cleanNumber}`);
+                    console.log(`[FollowUp] Timer STARTED for ${cleanNumber}. Next follow-up at: ${nextDate.toISOString()}`);
+                } else {
+                    console.log(`[FollowUp] Timer IGNORED. Enabled: ${followUpCfg?.enabled}, Attempts: ${followUpCfg?.attempts?.length}`);
                 }
             }
         } catch (e) {
@@ -1754,6 +1756,9 @@ const calculateNextDate = (value, unit) => {
 setInterval(async () => {
     try {
         const now = new Date();
+        // Log heartbeat every minute (or every 5 minutes if too noisy, but for debug every min is good)
+        // console.log(`[FollowUp] Heartbeat at ${now.toISOString()}`); 
+
         // 1. Find contacts due for follow-up
         const pendingContacts = await prisma.contactState.findMany({
             where: {
@@ -1763,7 +1768,11 @@ setInterval(async () => {
         });
 
         if (pendingContacts.length > 0) {
-            console.log(`[FollowUp] Found ${pendingContacts.length} contacts pending follow-up.`);
+            console.log(`[FollowUp] Found ${pendingContacts.length} contacts due for follow-up at ${now.toISOString()}`);
+            pendingContacts.forEach(c => console.log(` - Contact: ${c.remoteJid}, Next: ${c.nextFollowUp}, Attempt: ${c.attemptIndex}`));
+        } else {
+            // Uncomment to debug if loop is running at all
+            console.log(`[FollowUp] No pending contacts. (Checked at ${now.toISOString()})`);
         }
 
         for (const contact of pendingContacts) {
