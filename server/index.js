@@ -658,7 +658,18 @@ const processChatResponse = async (config, message, history, sessionId = null, i
         systemPrompt += `\n\n[SISTEMA]: O usuário enviou uma MSG DE ÁUDIO que foi transcrita.
         - O texto inicia com "[ÁUDIO TRANSCRITO]:".
         - NÃO diga "não ouço áudio". Você JÁ LEU o que ele falou.
-        - Responda naturalmente ao conteúdo.`;
+        - Responda naturalmente ao conteúdo.
+        
+        DIRETRIZ DE ÁUDIO (MUITO IMPORTANTE):
+        1. Como você vai responder em ÁUDIO, NÃO LEIA listas numeradas ("um... dois..."). Fica robótico.
+        2. Mantenha a resposta em texto estruturada (com listas e quebras), MAS...
+        3. NO FINAL DA RESPOSTA, crie um bloco **[SCRIPT_AUDIO]:** com o texto exato que deve ser falado.
+        4. No [SCRIPT_AUDIO]:
+           - Seja conversational. 
+           - Substitua listas por frases conectadas ("temos o plano X, além do Y...").
+           - Fale de forma fluida, como um brasileiro.
+           - Use palavras em inglês com a pronúncia correta (ex: "Praime" para Prime).
+           - NÃO use emojis ou markdown.`;
     }
 
     // Guidelines for continuity
@@ -832,6 +843,20 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     });
 
     let aiResponse = completion.choices[0].message.content;
+
+    // --- Audio Script Extraction ---
+    let textForAudio = aiResponse;
+    const scriptRegex = /\[SCRIPT_AUDIO\]:([\s\S]*?)$/i; // Match until end or next tag? Assuming end or specific format.
+    // Better: /\[SCRIPT_AUDIO\]:([\s\S]+)/ (Greedy until end usually, unless Image tag follows? Image logic is later)
+    // Let's assume SCRIPT_AUDIO is at the very end.
+
+    const scriptMatch = aiResponse.match(scriptRegex);
+    if (scriptMatch && scriptMatch[1]) {
+        textForAudio = scriptMatch[1].trim();
+        // Remove from visual text
+        aiResponse = aiResponse.replace(scriptRegex, '').trim();
+        console.log('[Chat] Separate Audio Script detected and extracted.');
+    }
 
     // --- Image Detection Logic ---
     let productImageUrl = null;
