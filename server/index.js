@@ -431,24 +431,22 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             }
         }
 
+        // DEBUG: Validate Persona
+        if (newConfig.persona) {
+            console.log(`[Config Update] Persona Type: ${typeof newConfig.persona}`);
+            if (typeof newConfig.persona === 'string') {
+                console.log(`[Config Update] Persona Content (Head): ${newConfig.persona.substring(0, 50)}`);
+            }
+        }
+
         const data = {
             companyId,
             systemPrompt: newConfig.systemPrompt,
-            persona: newConfig.persona ? JSON.stringify(newConfig.persona) : undefined,
+            persona: newConfig.persona ? (typeof newConfig.persona === 'object' ? JSON.stringify(newConfig.persona) : newConfig.persona) : undefined,
             integrations: JSON.stringify(combinedIntegrations),
             products: newConfig.products ? JSON.stringify(newConfig.products) : undefined,
             knowledgeBase: finalKB ? JSON.stringify(finalKB) : undefined,
-            followUpConfig: newConfig.followUpConfig // Already stringified in frontend (JSON.stringify(followUp)) or passed as object?
-            // Frontend sends: followUpConfig: JSON.stringify(followUp) -> string.
-            // Backend expects string for JSON fields (usually).
-            // Let's check prisma schema. Typically String.
-            // newConfig.followUpConfig comes from JSON.stringify({..}) so it's a string.
-            // BUT, express body parser parses JSON.
-            // If frontend sends { followUpConfig: "..." }, then newConfig.followUpConfig is a string.
-            // If frontend sends { followUpConfig: {...} }, then it's an object.
-            // Settings.jsx: body: JSON.stringify({ followUpConfig: JSON.stringify(followUp) })
-            // So `req.body.followUpConfig` is a STRING.
-            // Prisma expects string? We will see. Assuming yes based on others being stringified manually here.
+            followUpConfig: newConfig.followUpConfig // Assuming string or handled by Prisma
         };
 
         const updatedConfig = await prisma.agentConfig.upsert({
@@ -458,6 +456,7 @@ app.post('/api/config', authenticateToken, async (req, res) => {
         });
 
         // Save History if systemPrompt changed
+        // Check if currentConfig exists to avoid null reference
         if (currentConfig && currentConfig.systemPrompt !== newConfig.systemPrompt && newConfig.systemPrompt && currentConfig.systemPrompt) {
             await prisma.promptHistory.create({
                 data: {
@@ -469,8 +468,9 @@ app.post('/api/config', authenticateToken, async (req, res) => {
 
         res.json({ success: true, message: 'Configuration saved successfully' });
     } catch (error) {
-        console.error('Error saving config:', error);
-        res.status(500).json({ success: false, message: 'Failed to save configuration' });
+        console.error('Error saving config (FULL):', error);
+        console.error('Stack:', error.stack);
+        res.status(500).json({ success: false, message: 'Failed to save configuration: ' + error.message });
     }
 });
 

@@ -20,6 +20,14 @@ sudo npm install -g pm2
 echo "📦 Instalando Nginx..."
 sudo apt install -y nginx certbot python3-certbot-nginx
 
+# 4.1 Aumentar limite de upload do Nginx (Evita erro ao salvar Config e arquivos)
+echo "🔧 Ajustando limite de upload do Nginx para 100MB..."
+sudo sed -i 's/client_max_body_size .*/client_max_body_size 100M;/g' /etc/nginx/nginx.conf
+if ! grep -q "client_max_body_size" /etc/nginx/nginx.conf; then
+    sudo sed -i '/http {/a \    client_max_body_size 100M;' /etc/nginx/nginx.conf
+fi
+sudo systemctl restart nginx
+
 # 5. Configurar Firewall (UFW)
 echo "🛡️ Configurando Firewall..."
 sudo ufw allow OpenSSH
