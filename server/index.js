@@ -1615,10 +1615,6 @@ app.post('/webhook/:companyId', async (req, res) => {
         return res.json({ status: 'ignored_group' });
     }
 
-    if (isProtocol) {
-        console.log('[Webhook] Ignoring Protocol Message.');
-        return res.json({ status: 'ignored_protocol' });
-    }
 
 
     if (isProtocol) {
@@ -1669,6 +1665,12 @@ app.post('/webhook/:companyId', async (req, res) => {
         if (targetJid) {
             const cleanTarget = String(targetJid).replace(/\D/g, '');
 
+            // SAFETY CHECK: If Target is myself (Agent), ABORT.
+            if (cleanTarget === cleanOwner || cleanTarget === dbIdentity || cleanTarget === cleanSender) {
+                console.log(`[FollowUp] Timer SKIPPED. Target (${cleanTarget}) is myself/sender. (Owner: ${cleanOwner}, ID: ${dbIdentity})`);
+                return res.json({ status: 'ignored_self_target' });
+            }
+
             // Check if Follow-up is Enabled
             if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
                 const firstAttempt = followUpCfg.attempts[0];
@@ -1710,6 +1712,8 @@ app.post('/webhook/:companyId', async (req, res) => {
     // ------------------------------------------------------------------
     // FLOW B: USER SENT MESSAGE -> STOP TIMER & REPLY
     // ------------------------------------------------------------------
+
+    console.log(`[Webhook] Processing User Message from ${cleanSender}...`);
 
     // Check if Status Update again (redundant but safe)
     if (payload.type === 'message_status' || payload.status) {
