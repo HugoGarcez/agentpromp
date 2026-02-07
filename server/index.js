@@ -540,6 +540,14 @@ const processChatResponse = async (config, message, history, sessionId = null, i
 
     let systemPrompt = config.systemPrompt || "Você é um assistente virtual útil.";
 
+    //    // Inject Audio Context if applicable
+    if (isAudioInput) {
+        systemPrompt += `\n\n[SISTEMA]: O usuário enviou uma mensagem de ÁUDIO que foi transcrita automaticamente para texto.
+        - O texto começa com "[ÁUDIO TRANSCRITO]:".
+        - AJA NATURALMENTE. Não diga "não entendo áudio". Você JÁ recebeu o conteúdo do áudio em texto.
+        - Responda como se estivesse ouvindo o cliente.`;
+    }
+
     // ENFORCE BREVITY & FORMATTING
     systemPrompt += `
     
@@ -643,7 +651,18 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     if (history && history.length > 0) {
         systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente.
         CRÍTICO: Não ofereça ajuda extra no final da mensagem. Apenas responda.`;
+    }
 
+    // Inject Audio Context if applicable
+    if (isAudioInput) {
+        systemPrompt += `\n\n[SISTEMA]: O usuário enviou uma MSG DE ÁUDIO que foi transcrita.
+        - O texto inicia com "[ÁUDIO TRANSCRITO]:".
+        - NÃO diga "não ouço áudio". Você JÁ LEU o que ele falou.
+        - Responda naturalmente ao conteúdo.`;
+    }
+
+    // Guidelines for continuity
+    if (history && history.length > 0) {
         systemPrompt += `\n\nDIRETRIZES DE CONTINUIDADE (CRÍTICO - NÃO IGNORE):
         1. CONTEXTO IMPLÍCITO (OBRIGATÓRIO): Se o usuário fizer uma pergunta sem citar o nome do produto ou apenas confirmar algo (ex: "Sim", "Quero", "Manda", "Pode ser", "Quanto custa?"), você DEVE assumir que ele está falando do ÚLTIMO produto/serviço mencionado no histórico.
         
@@ -961,11 +980,13 @@ const processChatResponse = async (config, message, history, sessionId = null, i
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        text: aiResponse,
-                        model_id: "eleven_multilingual_v2", // Updated for Portuguese support
+                        text: aiResponse.replace(/\[.*?\]/g, ''), // Remove tags like [SHOW_IMAGE] for audio
+                        model_id: "eleven_multilingual_v2",
                         voice_settings: {
-                            stability: 0.5,
-                            similarity_boost: 0.75
+                            stability: integrator.stability ? parseFloat(integrator.stability) : 0.5,
+                            similarity_boost: integrator.similarity ? parseFloat(integrator.similarity) : 0.75,
+                            style: integrator.style ? parseFloat(integrator.style) : 0,
+                            use_speaker_boost: true
                         }
                     })
                 });
@@ -1788,7 +1809,7 @@ app.post('/webhook/:companyId', async (req, res) => {
         if (globalConfig?.openaiKey) {
             const transcription = await transcribeAudio(mediaBase64, globalConfig.openaiKey);
             if (transcription) {
-                userMessage = transcription;
+                userMessage = `[ÁUDIO TRANSCRITO]: ${transcription}`;
                 isAudioInput = true;
                 console.log(`[Webhook] Audio Transcribed: "${userMessage}"`);
             } else {
