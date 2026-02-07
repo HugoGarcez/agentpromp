@@ -557,8 +557,10 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     DIRETRIZES DE PRODUTOS/SERVIÇOS:
     1. NUNCA copie a descrição completa do produto/serviço.
-    2. Destaque apenas 2 ou 3 pontos principais (benefícios).
-    3. Sempre termine perguntando se o cliente quer saber algo mais específico sobre o item (ex: medidas, cores, detalhes técnicos, formas de pagamentos).
+    2. LISTAS: Máximo de 3 itens por mensagem. Agrupe os itens no mesmo balão (use quebra de linha simples).
+    3. Se houver mais de 3 itens, cite os 3 principais e pergunte se o cliente quer ver o resto.
+    4. Destaque apenas 2 ou 3 pontos principais (benefícios).
+    5. Sempre termine perguntando se o cliente quer saber algo mais específico sobre o item (ex: medidas, cores, detalhes técnicos, formas de pagamentos).
     `;
 
     // Inject Products & Services
@@ -1137,9 +1139,9 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
 
     if (text && text.trim().length > 0) {
         try {
-            // Split by Newlines (User asked for "Same message separate")
-            // We split by \n to handle double breaks or single breaks instructions
-            const chunks = text.split('\n').map(c => c.trim()).filter(c => c.length > 0);
+            // Split by DOUBLE Newlines to keep lists grouped in one bubble
+            // Regex: \n\s*\n matches 2 or more newlines with optional whitespace
+            const chunks = text.split(/\n\s*\n/).map(c => c.trim()).filter(c => c.length > 0);
 
             console.log(`[Promp] Sending Text (${chunks.length} chunks) to ${number}...`);
 
