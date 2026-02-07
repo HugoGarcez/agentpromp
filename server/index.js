@@ -1541,12 +1541,6 @@ app.post('/webhook/:companyId', async (req, res) => {
         console.error('[Webhook] Failed to load config:', e);
     }
 
-    // CHECK IF SENDER IS THE BOT (Manual Phone Response)
-    // Some providers send 'fromMe: false' even for agent messages sent via phone.
-    // We check if the sender number matches the configured 'botNumber'.
-    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
-    const cleanSender = rawSender ? String(rawSender).replace('@s.whatsapp.net', '') : '';
-
     // ------------------------------------------------------------------
     // LOOP PROTECTION & SENDER IDENTITY
     // ------------------------------------------------------------------
