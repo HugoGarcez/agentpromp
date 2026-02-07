@@ -987,6 +987,10 @@ const processChatResponse = async (config, message, history, sessionId = null, i
                     voiceId = '21m00Tcm4TlvDq8ikWAM';
                 }
 
+                console.log(`[Audio Debug] Using VoiceID: ${voiceId}`);
+                console.log(`[Audio Debug] Using API Key: ${apiKey ? apiKey.substring(0, 5) + '...' : 'UNDEFINED'}`);
+
+
                 const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
                     method: 'POST',
                     headers: {
