@@ -348,7 +348,7 @@ const getCompanyConfig = async (companyId) => {
 const scrapeUrl = async (url) => {
     try {
         console.log(`[Scraper] Fetching ${url}...`);
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
         if (!response.ok) return `[Erro ao ler ${url}: ${response.statusText}]`;
         const html = await response.text();
 
@@ -416,7 +416,14 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             if (finalKB.links && finalKB.links.length > 0) {
                 const processedLinks = await Promise.all(finalKB.links.map(async (link) => {
                     let url = typeof link === 'string' ? link : link.url;
-                    // Scrape content to ensure freshness
+                    let existingContent = typeof link === 'object' ? link.content : '';
+
+                    // Skip scraping if we already have content (prevent timeout on save)
+                    if (existingContent && existingContent.length > 50) {
+                        return { url, content: existingContent };
+                    }
+
+                    // Scrape content to ensure freshness (only if missing or short)
                     let content = await scrapeUrl(url);
                     return { url, content };
                 }));
