@@ -947,7 +947,7 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     let apiKey = integrator.elevenLabsKey;
 
     // SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
-    if (apiKey && apiKey.trim().startsWith('sk-')) {
+    if (apiKey && (apiKey.trim().startsWith('sk-') || apiKey.trim().startsWith('sk_'))) {
         console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
         apiKey = null;
     }
