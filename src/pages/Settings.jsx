@@ -89,11 +89,12 @@ const Settings = () => {
                     // Populate Follow-up Config
                     if (data.followUpConfig) {
                         try {
-                            const parsedFollowUp = JSON.parse(data.followUpConfig);
+                            const parsedFollowUp = typeof data.followUpConfig === 'string' ? JSON.parse(data.followUpConfig) : data.followUpConfig;
                             setFollowUp({
                                 enabled: parsedFollowUp.enabled || false,
                                 tone: parsedFollowUp.tone || 'serious',
-                                attempts: parsedFollowUp.attempts || followUp.attempts
+                                attempts: parsedFollowUp.attempts || followUp.attempts,
+                                ignoreNumbers: parsedFollowUp.ignoreNumbers || ''
                             });
                         } catch (e) { console.error("Error parsing followUpConfig", e); }
                     }

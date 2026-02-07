@@ -1919,7 +1919,17 @@ setInterval(async () => {
                 }
 
                 // 4. Generate AI Message
-                const persona = config.persona ? JSON.parse(config.persona) : {};
+                // FIX: Safe JSON parsing for persona
+                let persona = {};
+                try {
+                    if (config.persona && typeof config.persona === 'string') {
+                        persona = JSON.parse(config.persona);
+                    } else if (typeof config.persona === 'object') {
+                        persona = config.persona;
+                    }
+                } catch (e) {
+                    console.error('[FollowUp] Error parsing persona:', e);
+                }
                 const tone = followUpCfg.tone || 'serious';
 
                 let tonePrompt = "";
