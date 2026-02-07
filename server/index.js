@@ -12,7 +12,7 @@ import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import axios from 'axios';
 import FormData from 'form-data';
-import { transcribeAudio, generateAudio } from './audioActions.js';
+import { transcribeAudio, generateAudio, resolveVoiceFromAgent } from './audioActions.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -981,17 +981,22 @@ const processChatResponse = async (config, message, history, sessionId = null, i
             try {
                 let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
 
-                // Fallback for Agent IDs
+                // Fallback for Agent IDs (Now supported via resolution)
+                let resolvedVoiceId = voiceId;
                 if (voiceId.startsWith('agent_')) {
-                    console.warn(`Invalid Voice ID for TTS detected (${voiceId}). Falling back to default 'Rachel'.`);
-                    voiceId = '21m00Tcm4TlvDq8ikWAM';
+                    const foundId = await resolveVoiceFromAgent(voiceId, apiKey);
+                    if (foundId) {
+                        resolvedVoiceId = foundId;
+                    } else {
+                        console.warn(`Could not resolve Agent ID. Falling back to default.`);
+                        resolvedVoiceId = '21m00Tcm4TlvDq8ikWAM';
+                    }
                 }
 
-                console.log(`[Audio Debug] Using VoiceID: ${voiceId}`);
+                console.log(`[Audio Debug] Using VoiceID: ${resolvedVoiceId} (Original: ${voiceId})`);
                 console.log(`[Audio Debug] Using API Key: ${apiKey ? apiKey.substring(0, 5) + '...' : 'UNDEFINED'}`);
 
-
-                const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+                const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${resolvedVoiceId}`, {
                     method: 'POST',
                     headers: {
                         'xi-api-key': apiKey,

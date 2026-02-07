@@ -97,4 +97,26 @@ export const generateAudio = async (text, elevenLabsKey, voiceId) => {
         console.error('[Audio] Generation Failed:', error.response?.data ? JSON.stringify(error.response.data) : error.message);
         return null;
     }
-};
+    // 3. Resolve Voice ID from Agent ID
+    export const resolveVoiceFromAgent = async (agentId, apiKey) => {
+        if (!agentId || !agentId.startsWith('agent_')) return agentId;
+
+        try {
+            console.log(`[Audio] Resolving Voice ID for Agent: ${agentId}`);
+            const response = await axios.get(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
+                headers: { 'xi-api-key': apiKey }
+            });
+
+            const voiceId = response.data?.conversation_config?.tts?.voice_id;
+            if (voiceId) {
+                console.log(`[Audio] Resolved Agent ${agentId} -> Voice ${voiceId}`);
+                return voiceId;
+            } else {
+                console.warn(`[Audio] Could not find Voice ID in Agent config. Using default.`);
+                return null;
+            }
+        } catch (error) {
+            console.error(`[Audio] Agent Resolution Failed: ${error.message}`);
+            return null;
+        }
+    };
