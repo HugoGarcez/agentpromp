@@ -58,12 +58,92 @@ export const transcribeAudio = async (base64Audio, openaiKey) => {
     }
 };
 
+// 1.5 Preprocess Text for Better Pronunciation (Phonetic Mapping)
+const preprocessTextForAudio = (text) => {
+    if (!text) return "";
+
+    let clean = text;
+
+    // A. Remove Markdown characters that might confuse TTS (or be read literally)
+    clean = clean.replace(/[*_#`]/g, '');
+
+    // B. Phonetic Replacements (English -> Portuguese Phonetics)
+    // Add more here as needed based on user feedback
+    const phoneticMap = {
+        'Prime': 'Praime',
+        'prime': 'praime',
+        'Premium': 'Prêmium',
+        'premium': 'prêmium',
+        'Black': 'Bléque',
+        'black': 'bléque',
+        'Gold': 'Gôuld',
+        'gold': 'gôuld',
+        'Standard': 'Istandard',
+        'standard': 'istandard',
+        'Business': 'Bízness',
+        'business': 'bízness',
+        'Enterprise': 'Enter praise',
+        'enterprise': 'enter praise',
+        'Online': 'On laine',
+        'online': 'on laine',
+        'Offline': 'Of laine',
+        'offline': 'of laine',
+        'Home': 'Rôum',
+        'home': 'rôum',
+        'Office': 'Ófis',
+        'office': 'ófis',
+        'Feedback': 'Fid béque',
+        'feedback': 'fid béque',
+        'Ticket': 'Tí que t',
+        'ticket': 'tí que t',
+        'Login': 'Loguin',
+        'login': 'loguin',
+        'E-mail': 'E-mail', // Usually ok
+        'Email': 'E-mail',
+        'email': 'e-mail',
+        'Site': 'Saite',
+        'site': 'saite',
+        'Web': 'Ueb',
+        'web': 'ueb',
+        'App': 'Ép',
+        'app': 'ép',
+        'Software': 'Sóft uér',
+        'software': 'sóft uér',
+        'Design': 'Dezáin',
+        'design': 'dezáin',
+        'Layout': 'Lei aut',
+        'layout': 'lei aut',
+        'Briefing': 'Brífing',
+        'briefing': 'brífing',
+        'Deadline': 'Déd lain',
+        'deadline': 'déd lain',
+        'Budget': 'Bã djet',
+        'budget': 'bã djet',
+        'Follow-up': 'Folo uáp',
+        'follow-up': 'folo uáp'
+    };
+
+    // Apply replacements using Word Boundary \b to avoid partial matches
+    Object.keys(phoneticMap).forEach(key => {
+        const regex = new RegExp(`\\b${key}\\b`, 'g'); // strict word boundary
+        clean = clean.replace(regex, phoneticMap[key]);
+    });
+
+    // C. Remove excessive newlines (Double enter in text = long pause in audio? Usually ok, but let's reduce > 2)
+    clean = clean.replace(/\n{3,}/g, '\n\n');
+
+    return clean;
+};
+
 // 2. Generate Audio (ElevenLabs)
-export const generateAudio = async (text, elevenLabsKey, voiceId) => {
-    if (!text || !elevenLabsKey || !voiceId) {
+export const generateAudio = async (rawText, elevenLabsKey, voiceId) => {
+    if (!rawText || !elevenLabsKey || !voiceId) {
         console.log('[Audio] Skipping Generation (Missing Config/Text)');
         return null;
     }
+
+    // Apply Preprocessing
+    const text = preprocessTextForAudio(rawText);
 
     try {
         console.log(`[Audio] Generating Speech for: "${text.substring(0, 30)}..."`);
