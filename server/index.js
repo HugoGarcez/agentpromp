@@ -944,7 +944,16 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
 
     // Check for API Key
-    const apiKey = integrator.elevenLabsKey || globalConfig?.elevenLabsKey;
+    let apiKey = integrator.elevenLabsKey;
+
+    // SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
+    if (apiKey && apiKey.trim().startsWith('sk-')) {
+        console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
+        apiKey = null;
+    }
+
+    // Fallback to Global
+    apiKey = apiKey || globalConfig?.elevenLabsKey;
 
     if (isVoiceEnabled && apiKey) {
         let shouldGenerate = false;
