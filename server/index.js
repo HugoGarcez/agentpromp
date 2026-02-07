@@ -938,34 +938,48 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     let audioBase64 = null;
     const integrator = config.integrations || {};
 
-    // Logic: Enable if Config Enabled OR if Input was Audio (Audio-for-Audio)
-    // Check for keys in Integrations OR Global Config
-    const hasElevenLabsKey = integrator.elevenLabsKey || globalConfig?.elevenLabsKey;
+    // 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
+    // If disabled in config, we NEVER generate, even if user sent audio.
+    // (User said: "Configuration needs to apply to the received audio format")
+    const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
 
-    // We force enable if input is audio AND we have a key
-    const isVoiceEnabled = (integrator.enabled === true || integrator.enabled === 'true') || (isAudioInput && hasElevenLabsKey);
+    // Check for API Key
+    const apiKey = integrator.elevenLabsKey || globalConfig?.elevenLabsKey;
 
-    if (isVoiceEnabled && hasElevenLabsKey) {
-        let shouldGenerate = true;
+    if (isVoiceEnabled && apiKey) {
+        let shouldGenerate = false;
 
-        // Probability Check (only if NOT forced by audio input)
-        if (!isAudioInput && integrator.responseType === 'percentage') {
-            const probability = parseInt(integrator.responsePercentage || 50, 10);
-            const randomVal = Math.random() * 100;
-            if (randomVal > probability) {
-                shouldGenerate = false;
-                console.log(`Audio skipped by probability: ${randomVal.toFixed(0)} > ${probability}`);
-            }
-        } else if (!isAudioInput && integrator.responseType === 'audio_only') {
-            // Logic for audio_only usually implies ALWAYS generate, but here we handled probability. 
-            // If audio_only, shouldGenerate is true.
+        // 2. Logic based on Input Type vs Config Trigger
+        if (isAudioInput) {
+            // Case A: User sent AUDIO
+            // We always reply in Audio if feature is enabled.
+            // (Even if set to 'percentage', Audio-for-Audio is the baseline expectation)
             shouldGenerate = true;
+            console.log('[Audio] Audio Input detected -> Forcing Audio Response.');
+        } else {
+            // Case B: User sent TEXT
+            if (integrator.responseType === 'audio_only') {
+                // UI: "Responder em áudio apenas quando o cliente enviar áudio"
+                // Since this is TEXT input, we do NOT generate.
+                shouldGenerate = false;
+                console.log('[Audio] Text Input + AudioOnly Mode -> Skipping Audio.');
+            } else if (integrator.responseType === 'percentage') {
+                // UI: "Responder em áudio aleatoriamente (% das mensagens)"
+                const probability = parseInt(integrator.responsePercentage || 50, 10);
+                const randomVal = Math.random() * 100;
+
+                if (randomVal <= probability) {
+                    shouldGenerate = true;
+                    console.log(`[Audio] Probability Hit: ${randomVal.toFixed(0)} <= ${probability} -> Generating.`);
+                } else {
+                    console.log(`[Audio] Probability Miss: ${randomVal.toFixed(0)} > ${probability} -> Skipping.`);
+                }
+            }
         }
 
         if (shouldGenerate) {
             try {
                 let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
-                const apiKey = integrator.elevenLabsKey || globalConfig?.elevenLabsKey;
 
                 // Fallback for Agent IDs
                 if (voiceId.startsWith('agent_')) {
