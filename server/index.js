@@ -1027,40 +1027,24 @@ const processChatResponse = async (config, message, history, sessionId = null, i
                     }
                 }
 
-                console.log(`[Audio Debug] Using VoiceID: ${resolvedVoiceId} (Original: ${voiceId})`);
-                console.log(`[Audio Debug] Using API Key: ${apiKey ? apiKey.substring(0, 5) + '...' : 'UNDEFINED'}`);
+                console.log(`[Audio Debug] Generating Audio using VoiceID: ${resolvedVoiceId}`);
 
-                const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${resolvedVoiceId}`, {
-                    method: 'POST',
-                    headers: {
-                        'xi-api-key': apiKey,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        text: aiResponse.replace(/\[.*?\]/g, ''), // Remove tags like [SHOW_IMAGE] for audio
-                        model_id: "eleven_multilingual_v2",
-                        voice_settings: {
-                            stability: integrator.stability ? parseFloat(integrator.stability) : 0.5,
-                            similarity_boost: integrator.similarity ? parseFloat(integrator.similarity) : 0.75,
-                            style: integrator.style ? parseFloat(integrator.style) : 0,
-                            use_speaker_boost: true
-                        }
-                    })
-                });
+                // Use Helper (which handles Preprocessing + Phonetics)
+                // use textForAudio (Script) if available, otherwise aiResponse
+                const textToSpeak = textForAudio || aiResponse;
 
-                if (responseStream.ok) {
-                    const arrayBuffer = await responseStream.arrayBuffer();
-                    audioBase64 = Buffer.from(arrayBuffer).toString('base64');
-                } else {
-                    console.error('ElevenLabs API Error:', await responseStream.text());
-                }
+                audioBase64 = await generateAudio(textToSpeak, apiKey, resolvedVoiceId);
             } catch (audioError) {
                 console.error('Audio Generation Error:', audioError);
             }
         }
+    } catch (audioError) {
+        console.error('Audio Generation Error:', audioError);
+    }
+}
     }
 
-    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
+return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
 };
 
 // --- Config History Routes ---
