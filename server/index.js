@@ -525,17 +525,11 @@ const getGlobalConfig = async () => {
 
 
 // --- REUSABLE CHAT LOGIC ---
-const processChatResponse = async (config, message, history, sessionId = null) => {
+const processChatResponse = async (config, message, history, sessionId = null, isAudioInput = false) => {
     // 1. Fetch Global Keys
     const globalConfig = await getGlobalConfig();
 
-    // 2. Resolve Keys (Priority: Global > Local or Local > Global? User said "Unique configuration... valid for all users". So Global should override or be the default.)
-    // Let's make Global the FALLBACK if local is missing, OR default.
-    // Actually, "valid for all users" implies we might want to FORCE it.
-    // Let's try: Use Global if exists. If not, try Local.
 
-    // 2. STICT MODE: Use ONLY Global Keys.
-    // User Requirement: "Garanta que a IA só vai funcionar com a APi da config global"
     const openaiKey = globalConfig?.openaiKey;
 
     if (!openaiKey) {
@@ -629,6 +623,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
             }
         });
 
+        systemPrompt += `\n\nLISTA DE PRODUTOS/SERVIÇOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO: Use apenas informações desta lista. Se o cliente perguntar algo que não está aqui, diga que não sabe.`;
         systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
         systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!".\n`;
         systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes de um serviço com [TEM_PDF], EXPLIQUE o serviço em texto e PERGUNTE: "Gostaria de receber o PDF com mais detalhes?". SE O CLIENTE CONFIRMAR, responda: "[SEND_PDF: ID] Enviando o arquivo...".\n`;
@@ -923,26 +918,35 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     // --- Audio Generation Logic ---
     let audioBase64 = null;
     const integrator = config.integrations || {};
-    const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
 
-    if (isVoiceEnabled && integrator.elevenLabsKey) {
+    // Logic: Enable if Config Enabled OR if Input was Audio (Audio-for-Audio)
+    // Check for keys in Integrations OR Global Config
+    const hasElevenLabsKey = integrator.elevenLabsKey || globalConfig?.elevenLabsKey;
+
+    // We force enable if input is audio AND we have a key
+    const isVoiceEnabled = (integrator.enabled === true || integrator.enabled === 'true') || (isAudioInput && hasElevenLabsKey);
+
+    if (isVoiceEnabled && hasElevenLabsKey) {
         let shouldGenerate = true;
 
-        // Probability Check
-        if (integrator.responseType === 'percentage') {
+        // Probability Check (only if NOT forced by audio input)
+        if (!isAudioInput && integrator.responseType === 'percentage') {
             const probability = parseInt(integrator.responsePercentage || 50, 10);
             const randomVal = Math.random() * 100;
             if (randomVal > probability) {
                 shouldGenerate = false;
                 console.log(`Audio skipped by probability: ${randomVal.toFixed(0)} > ${probability}`);
             }
-        } else if (integrator.responseType === 'audio_only') {
-            shouldGenerate = false; // Simplified logic for now
+        } else if (!isAudioInput && integrator.responseType === 'audio_only') {
+            // Logic for audio_only usually implies ALWAYS generate, but here we handled probability. 
+            // If audio_only, shouldGenerate is true.
+            shouldGenerate = true;
         }
 
         if (shouldGenerate) {
             try {
-                let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
+                let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
+                const apiKey = integrator.elevenLabsKey || globalConfig?.elevenLabsKey;
 
                 // Fallback for Agent IDs
                 if (voiceId.startsWith('agent_')) {
@@ -953,7 +957,7 @@ const processChatResponse = async (config, message, history, sessionId = null) =
                 const responseStream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
                     method: 'POST',
                     headers: {
-                        'xi-api-key': integrator.elevenLabsKey,
+                        'xi-api-key': apiKey,
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
@@ -1892,9 +1896,9 @@ app.post('/webhook/:companyId', async (req, res) => {
             }
         }
 
-        // Process Chat
-        // Pass dbSessionId for logging context
-        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 } = await processChatResponse(config, userMessage, history, dbSessionId);
+        // 3. Process AI Response
+        // Pass isAudioInput flag so AI can decide to reply with audio
+        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput);
 
         console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
 
