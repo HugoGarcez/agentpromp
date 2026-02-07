@@ -1982,6 +1982,11 @@ setInterval(async () => {
 
                 if (openaiKey) openaiKey = openaiKey.trim();
 
+                if (openaiKey) {
+                    const masked = openaiKey.length > 10 ? openaiKey.substring(0, 8) + '...' + openaiKey.substring(openaiKey.length - 4) : 'INVALID_LEN';
+                    console.log(`[FollowUp] Using OpenAI Key: ${masked}`);
+                }
+
                 if (!openaiKey) {
                     console.error('[FollowUp] No OpenAI Key found for company', contact.companyId);
                     continue;
