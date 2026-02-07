@@ -1621,6 +1621,18 @@ app.post('/webhook/:companyId', async (req, res) => {
     }
 
 
+    if (isProtocol) {
+        console.log('[Webhook] Ignoring Protocol Message.');
+        return res.json({ status: 'ignored_protocol' });
+    }
+
+    // 5. Identify Ignore List (Manually configured by User)
+    let ignoreList = [];
+    if (followUpCfg?.ignoreNumbers) {
+        ignoreList = followUpCfg.ignoreNumbers.split(',').map(n => n.replace(/\D/g, '')).filter(n => n.length > 0);
+        console.log(`[Webhook] Ignore List configured: ${ignoreList.join(', ')}`);
+    }
+
     let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
 
     // AUTO-DETECT: If Sender matches any "Self" identity, force isFromMe=true.
