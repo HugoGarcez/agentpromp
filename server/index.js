@@ -1537,11 +1537,53 @@ app.post('/webhook/:companyId', async (req, res) => {
     const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
     const cleanSender = rawSender ? String(rawSender).replace('@s.whatsapp.net', '') : '';
 
+    // ------------------------------------------------------------------
+    // LOOP PROTECTION & SENDER IDENTITY
+    // ------------------------------------------------------------------
+
+    // 1. Check "wasSentByApi" (Explicit flag from some Providers)
+    // If true, it is DEFINITELY the bot/agent.
+    if (payload.wasSentByApi || payload.msg?.wasSentByApi || payload.data?.wasSentByApi) {
+        console.log('[Webhook] Loop Protection: Message marked as "wasSentByApi". Ignoring.');
+        return res.json({ status: 'ignored_api_sent' });
+    }
+
+    // 2. Identify Sender
+    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
+    const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
+
+    // 3. Identify Protocol Owner (The session/bot number)
+    const rawOwner = payload.msg?.owner || payload.owner;
+    const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+
+    // 4. Identify Configured Identity (From DB)
+    let dbIdentity = null;
+    if (config?.prompIdentity) {
+        dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
+    }
+
+    // 5. Identify Ignore List (Manually configured by User)
+    // This solves the issue where the user sends from mobile (Owner mismatch, fromMe=false)
+    let ignoreList = [];
+    if (followUpCfg?.ignoreNumbers) {
+        ignoreList = followUpCfg.ignoreNumbers.split(',').map(n => n.replace(/\D/g, '')).filter(n => n.length > 0);
+        console.log(`[Webhook] Ignore List configured: ${ignoreList.join(', ')}`);
+    }
+
     let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
 
-    if (!isFromMe && followUpCfg?.botNumber && cleanSender === followUpCfg.botNumber) {
-        console.log(`[Webhook] Detected Agent Message via Phone (Sender matches Bot Number: ${followUpCfg.botNumber}). Forcing isFromMe=true.`);
-        isFromMe = true;
+    // AUTO-DETECT: If Sender matches any "Self" identity, force isFromMe=true.
+    if (!isFromMe) {
+        if (cleanOwner && cleanSender === cleanOwner) {
+            console.log(`[Webhook] Loop Protection: Sender (${cleanSender}) matches Payload Owner (${cleanOwner}).`);
+            isFromMe = true;
+        } else if (dbIdentity && cleanSender === dbIdentity) {
+            console.log(`[Webhook] Loop Protection: Sender (${cleanSender}) matches DB Identity (${dbIdentity}).`);
+            isFromMe = true;
+        } else if (ignoreList.includes(cleanSender)) {
+            console.log(`[Webhook] Loop Protection: Sender (${cleanSender}) is in Ignore List.`);
+            isFromMe = true;
+        }
     }
 
     if (isFromMe) {
