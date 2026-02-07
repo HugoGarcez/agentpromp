@@ -19,6 +19,9 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
+// GLOBAL DEDUPLICATION SET
+const processedMessages = new Set();
+
 const app = express();
 const PORT = 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey'; // In production use .env
@@ -1569,6 +1572,20 @@ app.post('/webhook/:companyId', async (req, res) => {
     }
 
     // ------------------------------------------------------------------
+    // 0. DEDUPLICATION (Prevent Triple Replies)
+    // ------------------------------------------------------------------
+    const msgId = payload.key?.id || payload.id || payload.data?.id;
+    if (msgId) {
+        if (processedMessages.has(msgId)) {
+            console.log(`[Webhook] Duplicate Message ID ${msgId}. Ignoring.`);
+            return res.json({ status: 'ignored_duplicate' });
+        }
+        processedMessages.add(msgId);
+        // Clear from memory after 15 seconds
+        setTimeout(() => processedMessages.delete(msgId), 15000);
+    }
+
+    // ------------------------------------------------------------------
     // LOOP PROTECTION & SENDER IDENTITY
     // ------------------------------------------------------------------
 
@@ -1591,6 +1608,14 @@ app.post('/webhook/:companyId', async (req, res) => {
     let dbIdentity = null;
     if (config?.prompIdentity) {
         dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
+    }
+
+    // IDENTITY CHECK: "Consider ONLY what is sent TO the number that is in the AI"
+    // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
+    // (Only if both are known)
+    if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
+        console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
+        return res.json({ status: 'ignored_wrong_identity' });
     }
 
     // ------------------------------------------------------------------
