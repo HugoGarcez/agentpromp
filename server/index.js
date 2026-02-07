@@ -1960,8 +1960,11 @@ setInterval(async () => {
                 const recentMsgs = history.reverse().map(m => `${m.sender}: ${m.text}`).join('\n');
 
                 // Initialize OpenAI Client
-                let openaiKey = process.env.OPENAI_API_KEY;
+                let openaiKey = null; // Start null
+                let source = "NONE";
+
                 try {
+                    // 1. Try DB Integrations first (Standard)
                     if (config.integrations) {
                         let integrations = {};
                         if (typeof config.integrations === 'string') {
@@ -1974,17 +1977,25 @@ setInterval(async () => {
 
                         if (integrations.openaiKey) {
                             openaiKey = integrations.openaiKey;
+                            source = "DB_INTEGRATIONS";
                         }
                     }
                 } catch (e) {
                     console.error('[FollowUp] Error parsing integrations for OpenAI Key:', e);
                 }
 
+                // 2. Override with Global ENV if available (ADMIN OVERRIDE)
+                // If user set GLOBAL KEY in VPS, it should win.
+                if (process.env.OPENAI_API_KEY) {
+                    openaiKey = process.env.OPENAI_API_KEY;
+                    source = "GLOBAL_ENV";
+                }
+
                 if (openaiKey) openaiKey = openaiKey.trim();
 
                 if (openaiKey) {
                     const masked = openaiKey.length > 10 ? openaiKey.substring(0, 8) + '...' + openaiKey.substring(openaiKey.length - 4) : 'INVALID_LEN';
-                    console.log(`[FollowUp] Using OpenAI Key: ${masked}`);
+                    console.log(`[FollowUp] Using OpenAI Key (${source}): ${masked}`);
                 }
 
                 if (!openaiKey) {
