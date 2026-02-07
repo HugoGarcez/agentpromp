@@ -372,9 +372,29 @@ app.post('/api/config', authenticateToken, async (req, res) => {
         const currentConfig = await prisma.agentConfig.findUnique({ where: { companyId } });
 
         // Merge Voice settings into Integrations
-        let combinedIntegrations = newConfig.integrations || {};
+        let combinedIntegrations = {};
+        try {
+            if (newConfig.integrations) {
+                combinedIntegrations = typeof newConfig.integrations === 'string'
+                    ? JSON.parse(newConfig.integrations)
+                    : newConfig.integrations;
+            }
+        } catch (e) {
+            console.error('[Config Update] Error parsing integrations:', e);
+            combinedIntegrations = newConfig.integrations || {};
+        }
+
         if (newConfig.voice) {
             combinedIntegrations = { ...combinedIntegrations, ...newConfig.voice };
+        }
+
+        // DEBUG: Log key update
+        if (combinedIntegrations.openaiKey) {
+            const k = combinedIntegrations.openaiKey;
+            const masked = k.length > 10 ? k.substring(0, 8) + '...' + k.substring(k.length - 4) : '***';
+            console.log(`[Config Update] Saving openaiKey: ${masked}`);
+        } else {
+            console.log('[Config Update] No openaiKey in integrations payload.');
         }
 
         // Handle Knowledge Base - SCRAPE LINKS
