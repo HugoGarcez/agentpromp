@@ -552,8 +552,8 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     1. Seja direto e conciso. Evite enrolação.
     2. Separe cada ideia, frase ou parágrafo por uma QUEBRA DE LINHA DUPLA (dois enters).
     3. NUNCA envie blocos de texto gigantes.
-    4. Se for usar listas, use quebras de linha entre os itens.
-    5. O objetivo é que cada frase importante seja uma mensagem separada no WhatsApp.
+    4. RESUMA AO MÁXIMO: Sua resposta total NÃO PODE passar de 5 frases curtas.
+    5. O objetivo é que cada frase importante seja uma mensagem separada no WhatsApp (Max 5 balões).
     `;
 
     // Inject Products & Services
