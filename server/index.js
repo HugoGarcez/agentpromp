@@ -1622,32 +1622,15 @@ app.post('/webhook/:companyId', async (req, res) => {
         return res.json({ status: 'ignored_protocol' });
     }
 
-    // 5. Identify Ignore List (Manually configured by User)
-    let ignoreList = [];
-    if (followUpCfg?.ignoreNumbers) {
-        ignoreList = followUpCfg.ignoreNumbers.split(',').map(n => n.replace(/\D/g, '')).filter(n => n.length > 0);
-        console.log(`[Webhook] Ignore List configured: ${ignoreList.join(', ')}`);
-    }
-
     let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
 
-    // AUTO-DETECT: If Sender matches any "Self" identity, force isFromMe=true.
-    if (!isFromMe) {
-        if (cleanOwner && cleanSender === cleanOwner) {
-            console.log(`[Webhook] Loop Protection: Sender (${cleanSender}) matches Payload Owner (${cleanOwner}).`);
-            isFromMe = true;
-        } else if (dbIdentity && cleanSender === dbIdentity) {
-            console.log(`[Webhook] Loop Protection: Sender (${cleanSender}) matches DB Identity (${dbIdentity}).`);
-            isFromMe = true;
-        } else if (ignoreList.includes(cleanSender)) {
-            console.log(`[Webhook] Loop Protection: Sender (${cleanSender}) is in Ignore List.`);
-            isFromMe = true;
-        }
-    }
+    // REVERTED: Removed "Smart" Auto-Detection of Identity/Owner to avoid "Double Reply" bugs.
+    // Relying Strictly on API 'fromMe' flag.
 
     // ------------------------------------------------------------------
     // FLOW A: AGENT SENT MESSAGE -> START TIMER
     // ------------------------------------------------------------------
+
     if (isFromMe) {
         console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
 
