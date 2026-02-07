@@ -25,6 +25,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey'; // In production 
 
 const prisma = new PrismaClient();
 
+// Startup Check
+if (process.env.OPENAI_API_KEY) {
+    console.log('[Startup] Global OpenAI Key detected in ENV.');
+} else {
+    console.warn('[Startup] No Global OpenAI Key in ENV. Will rely on DB Config.');
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -1744,7 +1751,8 @@ app.post('/webhook/:companyId', async (req, res) => {
         const config = await getCompanyConfig(companyId);
         if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
 
-        console.log(`[Webhook] Processing message for ${cleanNumber}: "${userMessage.substring(0, 50)}..."`);
+        const msgLog = userMessage ? String(userMessage).substring(0, 50) : '[No Content]';
+        console.log(`[Webhook] Processing message for ${cleanNumber}: "${msgLog}..."`);
 
         // Fetch History
         let history = [];
