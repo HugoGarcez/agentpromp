@@ -7,12 +7,19 @@ import logoDark from '../../assets/logo-dark.png';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose }) => {
   const { theme, toggleTheme } = useTheme();
   const { user } = useAuth();
 
+  // Close sidebar on mobile when item clicked
+  const handleItemClick = () => {
+    if (onClose && window.innerWidth < 768) {
+      onClose();
+    }
+  };
+
   return (
-    <aside className={styles.sidebar}>
+    <aside className={`${styles.sidebar} ${isOpen ? styles.open : ''}`}>
       <div className={styles.logoContainer}>
         <img src={theme === 'dark' ? logoDark : logo} alt="Promp IA Logo" style={{ height: '32px' }} />
       </div>
@@ -20,6 +27,7 @@ const Sidebar = () => {
       <nav className={styles.nav}>
         <NavLink
           to="/"
+          onClick={handleItemClick}
           className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
         >
           <LayoutDashboard size={20} className={styles.navIcon} />
@@ -28,6 +36,7 @@ const Sidebar = () => {
 
         <NavLink
           to="/ai-config"
+          onClick={handleItemClick}
           className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
         >
           <Bot size={20} className={styles.navIcon} />
@@ -36,6 +45,7 @@ const Sidebar = () => {
 
         <NavLink
           to="/test-ai"
+          onClick={handleItemClick}
           className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
         >
           <MessageSquare size={20} className={styles.navIcon} />
@@ -44,6 +54,7 @@ const Sidebar = () => {
 
         <NavLink
           to="/products"
+          onClick={handleItemClick}
           className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
         >
           <ShoppingBag size={20} className={styles.navIcon} />
@@ -55,6 +66,7 @@ const Sidebar = () => {
           target="_blank"
           rel="noopener noreferrer"
           className={styles.navItem}
+          onClick={handleItemClick}
         >
           <MessageSquare size={20} className={styles.navIcon} />
           <span>Atendimento</span>
@@ -62,6 +74,7 @@ const Sidebar = () => {
 
         <NavLink
           to="/settings"
+          onClick={handleItemClick}
           className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
         >
           <Settings size={20} className={styles.navIcon} />
@@ -71,6 +84,7 @@ const Sidebar = () => {
         {user?.role === 'ADMIN' && (
           <NavLink
             to="/admin"
+            onClick={handleItemClick}
             className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
           >
             <Shield size={20} className={styles.navIcon} />
@@ -81,6 +95,7 @@ const Sidebar = () => {
         {user?.role === 'ADMIN' && (
           <NavLink
             to="/admin-config"
+            onClick={handleItemClick}
             className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
           >
             <Lock size={20} className={styles.navIcon} />

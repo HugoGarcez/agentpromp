@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, User, LogOut, Key, ChevronDown } from 'lucide-react';
+import { Bell, User, LogOut, Key, ChevronDown, Menu } from 'lucide-react';
 import styles from './Header.module.css';
 import { useAuth } from '../../contexts/AuthContext';
 import Modal from '../Modal';
 
-const Header = ({ title }) => {
+const Header = ({ title, onMenuClick }) => {
     const { user, logout } = useAuth();
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -75,7 +75,12 @@ const Header = ({ title }) => {
 
     return (
         <header className={styles.header}>
-            <h1 className={styles.title}>{title || 'Painel'}</h1>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+                <button className={styles.menuButton} onClick={onMenuClick}>
+                    <Menu size={24} />
+                </button>
+                <h1 className={styles.title}>{title || 'Painel'}</h1>
+            </div>
 
             <div className={styles.actions}>
                 <button title="Notificações">

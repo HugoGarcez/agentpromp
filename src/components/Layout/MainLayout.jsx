@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import styles from './MainLayout.module.css';
 
 const MainLayout = () => {
     const location = useLocation();
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
     // Determine page title based on path
     const getPageTitle = (path) => {
@@ -18,17 +20,26 @@ const MainLayout = () => {
         }
     };
 
+    const toggleSidebar = () => {
+        setIsSidebarOpen(!isSidebarOpen);
+    };
+
     return (
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
-            <Sidebar />
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                <Header title={getPageTitle(location.pathname)} />
-                <main style={{
-                    marginLeft: '250px',
-                    padding: '32px',
-                    flex: 1,
-                    backgroundColor: 'var(--bg-main)'
-                }}>
+        <div className={styles.container}>
+            <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+
+            {/* Mobile Overlay */}
+            <div
+                className={`${styles.overlay} ${isSidebarOpen ? styles.overlayVisible : ''}`}
+                onClick={() => setIsSidebarOpen(false)}
+            />
+
+            <div className={styles.contentWrapper}>
+                <Header
+                    title={getPageTitle(location.pathname)}
+                    onMenuClick={toggleSidebar}
+                />
+                <main className={styles.main}>
                     <Outlet />
                 </main>
             </div>
