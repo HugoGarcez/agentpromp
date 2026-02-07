@@ -12,6 +12,7 @@ import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import axios from 'axios';
 import FormData from 'form-data';
+import { transcribeAudio, generateAudio } from './audioActions.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -627,8 +628,6 @@ const processChatResponse = async (config, message, history, sessionId = null) =
                 productList += `  -- [ITEM ÚNICO] ID: ${p.id} | ${p.image ? '[TEM_IMAGEM]' : ''}\n`;
             }
         });
-
-        systemPrompt += `\n\nCONTEXTO DE PRODUTOS E SERVIÇOS:\n${productList}\n\n`;
 
         systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
         systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!".\n`;
@@ -1772,6 +1771,36 @@ app.post('/webhook/:companyId', async (req, res) => {
         payload.msg?.body ||
         payload.msg?.content;
 
+    // --- AUDIO HANDLING ---
+    // If text is "ptt" (Push To Talk) or "audio" AND we have media, it's an Audio Message.
+    let isAudioInput = false;
+    const mediaBase64 = payload.content?.media || payload.msg?.media || payload.media; // Try all paths
+
+    if ((userMessage === 'ptt' || userMessage === 'audio' || payload.type === 'audio') && mediaBase64) {
+        console.log('[Webhook] Audio Message Detected. Attempting Transcription...');
+
+        // Need Global Key for Whisper
+        const globalConfig = await getGlobalConfig();
+        if (globalConfig?.openaiKey) {
+            const transcription = await transcribeAudio(mediaBase64, globalConfig.openaiKey);
+            if (transcription) {
+                userMessage = transcription;
+                isAudioInput = true;
+                console.log(`[Webhook] Audio Transcribed: "${userMessage}"`);
+            } else {
+                userMessage = "[Áudio inaudível]";
+            }
+        } else {
+            console.warn('[Webhook] No Global OpenAI Key. Cannot transcribe audio.');
+            userMessage = "[Áudio recebido, mas sem chave para transcrever]";
+        }
+    }
+
+    if (!userMessage) {
+        // If it's a media message or something else we don't support yet, ignore gracefully
+        console.log('[Webhook] Payload missing text content. Ignoring.');
+        return res.json({ status: 'ignored_no_text' });
+    }
     if (!userMessage) {
         // If it's a media message or something else we don't support yet, ignore gracefully
         console.log('[Webhook] Payload missing text content. Ignoring.');
