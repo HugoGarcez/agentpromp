@@ -446,7 +446,7 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             integrations: JSON.stringify(combinedIntegrations),
             products: newConfig.products ? JSON.stringify(newConfig.products) : undefined,
             knowledgeBase: finalKB ? JSON.stringify(finalKB) : undefined,
-            followUpConfig: newConfig.followUpConfig // Assuming string or handled by Prisma
+            followUpConfig: newConfig.followUpConfig ? (typeof newConfig.followUpConfig === 'object' ? JSON.stringify(newConfig.followUpConfig) : newConfig.followUpConfig) : undefined
         };
 
         const updatedConfig = await prisma.agentConfig.upsert({
