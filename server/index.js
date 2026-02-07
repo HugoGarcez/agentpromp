@@ -1038,13 +1038,9 @@ const processChatResponse = async (config, message, history, sessionId = null, i
                 console.error('Audio Generation Error:', audioError);
             }
         }
-    } catch (audioError) {
-        console.error('Audio Generation Error:', audioError);
-    }
-}
     }
 
-return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
+    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
 };
 
 // --- Config History Routes ---
