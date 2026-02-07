@@ -1980,6 +1980,8 @@ setInterval(async () => {
                     console.error('[FollowUp] Error parsing integrations for OpenAI Key:', e);
                 }
 
+                if (openaiKey) openaiKey = openaiKey.trim();
+
                 if (!openaiKey) {
                     console.error('[FollowUp] No OpenAI Key found for company', contact.companyId);
                     continue;
