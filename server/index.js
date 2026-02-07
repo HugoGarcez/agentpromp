@@ -1959,6 +1959,22 @@ setInterval(async () => {
                 // Reverse to chronological
                 const recentMsgs = history.reverse().map(m => `${m.sender}: ${m.text}`).join('\n');
 
+                // Initialize OpenAI Client
+                let openaiKey = process.env.OPENAI_API_KEY;
+                try {
+                    const integrations = config.integrations ? JSON.parse(config.integrations) : {};
+                    if (integrations.openaiKey) openaiKey = integrations.openaiKey;
+                } catch (e) {
+                    console.error('[FollowUp] Error parsing integrations for OpenAI Key:', e);
+                }
+
+                if (!openaiKey) {
+                    console.error('[FollowUp] No OpenAI Key found for company', contact.companyId);
+                    continue;
+                }
+
+                const openai = new OpenAI({ apiKey: openaiKey });
+
                 const completion = await openai.chat.completions.create({
                     messages: [
                         { role: "system", content: systemInstruction },
