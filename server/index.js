@@ -1522,11 +1522,21 @@ app.post('/webhook/:companyId', async (req, res) => {
     console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
 
 
-    // Load Config EARLY (needed for Bot Number check)
+    // Load Config EARLY (needed for Identity check)
     let followUpCfg = null;
+    let config = null;
     try {
-        const config = await getCompanyConfig(companyId);
-        followUpCfg = config?.followUpConfig ? JSON.parse(config.followUpConfig) : null;
+        config = await getCompanyConfig(companyId);
+        if (config?.followUpConfig) {
+            // Safe JSON Parsing to avoid SyntaxError
+            if (typeof config.followUpConfig === 'string') {
+                if (config.followUpConfig.trim().startsWith('{')) {
+                    followUpCfg = JSON.parse(config.followUpConfig);
+                }
+            } else if (typeof config.followUpConfig === 'object') {
+                followUpCfg = config.followUpConfig;
+            }
+        }
     } catch (e) {
         console.error('[Webhook] Failed to load config:', e);
     }
