@@ -1175,7 +1175,9 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
     // Removed the (!audioBase64) check so we ALWAYS send text if provided.
     // Audio/Image/PDF will be sent as separate messages following the text.
 
-    if (text && text.trim().length > 0) {
+    // 1. Send Text (Only if NO Audio, per user request to avoid duplication)
+    // If audio exists, the audio message itself acts as the response.
+    if (text && text.trim().length > 0 && !audioBase64) {
         try {
             // Split by DOUBLE Newlines to keep lists grouped in one bubble
             // Regex: \n\s*\n matches 2 or more newlines with optional whitespace
