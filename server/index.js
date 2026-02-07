@@ -1962,8 +1962,20 @@ setInterval(async () => {
                 // Initialize OpenAI Client
                 let openaiKey = process.env.OPENAI_API_KEY;
                 try {
-                    const integrations = config.integrations ? JSON.parse(config.integrations) : {};
-                    if (integrations.openaiKey) openaiKey = integrations.openaiKey;
+                    if (config.integrations) {
+                        let integrations = {};
+                        if (typeof config.integrations === 'string') {
+                            if (config.integrations.trim().startsWith('{')) {
+                                integrations = JSON.parse(config.integrations);
+                            }
+                        } else if (typeof config.integrations === 'object') {
+                            integrations = config.integrations;
+                        }
+
+                        if (integrations.openaiKey) {
+                            openaiKey = integrations.openaiKey;
+                        }
+                    }
                 } catch (e) {
                     console.error('[FollowUp] Error parsing integrations for OpenAI Key:', e);
                 }
