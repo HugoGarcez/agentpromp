@@ -1631,13 +1631,13 @@ app.post('/webhook/:companyId', async (req, res) => {
                     // However, remoteJid in DB usually stores '@s.whatsapp.net'. Let's keep it consistent.
                     // If cleanNumber is used elsewhere, we should standardize. 
                     // Let's use the full JID in DB for safety, or clean? 
-                    // Existing code uses 'cleanNumber' for Promp API. Let's store full JID 'senderNumber'.
+                    // Existing code uses 'cleanNumber' for Promp API. Let's store full JID 'targetNumber'.
 
                     await prisma.contactState.upsert({
-                        where: { companyId_remoteJid: { companyId, remoteJid: senderNumber } },
+                        where: { companyId_remoteJid: { companyId, remoteJid: targetNumber } },
                         create: {
                             companyId,
-                            remoteJid: senderNumber,
+                            remoteJid: targetNumber,
                             isActive: true, // Start!
                             attemptIndex: 0,
                             lastOutbound: now,
