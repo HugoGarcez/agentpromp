@@ -545,6 +545,17 @@ const processChatResponse = async (config, message, history, sessionId = null) =
 
     let systemPrompt = config.systemPrompt || "Você é um assistente virtual útil.";
 
+    // ENFORCE BREVITY & FORMATTING
+    systemPrompt += `
+    
+    DIRETRIZES DE RESPOSTA:
+    1. Seja direto e conciso. Evite enrolação.
+    2. Separe cada ideia, frase ou parágrafo por uma QUEBRA DE LINHA DUPLA (dois enters).
+    3. NUNCA envie blocos de texto gigantes.
+    4. Se for usar listas, use quebras de linha entre os itens.
+    5. O objetivo é que cada frase importante seja uma mensagem separada no WhatsApp.
+    `;
+
     // Inject Products & Services
     if (config.products && config.products.length > 0) {
         let productList = "";
@@ -1115,31 +1126,47 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
     // Actually, if we have PDF, we might want to send the text caption separately or as caption.
     // For PDF, caption is usually supported.
     // 1. Send Text (ONLY if no audio, to avoid duplication. For PDF/Image we WANT separate text + media)
-    if (!audioBase64) {
-        try {
-            console.log(`[Promp] Sending Text to ${number}...`);
-            const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${config.prompToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    number: number,
-                    body: text,
-                    externalKey: `ai_${Date.now()}`,
-                    isClosed: false
-                })
-            });
+    // 1. Send Text (with Chunking)
+    // Removed the (!audioBase64) check so we ALWAYS send text if provided.
+    // Audio/Image/PDF will be sent as separate messages following the text.
 
-            if (!textResponse.ok) {
-                console.error('[Promp] Text Send Failed:', await textResponse.text());
+    if (text && text.trim().length > 0) {
+        try {
+            // Split by Newlines (User asked for "Same message separate")
+            // We split by \n to handle double breaks or single breaks instructions
+            const chunks = text.split('\n').map(c => c.trim()).filter(c => c.length > 0);
+
+            console.log(`[Promp] Sending Text (${chunks.length} chunks) to ${number}...`);
+
+            for (const chunk of chunks) {
+                // Formatting: Convert **bold** to *bold* for WhatsApp compatibility if needed, 
+                // but WhatsApp supports *bold*. OpenAI output is usually Markdown.
+                // Let's keep it raw for now.
+
+                const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${config.prompToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        number: number,
+                        body: chunk,
+                        externalKey: `ai_${Date.now()}_${Math.random()}`,
+                        isClosed: false
+                    })
+                });
+
+                if (!textResponse.ok) {
+                    console.error('[Promp] Text Chunk Send Failed:', await textResponse.text());
+                } else {
+                    // Small delay to ensure order in WhatsApp
+                    await new Promise(r => setTimeout(r, 600));
+                }
             }
         } catch (e) {
             console.error('[Promp] Text Exception:', e);
         }
-    } else {
-        console.log(`[Promp] Skipping text message because audio is being sent.`);
     }
 
     // 4. Send PDF (Multipart Strategy)
@@ -2002,7 +2029,8 @@ setInterval(async () => {
                 ${tonePrompt}
                 NÃO seja repetitivo. NÃO pareça um robô.
                 Faça uma pergunta para engajar.
-                Seja curto (máx 2 frases).
+                Seja ULTRA direto (máx 2 frases).
+                Separe cada frase com uma quebra de linha dupla.
                 `;
 
                 // Fetch recent history for context (Last 3 messages)
