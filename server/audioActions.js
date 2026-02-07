@@ -69,9 +69,13 @@ const preprocessTextForAudio = (text) => {
 
     // B. Phonetic Replacements (English -> Portuguese Phonetics)
     // Add more here as needed based on user feedback
+    // B. Phonetic Replacements (English -> Portuguese Phonetics)
+    // Add more here as needed based on user feedback
     const phoneticMap = {
-        'Prime': 'Praime',
-        'prime': 'praime',
+        'Promp': 'Prómp',
+        'promp': 'prómp',
+        'Prime': 'Práime', // Stress on A
+        'prime': 'práime',
         'Premium': 'Prêmium',
         'premium': 'prêmium',
         'Black': 'Bléque',
@@ -98,7 +102,7 @@ const preprocessTextForAudio = (text) => {
         'ticket': 'tí que t',
         'Login': 'Loguin',
         'login': 'loguin',
-        'E-mail': 'E-mail', // Usually ok
+        'E-mail': 'E-mail',
         'Email': 'E-mail',
         'email': 'e-mail',
         'Site': 'Saite',
@@ -120,7 +124,12 @@ const preprocessTextForAudio = (text) => {
         'Budget': 'Bã djet',
         'budget': 'bã djet',
         'Follow-up': 'Folo uáp',
-        'follow-up': 'folo uáp'
+        'follow-up': 'folo uáp',
+        // New User Requests
+        'Advance': 'Ad vance',
+        'advance': 'ad vance',
+        'Starter': 'Star ter',
+        'starter': 'star ter'
     };
 
     // Apply replacements using Word Boundary \b to avoid partial matches

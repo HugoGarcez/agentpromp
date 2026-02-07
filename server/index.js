@@ -661,14 +661,15 @@ const processChatResponse = async (config, message, history, sessionId = null, i
         - Responda naturalmente ao conteúdo.
         
         DIRETRIZ DE ÁUDIO (MUITO IMPORTANTE):
-        1. Como você vai responder em ÁUDIO, NÃO LEIA listas numeradas ("um... dois..."). Fica robótico.
+        1. Como você vai responder em ÁUDIO, **NÃO LEIA listas numeradas** ("um... dois..."). Fica robótico.
         2. Mantenha a resposta em texto estruturada (com listas e quebras), MAS...
         3. NO FINAL DA RESPOSTA, crie um bloco **[SCRIPT_AUDIO]:** com o texto exato que deve ser falado.
         4. No [SCRIPT_AUDIO]:
-           - Seja conversational. 
-           - Substitua listas por frases conectadas ("temos o plano X, além do Y...").
+           - **CONVERSA FLUIDA**: Substitua listas por frases conectadas.
+           - EXEMPLO TEXTO: "Temos: 1. Plano A, 2. Plano B."
+           - EXEMPLO SCRIPT: "Nós temos o Plano A e também o Plano B, que é ótimo."
            - Fale de forma fluida, como um brasileiro.
-           - Use palavras em inglês com a pronúncia correta (ex: "Praime" para Prime).
+           - Use palavras em inglês naturalmente.
            - NÃO use emojis ou markdown.`;
     }
 
