@@ -1593,13 +1593,33 @@ app.post('/webhook/:companyId', async (req, res) => {
         dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
     }
 
-    // 5. Identify Ignore List (Manually configured by User)
-    // This solves the issue where the user sends from mobile (Owner mismatch, fromMe=false)
-    let ignoreList = [];
-    if (followUpCfg?.ignoreNumbers) {
-        ignoreList = followUpCfg.ignoreNumbers.split(',').map(n => n.replace(/\D/g, '')).filter(n => n.length > 0);
-        console.log(`[Webhook] Ignore List configured: ${ignoreList.join(', ')}`);
+    // ------------------------------------------------------------------
+    // 5. STRICT FILTERS (Groups, Status, Broadcasts)
+    // ------------------------------------------------------------------
+    const isGroup = rawSender ? rawSender.includes('@g.us') : false;
+    const isBroadcast = rawSender ? (rawSender.includes('broadcast') || rawSender.includes('@lid')) : false;
+    // Note: @lid is sometimes used for individual chats in new WhatsApp versions. 
+    // If it is 'status@broadcast', ignore. If it is '123...456@lid', it might be a user.
+    // SAFE BET: Ignore 'status@broadcast' explicitly.
+    // Also ignore empty messages or protocol messages.
+    const messageType = payload.messageType || payload.type;
+    const isProtocol = messageType === 'protocolMessage' || messageType === 'senderKeyDistributionMessage';
+
+    if (rawSender && rawSender.includes('status@broadcast')) {
+        console.log('[Webhook] Ignoring Status Update (status@broadcast).');
+        return res.json({ status: 'ignored_status' });
     }
+
+    if (isGroup) {
+        console.log('[Webhook] Ignoring Group Message.');
+        return res.json({ status: 'ignored_group' });
+    }
+
+    if (isProtocol) {
+        console.log('[Webhook] Ignoring Protocol Message.');
+        return res.json({ status: 'ignored_protocol' });
+    }
+
 
     let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
 
@@ -1617,85 +1637,71 @@ app.post('/webhook/:companyId', async (req, res) => {
         }
     }
 
+    // ------------------------------------------------------------------
+    // FLOW A: AGENT SENT MESSAGE -> START TIMER
+    // ------------------------------------------------------------------
     if (isFromMe) {
         console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
 
-        // --- START FOLLOW-UP TIMER ---
-        try {
-            // Recipient is usually remoteJid (Wuzapi) or chatid (CodeChat)
-            // IF manual send: payload.msg.chatid is likely the RECIPIENT.
-            // But if triggered via "fromMe=false" logic, rawSender is the AGENT.
-            // We need the DESTINATION number to start the timer for THAT contact.
+        // For OUTBOUND messages, we need to find the RECIPIENT to set the timer for.
+        // Usually in `payload.key.remoteJid` or `payload.to` or `payload.msg.chatid`
+        // CAREFUL: In some webhooks, key.remoteJid is the Chat ID (User).
+        // Let's inspect `remoteJid`. If it's the User, use it.
 
-            // Heuristic: If we forced isFromMe based on Sender, then the Target is... where?
-            // In Wuzapi/CodeChat outbound via phone:
-            // msg.chatid -> Target (Client)
-            // msg.sender -> Source (Agent)
+        let targetJid = payload.key?.remoteJid || payload.to || payload.msg?.chatid;
+        // If remoteJid contains status@broadcast, we already ignored it.
 
-            let targetNumber = payload.key?.remoteJid || payload.to || payload.data?.key?.remoteJid || payload.msg?.chatid;
+        // Sanity Check: If targetJid IS the agent (unlikely for outbound), we have a problem.
+        // Assuming targetJid is the User.
 
-            // If the "target" is actually the Agent (because logic mismatch), swap?
-            // "5522992371763" (Agent) sent to "5521..." (Client).
-            // msg.chatid = "5521..." (Client)
-            // msg.sender = "5522..." (Agent)
-            // So 'targetNumber' should be msg.chatid.
+        if (targetJid) {
+            const cleanTarget = String(targetJid).replace(/\D/g, '');
 
-            if (targetNumber) {
-                const cleanNumber = String(targetNumber).replace('@s.whatsapp.net', '');
+            // Check if Follow-up is Enabled
+            if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
+                const firstAttempt = followUpCfg.attempts[0];
+                const now = new Date();
+                let nextDate = new Date();
+                if (firstAttempt.delayUnit === 'minutes') nextDate.setMinutes(now.getMinutes() + firstAttempt.delayValue);
+                if (firstAttempt.delayUnit === 'hours') nextDate.setHours(now.getHours() + firstAttempt.delayValue);
+                if (firstAttempt.delayUnit === 'days') nextDate.setDate(now.getDate() + firstAttempt.delayValue);
 
-
-                if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
-                    const firstAttempt = followUpCfg.attempts[0];
-                    // Calculate Next Date
-                    const now = new Date();
-                    let nextDate = new Date();
-                    if (firstAttempt.delayUnit === 'minutes') nextDate.setMinutes(now.getMinutes() + firstAttempt.delayValue);
-                    if (firstAttempt.delayUnit === 'hours') nextDate.setHours(now.getHours() + firstAttempt.delayValue);
-                    if (firstAttempt.delayUnit === 'days') nextDate.setDate(now.getDate() + firstAttempt.delayValue);
-
-                    // UPSERT STATE
-                    // Note: Prisma upsert requires unique where. ContactState has @@unique([companyId, remoteJid])
-                    // However, remoteJid in DB usually stores '@s.whatsapp.net'. Let's keep it consistent.
-                    // If cleanNumber is used elsewhere, we should standardize. 
-                    // Let's use the full JID in DB for safety, or clean? 
-                    // Existing code uses 'cleanNumber' for Promp API. Let's store full JID 'targetNumber'.
-
-                    await prisma.contactState.upsert({
-                        where: { companyId_remoteJid: { companyId, remoteJid: targetNumber } },
-                        create: {
-                            companyId,
-                            remoteJid: targetNumber,
-                            isActive: true, // Start!
-                            attemptIndex: 0,
-                            lastOutbound: now,
-                            nextFollowUp: nextDate
-                        },
-                        update: {
-                            isActive: true, // Restart!
-                            attemptIndex: 0, // Reset to first attempt
-                            lastOutbound: now,
-                            nextFollowUp: nextDate
-                        }
-                    });
-                    console.log(`[FollowUp] Timer STARTED for ${cleanNumber}. Next follow-up at: ${nextDate.toISOString()}`);
-                } else {
-                    console.log(`[FollowUp] Timer IGNORED. Enabled: ${followUpCfg?.enabled}, Attempts: ${followUpCfg?.attempts?.length}`);
-                }
+                // UPSERT STATE for the USER (Target)
+                // Use full JID for DB uniqueness
+                await prisma.contactState.upsert({
+                    where: { companyId_remoteJid: { companyId, remoteJid: targetJid } },
+                    create: {
+                        companyId,
+                        remoteJid: targetJid,
+                        isActive: true,
+                        attemptIndex: 0,
+                        lastOutbound: now,
+                        nextFollowUp: nextDate
+                    },
+                    update: {
+                        isActive: true,
+                        attemptIndex: 0,
+                        lastOutbound: now,
+                        nextFollowUp: nextDate
+                    }
+                });
+                console.log(`[FollowUp] Timer STARTED for ${cleanTarget}. Next: ${nextDate.toISOString()}`);
+            } else {
+                console.log('[FollowUp] Timer IGNORED (Disabled or No Attempts).');
             }
-        } catch (e) {
-            console.error('[FollowUp] Error starting timer:', e);
         }
 
-        return res.json({ status: 'ignored_from_me_but_timer_started' });
+        // CRITICAL: STOP HERE. Do not process as user message.
+        return res.json({ status: 'agent_action_processed' });
     }
 
-    // Check for Status Updates (Delivery, Read) - Ignore them
-    if (payload.type === 'message_status' || payload.status || (payload.messageType && payload.messageType !== 'conversation' && payload.messageType !== 'extendedTextMessage')) {
-        // Be careful not to ignore text if type is missing, but usually type='message_status' is clear.
-        if (payload.type === 'message_status') {
-            console.log('[Webhook] Ignoring status update.');
-            return res.json({ status: 'ignored_status_update' });
-        }
+    // ------------------------------------------------------------------
+    // FLOW B: USER SENT MESSAGE -> STOP TIMER & REPLY
+    // ------------------------------------------------------------------
+
+    // Check if Status Update again (redundant but safe)
+    if (payload.type === 'message_status' || payload.status) {
+        return res.json({ status: 'ignored_status_update' });
     }
 
     // Safety Check for Content
