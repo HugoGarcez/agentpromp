@@ -554,6 +554,11 @@ const processChatResponse = async (config, message, history, sessionId = null) =
     3. NUNCA envie blocos de texto gigantes.
     4. RESUMA AO MÁXIMO: Sua resposta total NÃO PODE passar de 5 frases curtas.
     5. O objetivo é que cada frase importante seja uma mensagem separada no WhatsApp (Max 5 balões).
+
+    DIRETRIZES DE PRODUTOS/SERVIÇOS:
+    1. NUNCA copie a descrição completa do produto/serviço.
+    2. Destaque apenas 2 ou 3 pontos principais (benefícios).
+    3. Sempre termine perguntando se o cliente quer saber algo mais específico sobre o item (ex: medidas, cores, detalhes técnicos, formas de pagamentos).
     `;
 
     // Inject Products & Services
