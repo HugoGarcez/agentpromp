@@ -1863,8 +1863,24 @@ setInterval(async () => {
         for (const contact of pendingContacts) {
             try {
                 // 2. Load Config
+                // FIX: Use robust JSON parsing same as Webhook
                 const config = await getCompanyConfig(contact.companyId);
-                const followUpCfg = config?.followUpConfig ? JSON.parse(config.followUpConfig) : null;
+                let followUpCfg = null;
+                if (config?.followUpConfig) {
+                    try {
+                        if (typeof config.followUpConfig === 'string') {
+                            if (config.followUpConfig.trim().startsWith('{')) {
+                                followUpCfg = JSON.parse(config.followUpConfig);
+                            } else {
+                                console.warn(`[FollowUp] Invalid JSON string for config: ${config.followUpConfig}`);
+                            }
+                        } else if (typeof config.followUpConfig === 'object') {
+                            followUpCfg = config.followUpConfig;
+                        }
+                    } catch (err) {
+                        console.error(`[FollowUp] JSON Parse Error for contact ${contact.id}:`, err);
+                    }
+                }
 
                 // Stop if disabled globally
                 if (!followUpCfg || !followUpCfg.enabled) {
