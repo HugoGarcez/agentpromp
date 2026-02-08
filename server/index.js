@@ -11,6 +11,7 @@ import dotenv from 'dotenv';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import axios from 'axios';
+import sharp from 'sharp'; // Start using sharp
 import FormData from 'form-data';
 import { transcribeAudio, generateAudio, resolveVoiceFromAgent } from './audioActions.js';
 import fsCommon from 'fs'; // For synchronous appendFileSync
@@ -1447,20 +1448,36 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
 
                     logFlow(`Download Success. Status: ${downloadResponse.status}. Size: ${downloadResponse.data.length}`);
 
-                    const contentType = downloadResponse.headers['content-type'] || 'image/jpeg';
-                    const base64Data = Buffer.from(downloadResponse.data).toString('base64');
-                    // Create a valid filename from URL or default
-                    let ext = contentType.split('/')[1] || 'jpg';
-                    const fileName = `image_${Date.now()}.${ext}`;
+                    let imageBuffer = Buffer.from(downloadResponse.data);
+                    let mimeType = 'image/jpeg'; // Default to JPEG after conversion
+                    let fileName = `image_${Date.now()}.jpg`;
 
-                    console.log(`[Promp] Download success. Sending as Base64 (${base64Data.length} chars)...`);
+                    // CONVERT TO JPEG via SHARP (Force Compatibility)
+                    try {
+                        // Sharp: Convert any input to JPEG
+                        imageBuffer = await sharp(imageBuffer)
+                            .jpeg({ quality: 85, mozjpeg: true })
+                            .toBuffer();
+                        console.log(`[Promp] Image converted to JPEG via Sharp. New Size: ${imageBuffer.length}`);
+                    } catch (sharpError) {
+                        console.error('[Promp] Sharp Conversion Error (Using Original):', sharpError.message);
+                        // Fallback: Send original buffer if conversion fails
+                        mimeType = downloadResponse.headers['content-type'] || 'image/jpeg';
+                        const ext = mimeType.split('/')[1] || 'jpg';
+                        fileName = `image_${Date.now()}.${ext}`;
+                    }
+
+                    const base64Data = imageBuffer.toString('base64');
+
+                    console.log(`[Promp] Sending converted image via /base64 endpoint. Mime: ${mimeType}`);
                     logFlow(`Sending Base64 to WhatsApp API...`);
-                    await sendBase64Image(config, number, base64Data, contentType, fileName, caption);
+
+                    await sendBase64Image(config, number, base64Data, mimeType, fileName, caption);
                     logFlow(`Send Base64 function returned.`);
 
                 } catch (dlError) {
-                    logFlow(`Download FAILED: ${dlError.message}`);
                     console.error('[Promp] Failed to download remote image for sending:', dlError.message);
+                    logFlow(`Download FAILED: ${dlError.message}`);
                     // Fallback to original method (sending URL directly) just in case
                     console.log('[Promp] Asking Promp API to fetch URL directly (Fallback)...');
 

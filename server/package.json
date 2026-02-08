@@ -20,7 +20,8 @@
         "jsonwebtoken": "^9.0.3",
         "node-cron": "^4.2.1",
         "nodemailer": "^8.0.0",
-        "openai": "^4.52.0"
+        "openai": "^4.52.0",
+        "sharp": "^0.34.5"
     },
     "devDependencies": {
         "prisma": "^5.22.0"
