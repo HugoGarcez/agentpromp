@@ -25,7 +25,7 @@ const processedMessages = new Set();
 
 const app = express(); // RESTORING MISSING LINE
 
-// Product Extraction Feature (Temporarily Disabled for Debugging)
+// Product Extraction Feature
 import { initScheduler } from './scheduler.js';
 import { extractFromUrl } from './extractor.js';
 
