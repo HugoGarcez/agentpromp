@@ -992,8 +992,8 @@ CUMPRA ESTE PROTOCOLO AGORA.
 
     logFlow(`AI Response Raw: ${aiResponse.substring(0, 100)}...`);
 
-    // Robust Regex: Optional quotes, spaces, dots/dashes, AND SPACES in ID
-    const imageTagRegex = /\[SHOW_IMAGE:\s*['"]?([^\]]+?)['"]?\s*\]/i;
+    // Robust Regex: Optional quotes (straight or smart), spaces, dots/dashes
+    const imageTagRegex = /\[SHOW_IMAGE:\s*['"“”]?([^\]]+?)['"“”]?\s*\]/i;
     const imageMatch = aiResponse.match(imageTagRegex);
 
     if (imageMatch) {
@@ -1001,6 +1001,8 @@ CUMPRA ESTE PROTOCOLO AGORA.
     } else {
         logFlow(`No Image Tag Found in response.`);
     }
+
+    let debugImageError = ""; // To append to response if validation fails
 
     if (imageMatch && config.products) {
         const targetId = imageMatch[1];
