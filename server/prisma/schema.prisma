@@ -99,3 +99,20 @@ model GlobalConfig {
   elevenLabsVoiceId String?
   updatedAt         DateTime @updatedAt
 }
+
+model ProductSource {
+  id        String   @id @default(uuid())
+  companyId String
+  type      String   // 'URL' | 'FILE'
+  url       String?  // For URL extraction
+  fileName  String?  // For File uploads
+  fileContent String? // Base64 or Text content for Files
+  frequency String   // 'once', 'hourly', 'daily', 'weekly'
+  lastRun   DateTime?
+  nextRun   DateTime?
+  status    String   @default("active") // 'active', 'paused', 'error'
+  error     String?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

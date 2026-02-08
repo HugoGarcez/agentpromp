@@ -23,7 +23,81 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 // GLOBAL DEDUPLICATION SET
 const processedMessages = new Set();
 
-const app = express();
+const { initScheduler } = require('./scheduler');
+const { extractFromUrl } = require('./extractor');
+
+// Initialize Scheduler
+initScheduler();
+
+// ... (Keep existing code)
+
+// --- PRODUCT EXTRACTION ROUTES ---
+
+// 1. Manual Extraction Test
+app.post('/api/products/extract', authenticateToken, async (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url) return res.status(400).json({ error: 'URL is required' });
+
+        const products = await extractFromUrl(url);
+        res.json({ success: true, products });
+    } catch (error) {
+        console.error('Extraction error:', error);
+        res.status(500).json({ success: false, error: 'Failed to extract products' });
+    }
+});
+
+// 2. Add/Update Product Source (Schedule)
+app.post('/api/products/sources', authenticateToken, async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        const { url, type, frequency } = req.body;
+
+        // Simple create for now
+        const source = await prisma.productSource.create({
+            data: {
+                companyId,
+                type: type || 'URL',
+                url,
+                frequency: frequency || 'daily',
+                status: 'active',
+                nextRun: new Date() // Run immediately or soon
+            }
+        });
+
+        res.json({ success: true, source });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 3. List Sources
+app.get('/api/products/sources', authenticateToken, async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        const sources = await prisma.productSource.findMany({
+            where: { companyId }
+        });
+        res.json(sources);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 4. Delete Source
+app.delete('/api/products/sources/:id', authenticateToken, async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        const { id } = req.params;
+        await prisma.productSource.deleteMany({ // deleteMany for safety (ensure ownership)
+            where: { id, companyId }
+        });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 const PORT = 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey'; // In production use .env
 

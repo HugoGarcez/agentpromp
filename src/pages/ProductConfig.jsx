@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Package, Image as ImageIcon, Save, Loader2, FileText, CreditCard, Briefcase, Link as LinkIcon, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Plus, Edit2, Trash2, Package, Image as ImageIcon, Save, Loader2, FileText, CreditCard, Briefcase, Link as LinkIcon, ToggleLeft, ToggleRight, Bot } from 'lucide-react';
 
 const ProductConfig = () => {
     const [showForm, setShowForm] = useState(false);
@@ -7,6 +7,12 @@ const ProductConfig = () => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [config, setConfig] = useState(null);
+
+    // AI Import State
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importUrl, setImportUrl] = useState('');
+    const [importing, setImporting] = useState(false);
+    const [importSchedule, setImportSchedule] = useState('once');
 
     const token = localStorage.getItem('token');
 
@@ -230,6 +236,66 @@ const ProductConfig = () => {
         setShowForm(true);
     };
 
+    const handleImport = async () => {
+        if (!importUrl) return;
+        setImporting(true);
+        try {
+            // 1. Extract Immediate
+            const res = await fetch('/api/products/extract', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ url: importUrl })
+            });
+            const data = await res.json();
+
+            if (data.success && data.products) {
+                // Formatting
+                const newItems = data.products.map(p => ({
+                    id: `imp_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+                    name: p.name || 'Produto Sem Nome',
+                    price: p.price || 0,
+                    description: p.description || '',
+                    image: p.image || null,
+                    type: 'product',
+                    active: true,
+                    unit: 'Unidade',
+                    variantItems: p.variantItems || []
+                }));
+
+                // Save to List
+                // We need to merge with existing list
+                const currentItems = [...products];
+                const updatedList = [...currentItems, ...newItems];
+
+                // Save to Server
+                await saveItemsToApi(updatedList, config);
+
+                alert(`Sucesso! ${newItems.length} produtos importados.`);
+
+                // 2. Schedule if requested
+                if (importSchedule !== 'once') {
+                    await fetch('/api/products/sources', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ url: importUrl, type: 'URL', frequency: importSchedule })
+                    });
+                    alert('Agendamento de atualização criado!');
+                }
+
+                setShowImportModal(false);
+                setImportUrl('');
+            } else {
+                alert('Erro na extração: ' + (data.error || 'Falha desconhecida'));
+            }
+
+        } catch (error) {
+            console.error('Import error:', error);
+            alert('Erro ao importar: ' + error.message);
+        } finally {
+            setImporting(false);
+        }
+    };
+
     if (loading) return <div style={{ padding: 24, textAlign: 'center' }}><Loader2 className="animate-spin" /> Carregando...</div>;
 
     return (
@@ -238,6 +304,15 @@ const ProductConfig = () => {
                 <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Produtos e Serviços ({products.length})</h2>
                 {!showForm && (
                     <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            onClick={() => setShowImportModal(true)}
+                            style={{
+                                backgroundColor: '#8B5CF6', margin: 0, color: 'white', padding: '10px 16px', borderRadius: 'var(--radius-sm)', fontSize: '14px',
+                                display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: 'none'
+                            }}
+                        >
+                            <Bot size={18} /> Importar (IA)
+                        </button>
                         <button
                             onClick={() => openForm('product')}
                             disabled={saving}
@@ -261,6 +336,56 @@ const ProductConfig = () => {
                     </div>
                 )}
             </div>
+
+            {/* IMPORT MODAL */}
+            {showImportModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                    <div style={{ background: 'white', padding: '24px', borderRadius: '8px', width: '500px', maxWidth: '90%' }}>
+                        <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Bot color="#8B5CF6" /> Importar Produtos com IA
+                        </h3>
+
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>URL da Loja / Produto</label>
+                            <input
+                                type="text"
+                                placeholder="https://loja.com/produto"
+                                value={importUrl}
+                                onChange={e => setImportUrl(e.target.value)}
+                                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                            />
+                        </div>
+
+                        <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <input
+                                type="checkbox"
+                                checked={importSchedule === 'daily'}
+                                onChange={e => setImportSchedule(e.target.checked ? 'daily' : 'once')}
+                                id="scheduleCheck"
+                            />
+                            <label htmlFor="scheduleCheck" style={{ fontSize: '14px', color: '#4B5563' }}>
+                                Manter sincronizado (Verificar diariamente)
+                            </label>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                            <button onClick={() => setShowImportModal(false)} style={{ padding: '8px 16px', background: 'transparent', border: 'none', cursor: 'pointer' }}>Cancelar</button>
+                            <button
+                                onClick={handleImport}
+                                disabled={importing || !importUrl}
+                                style={{
+                                    padding: '8px 24px', background: '#8B5CF6', color: 'white', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                                    opacity: (importing || !importUrl) ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: '8px'
+                                }}
+                            >
+                                {importing ? <Loader2 className="animate-spin" size={16} /> : <Bot size={16} />}
+                                {importing ? 'Analisando...' : 'Iniciar Extração'}
+                            </button>
+                        </div>
+                        {importing && <p style={{ fontSize: '12px', color: '#6B7280', marginTop: '12px', textAlign: 'center' }}>Isso pode levar até 30 segundos. A IA está lendo a página...</p>}
+                    </div>
+                </div>
+            )}
 
             {saving && <div style={{ color: 'var(--primary-blue)', marginBottom: 10, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}> <Loader2 size={14} className="animate-spin" /> Salvando alterações...</div>}
 
