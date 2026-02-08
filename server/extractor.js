@@ -1,14 +1,9 @@
-import fetch from 'node-fetch';
+import axios from 'axios';
 import * as cheerio from 'cheerio';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 
 dotenv.config();
-
-// Initialize OpenAI
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
 
 // Helper: Clean HTML to reduce token usage
 const cleanHtml = (html) => {
@@ -36,18 +31,24 @@ const cleanHtml = (html) => {
  * @returns {Promise<Array>} List of extracted products
  */
 export async function extractFromUrl(url) {
-    // ... (logic remains same)
+    // Initialize OpenAI Lazily to ensure ENV is loaded
+    const openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY
+    });
+
     try {
         console.log(`[Extractor] Fetching ${url}...`);
-        const response = await fetch(url, {
+
+        // Use Axios instead of fetch (node-fetch not installed)
+        const response = await axios.get(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
+            },
+            // Ensure we get text/string
+            responseType: 'text'
         });
 
-        if (!response.ok) throw new Error(`Failed to fetch URL: ${response.statusText}`);
-
-        const html = await response.text();
+        const html = response.data;
         const cleanedText = cleanHtml(html);
 
         console.log(`[Extractor] Sending to OpenAI (${cleanedText.length} chars)...`);
@@ -90,4 +91,3 @@ export async function extractFromUrl(url) {
         throw error;
     }
 }
-
