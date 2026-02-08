@@ -94,6 +94,8 @@ export async function extractFromUrl(url) {
         You are an intelligent product extractor. 
         Analyze the text content from an e-commerce page below and extract products.
         
+        CRITICAL: Look for "STRUCTURAL DATA (JSON-LD)" at the end of the text. This often contains the most accurate product list (schema.org/Product or ItemList). PREFER data from JSON-LD over raw text if available.
+        
         Here is a list of potential image URLs found on the page. Pick the most likely "Product Image" from this list, or find one in the text if better.
         Image Candidates: ${JSON.stringify(uniqueImages)}
         
@@ -105,8 +107,10 @@ export async function extractFromUrl(url) {
         - image (string URL, select best from candidates)
         - variantItems (array of objects with { name: string, price: number, color: string, size: string })
         
-        If there are multiple products (category page), extract all.
-        If single product page, extract one.
+        rules:
+        1. If there are multiple products (category page), extract ALL of them (up to 50).
+        2. If single product page, extract one.
+        3. Do not invent products. Only extract what is explicitly there.
         
         Text Content:
         "${cleanedText}"
