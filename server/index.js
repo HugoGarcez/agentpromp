@@ -1391,9 +1391,10 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
                     const downloadResponse = await axios.get(finalImageUrl, {
                         responseType: 'arraybuffer',
                         headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
                         },
-                        timeout: 10000
+                        timeout: 15000
                     });
 
                     const contentType = downloadResponse.headers['content-type'] || 'image/jpeg';
