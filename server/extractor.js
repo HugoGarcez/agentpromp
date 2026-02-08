@@ -22,7 +22,13 @@ const cleanHtml = (html) => {
     });
 
     let content = $('body').text().replace(/\s+/g, ' ').trim();
-    return content.substring(0, 15000);
+
+    // Append JSON-LD data to the content for the AI
+    if (jsonLdData.length > 0) {
+        content += "\n\n--- STRUCTURAL DATA (JSON-LD) ---\n" + jsonLdData.join("\n");
+    }
+
+    return content; // Return FULL content (Checker handles chunking)
 };
 
 /**
@@ -86,58 +92,91 @@ export async function extractFromUrl(url) {
         const uniqueImages = [...new Set(images)].slice(0, 15); // Top 15 unique images
         // --- IMAGE EXTRACTION END ---
 
-        const cleanedText = cleanHtml(html);
+        // CHUNKING STRATEGY FOR LARGE PAGES
+        // The page might be huge (e.g. 300k chars). We can't send it all.
+        // We split into chunks of 20,000 chars with 1,000 char overlap.
 
-        console.log(`[Extractor] Sending to OpenAI (${cleanedText.length} chars) + ${uniqueImages.length} images...`);
+        const CHUNK_SIZE = 20000;
+        const OVERLAP = 1000;
+        const cleanedText = cleanHtml(html); // Now returns FULL text (remove substring limit in cleanHtml first!)
 
-        const prompt = `
-        You are an intelligent product extractor. 
-        Analyze the text content from an e-commerce page below and extract products.
-        
-        CRITICAL: Look for "STRUCTURAL DATA (JSON-LD)" at the end of the text. This often contains the most accurate product list (schema.org/Product or ItemList). PREFER data from JSON-LD over raw text if available.
-        
-        Here is a list of potential image URLs found on the page. Pick the most likely "Product Image" from this list, or find one in the text if better.
-        Image Candidates: ${JSON.stringify(uniqueImages)}
-        
-        Return a JSON object with a key "products" which is an array of objects.
-        Each product object MUST have:
-        - name (string)
-        - price (number, numeric only)
-        - description (string, stored as plain text)
-        - image (string URL, select best from candidates)
-        - variantItems (array of objects with { name: string, price: number, color: string, size: string })
-        
-        rules:
-        1. If there are multiple products (category page), extract ALL of them (up to 50).
-        2. If single product page, extract one.
-        3. Do not invent products. Only extract what is explicitly there.
-        
-        Text Content:
-        "${cleanedText}"
-        `;
-
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4o-mini", // Cost effective
-            messages: [
-                { role: "system", content: "You are a helpful assistant that extracts structured product data from raw text involved in e-commerce." },
-                { role: "user", content: prompt }
-            ],
-            response_format: { type: "json_object" }
-        });
-
-        let result = JSON.parse(completion.choices[0].message.content);
-
-        // Fallback: If OpenAI didn't find an image, force the OG Image
-        if (result.products) {
-            result.products = result.products.map(p => {
-                if (!p.image && ogImage) p.image = ogImage;
-                return p;
-            });
+        const chunks = [];
+        for (let i = 0; i < cleanedText.length; i += (CHUNK_SIZE - OVERLAP)) {
+            chunks.push(cleanedText.substring(i, i + CHUNK_SIZE));
         }
 
-        console.log(`[Extractor] Extracted ${result.products?.length || 0} products.`);
+        console.log(`[Extractor] Split content into ${chunks.length} chunks (Total: ${cleanedText.length} chars). Processing...`);
 
-        return result.products || [];
+        // Process chunks in parallel (limit concurrency if needed, but 3-4 is fine)
+        const chunkPromises = chunks.map(async (chunk, index) => {
+            const prompt = `
+            You are an intelligent product extractor. 
+            Analyze the text content from an e-commerce page below and extract products.
+            
+            CRITICAL: Look for "STRUCTURAL DATA (JSON-LD)" at the end of the text. This often contains the most accurate product list (schema.org/Product or ItemList). PREFER data from JSON-LD over raw text if available.
+            
+            Here is a list of potential image URLs found on the page. Pick the most likely "Product Image" from this list, or find one in the text if better.
+            Image Candidates: ${JSON.stringify(uniqueImages)}
+            
+            Return a JSON object with a key "products" which is an array of objects.
+            Each product object MUST have:
+            - name (string)
+            - price (number, numeric only)
+            - description (string, stored as plain text)
+            - image (string URL, select best from candidates)
+            - variantItems (array of objects with { name: string, price: number, color: string, size: string })
+            
+            rules:
+            1. Extract ALL products visible in this text chunk.
+            2. Do not invent products. Only extract what is explicitly there.
+            3. If a product is cut off at the start/end, try to reconstruct it or ignore it if too fragmented.
+            
+            Text Content (Chunk ${index + 1}/${chunks.length}):
+            "${chunk}"
+            `;
+
+            try {
+                const completion = await openai.chat.completions.create({
+                    model: "gpt-4o-mini",
+                    messages: [
+                        { role: "system", content: "You are a helpful assistant that extracts structured product data from raw text involved in e-commerce." },
+                        { role: "user", content: prompt }
+                    ],
+                    response_format: { type: "json_object" }
+                });
+
+                const result = JSON.parse(completion.choices[0].message.content);
+                return result.products || [];
+            } catch (e) {
+                console.error(`[Extractor] Error processing chunk ${index + 1}:`, e.message);
+                return [];
+            }
+        });
+
+        const resultsArray = await Promise.all(chunkPromises);
+        let allProducts = resultsArray.flat();
+
+        // DEDUPLICATION
+        // Identify duplicates by Name (normalized)
+        const uniqueProducts = [];
+        const seenNames = new Set();
+
+        allProducts.forEach(p => {
+            if (!p.name) return;
+            const normName = p.name.trim().toLowerCase();
+            if (!seenNames.has(normName)) {
+                seenNames.add(normName);
+
+                // Fallback Image Logic
+                if (!p.image && ogImage) p.image = ogImage;
+
+                uniqueProducts.push(p);
+            }
+        });
+
+        console.log(`[Extractor] Extracted ${uniqueProducts.length} unique products from ${allProducts.length} raw items.`);
+
+        return uniqueProducts;
 
     } catch (error) {
         console.error('[Extractor] Error:', error);
