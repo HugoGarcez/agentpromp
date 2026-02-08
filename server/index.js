@@ -993,12 +993,15 @@ const processChatResponse = async (config, message, history, sessionId = null, i
             if (p.variantItems) {
                 // Check Variant ID
                 const variant = p.variantItems.find(v => String(v.id) === String(targetId));
-                if (variant && variant.image) {
-                    productImageUrl = variant.image;
-                    const details = [variant.color, variant.size].filter(Boolean).join(' / ');
-                    productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
-                    found = true;
-                    break;
+                if (variant) {
+                    // Fallback to Parent Image if Variant Image is missing
+                    if (variant.image || p.image) {
+                        productImageUrl = variant.image || p.image;
+                        const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                        productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
+                        found = true;
+                        break;
+                    }
                 }
             }
         }
