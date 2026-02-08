@@ -34,6 +34,24 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey'; // In production 
 
 const prisma = new PrismaClient();
 
+// --- MIDDLEWARE ---
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+
+// --- AUTH MIDDLEWARE ---
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.sendStatus(403);
+        req.user = user;
+        next();
+    });
+};
+
 // Initialize Scheduler (Pass Prisma Instance)
 initScheduler(prisma);
 
@@ -112,24 +130,6 @@ if (process.env.OPENAI_API_KEY) {
 } else {
     console.warn('[Startup] No Global OpenAI Key in ENV. Will rely on DB Config.');
 }
-
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-
-// Auth Middleware
-const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
-    if (!token) return res.sendStatus(401);
-
-    jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.sendStatus(403);
-        req.user = user;
-        next();
-    });
-};
 
 // Serve Static Frontend (Vite Build)
 app.use(express.static(path.join(__dirname, '../dist')));
