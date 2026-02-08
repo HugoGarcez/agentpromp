@@ -116,54 +116,68 @@ export async function extractFromUrl(url) {
 
         console.log(`[Extractor] Split content into ${chunks.length} chunks (Total: ${cleanedText.length} chars). Processing...`);
 
-        // Process chunks in parallel (limit concurrency if needed, but 3-4 is fine)
-        const chunkPromises = chunks.map(async (chunk, index) => {
-            const prompt = `
-            You are an intelligent product extractor. 
-            Analyze the text content from an e-commerce page below and extract products.
-            
-            CRITICAL: Look for "STRUCTURAL DATA (JSON-LD)" at the end of the text. This often contains the most accurate product list (schema.org/Product or ItemList). PREFER data from JSON-LD over raw text if available.
-            
-            Here is a list of potential image URLs found on the page. Pick the most likely "Product Image" from this list, or find one in the text if better.
-            Image Candidates: ${JSON.stringify(uniqueImages)}
-            
-            Return a JSON object with a key "products" which is an array of objects.
-            Each product object MUST have:
-            - name (string)
-            - price (number, numeric only)
-            - description (string, stored as plain text)
-            - image (string URL, select best from candidates)
-            - variantItems (array of objects with { name: string, price: number, color: string, size: string })
-            
-            rules:
-            1. Extract ALL products visible in this text chunk.
-            2. Do not invent products. Only extract what is explicitly there.
-            3. If a product is cut off at the start/end, try to reconstruct it or ignore it if too fragmented.
-            
-            Text Content (Chunk ${index + 1}/${chunks.length}):
-            "${chunk}"
-            `;
+        // Process chunks in BATCHES to avoid 429 Rate Limits
+        const BATCH_SIZE = 3;
+        let allProducts = [];
 
-            try {
-                const completion = await openai.chat.completions.create({
-                    model: "gpt-4o-mini",
-                    messages: [
-                        { role: "system", content: "You are a helpful assistant that extracts structured product data from raw text involved in e-commerce." },
-                        { role: "user", content: prompt }
-                    ],
-                    response_format: { type: "json_object" }
-                });
+        console.log(`[Extractor] Processing ${chunks.length} chunks in batches of ${BATCH_SIZE}...`);
 
-                const result = JSON.parse(completion.choices[0].message.content);
-                return result.products || [];
-            } catch (e) {
-                console.error(`[Extractor] Error processing chunk ${index + 1}:`, e.message);
-                return [];
-            }
-        });
+        for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+            const batch = chunks.slice(i, i + BATCH_SIZE);
+            console.log(`[Extractor] Processing batch ${i / BATCH_SIZE + 1}/${Math.ceil(chunks.length / BATCH_SIZE)}...`);
 
-        const resultsArray = await Promise.all(chunkPromises);
-        let allProducts = resultsArray.flat();
+            const batchPromises = batch.map(async (chunk, idx) => {
+                const chunkIndex = i + idx;
+                const prompt = `
+                You are an intelligent product extractor. 
+                Analyze the text content from an e-commerce page below and extract products.
+                
+                CRITICAL: Look for "STRUCTURAL DATA (JSON-LD)" at the end of the text. This often contains the most accurate product list (schema.org/Product or ItemList). PREFER data from JSON-LD over raw text if available.
+                
+                Here is a list of potential image URLs found on the page. Pick the most likely "Product Image" from this list, or find one in the text if better.
+                Image Candidates: ${JSON.stringify(uniqueImages)}
+                
+                Return a JSON object with a key "products" which is an array of objects.
+                Each product object MUST have:
+                - name (string)
+                - price (number, numeric only)
+                - description (string, stored as plain text)
+                - image (string URL, select best from candidates)
+                - variantItems (array of objects with { name: string, price: number, color: string, size: string })
+                
+                rules:
+                1. Extract ALL products visible in this text chunk.
+                2. Do not invent products. Only extract what is explicitly there.
+                3. If a product is cut off at the start/end, try to reconstruct it or ignore it if too fragmented.
+                
+                Text Content (Chunk ${chunkIndex + 1}/${chunks.length}):
+                "${chunk}"
+                `;
+
+                try {
+                    const completion = await openai.chat.completions.create({
+                        model: "gpt-4o-mini",
+                        messages: [
+                            { role: "system", content: "You are a helpful assistant that extracts structured product data from raw text involved in e-commerce." },
+                            { role: "user", content: prompt }
+                        ],
+                        response_format: { type: "json_object" }
+                    });
+
+                    const result = JSON.parse(completion.choices[0].message.content);
+                    return result.products || [];
+                } catch (e) {
+                    console.error(`[Extractor] Error processing chunk ${chunkIndex + 1}:`, e.message);
+                    return [];
+                }
+            });
+
+            const batchResults = await Promise.all(batchPromises);
+            batchResults.forEach(products => allProducts.push(...products));
+
+            // Small delay between batches to be nice
+            if (i + BATCH_SIZE < chunks.length) await new Promise(r => setTimeout(r, 1000));
+        }
 
         // DEDUPLICATION
         // Identify duplicates by Name (normalized)
