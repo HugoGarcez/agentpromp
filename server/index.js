@@ -717,39 +717,39 @@ const processChatResponse = async (config, message, history, sessionId = null, i
             }
         });
 
-    });
 
-    systemPrompt += `\n\nLISTA DE PRODUTOS/SERVIÇOS DISPONÍVEIS:\n${productList}\n\n`;
-    systemPrompt += `REGRA DE CONSISTÊNCIA DE ESTOQUE (CRÍTICO):
+
+        systemPrompt += `\n\nLISTA DE PRODUTOS/SERVIÇOS DISPONÍVEIS:\n${productList}\n\n`;
+        systemPrompt += `REGRA DE CONSISTÊNCIA DE ESTOQUE (CRÍTICO):
         1. A lista acima é a ÚNICA fonte de verdade sobre o que está disponível AGORA.
         2. Se o histórico de conversa mencionar um produto que NÃO está na lista acima, ele foi REMOVIDO ou ESGOTADO.
         3. Se o usuário pedir esse produto "antigo", responda: "Esse item não está mais disponível no momento." e ofereça uma alternativa da lista.
         4. JAMAIS assuma que um produto existe só porque ele foi citado anteriormente na conversa.`;
 
-    systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
-    systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!". Se for uma variação sem foto específica, use a do produto principal.\n`; // Added instruction
-    systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes de um serviço com [TEM_PDF], EXPLIQUE o serviço em texto e PERGUNTE: "Gostaria de receber o PDF com mais detalhes?". SE O CLIENTE CONFIRMAR, responda: "[SEND_PDF: ID] Enviando o arquivo...".\n`;
-    systemPrompt += `3. PAGAMENTO: Se o cliente quiser comprar/contratar e o item tiver [TEM_LINK_PAGAMENTO], envie o link: "[LINK: URL_DO_PAGAMENTO] Clique aqui para finalizar.".\n`;
-    systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.\n`;
-    systemPrompt += `5. UNIDADES DE MEDIDA (CRÍTICO): Cada produto tem sua própria unidade (Unidade, Kg, Rolo, Metro, etc.). JAMAIS GENERALIZE. Se o Produto A é "Rolo" e o Produto B é "Kg", fale exatamente assim. Nunca diga que "todos são vendidos por rolo". Verifique item por item.`;
-}
+        systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
+        systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!". Se for uma variação sem foto específica, use a do produto principal.\n`; // Added instruction
+        systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes de um serviço com [TEM_PDF], EXPLIQUE o serviço em texto e PERGUNTE: "Gostaria de receber o PDF com mais detalhes?". SE O CLIENTE CONFIRMAR, responda: "[SEND_PDF: ID] Enviando o arquivo...".\n`;
+        systemPrompt += `3. PAGAMENTO: Se o cliente quiser comprar/contratar e o item tiver [TEM_LINK_PAGAMENTO], envie o link: "[LINK: URL_DO_PAGAMENTO] Clique aqui para finalizar.".\n`;
+        systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.\n`;
+        systemPrompt += `5. UNIDADES DE MEDIDA (CRÍTICO): Cada produto tem sua própria unidade (Unidade, Kg, Rolo, Metro, etc.). JAMAIS GENERALIZE. Se o Produto A é "Rolo" e o Produto B é "Kg", fale exatamente assim. Nunca diga que "todos são vendidos por rolo". Verifique item por item.`;
+    }
 
-// Humanization & Memory Control
-systemPrompt += `\n\nDIRETRIZES DE HUMANIZAÇÃO (CRÍTICO):
+    // Humanization & Memory Control
+    systemPrompt += `\n\nDIRETRIZES DE HUMANIZAÇÃO (CRÍTICO):
         1. NATURALIDADE EXTREMA: Aja como um humano conversando no WhatsApp. Use linguagem fluida, pode abreviar (vc, tbm) se o tom permitir.
         2. PROIBIDO ROBOTISMO: JAMAIS termine frases com 'Posso ajudar em algo mais?', 'Se precisar estou aqui'. ISSO É PROIBIDO.
         3. DIRETO AO PONTO: Responda a pergunta e pronto. Não enrole.
         4. IMAGENS: Se tiver [TEM_IMAGEM], Mande a tag [SHOW_IMAGE: ID].`;
 
-// Strict Anti-Repetition logic if history exists
-if (history && history.length > 0) {
-    systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente.
+    // Strict Anti-Repetition logic if history exists
+    if (history && history.length > 0) {
+        systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente.
         CRÍTICO: Não ofereça ajuda extra no final da mensagem. Apenas responda.`;
-}
+    }
 
-// Inject Audio Context if applicable
-if (isAudioInput) {
-    systemPrompt += `\n\n[SISTEMA]: O usuário enviou uma MSG DE ÁUDIO que foi transcrita.
+    // Inject Audio Context if applicable
+    if (isAudioInput) {
+        systemPrompt += `\n\n[SISTEMA]: O usuário enviou uma MSG DE ÁUDIO que foi transcrita.
         - O texto inicia com "[ÁUDIO TRANSCRITO]:".
         - NÃO diga "não ouço áudio". Você JÁ LEU o que ele falou.
         - Responda naturalmente ao conteúdo.
@@ -765,11 +765,11 @@ if (isAudioInput) {
            - Fale de forma fluida, como um brasileiro.
            - Use palavras em inglês naturalmente.
            - NÃO use emojis ou markdown.`;
-}
+    }
 
-// Guidelines for continuity
-if (history && history.length > 0) {
-    systemPrompt += `\n\nDIRETRIZES DE CONTINUIDADE (CRÍTICO - NÃO IGNORE):
+    // Guidelines for continuity
+    if (history && history.length > 0) {
+        systemPrompt += `\n\nDIRETRIZES DE CONTINUIDADE (CRÍTICO - NÃO IGNORE):
         1. CONTEXTO IMPLÍCITO (OBRIGATÓRIO): Se o usuário fizer uma pergunta sem citar o nome do produto ou apenas confirmar algo (ex: "Sim", "Quero", "Manda", "Pode ser", "Quanto custa?"), você DEVE assumir que ele está falando do ÚLTIMO produto/serviço mencionado no histórico.
         
         2. PROTOCOLO DE RESPOSTA CURTA (REGRA SUPREMA):
@@ -784,125 +784,125 @@ if (history && history.length > 0) {
         3. NÃO TROQUE O ASSUNTO: Se estávamos falando de "Camiseta", e o usuário pergunta "Tem G?", é PROIBIDO falar sobre "iPhone".
         4. ZERO ALUCINAÇÃO: Não invente recursos.
         5. REGRA DE OURO: Só pergunte "Qual produto?" se o histórico estiver VAZIO ou se o usuário mudar de assunto drasticamente. No fluxo de venda, ASSUMA O CONTEXTO ANTERIOR.`;
-}
+    }
 
-// Knowledge Base Injection
-if (config.knowledgeBase) {
-    try {
-        const kb = typeof config.knowledgeBase === 'string' ? JSON.parse(config.knowledgeBase) : config.knowledgeBase;
+    // Knowledge Base Injection
+    if (config.knowledgeBase) {
+        try {
+            const kb = typeof config.knowledgeBase === 'string' ? JSON.parse(config.knowledgeBase) : config.knowledgeBase;
 
-        // Inject Files
-        if (kb.files && kb.files.length > 0) {
-            systemPrompt += "\n\n###### BASE DE CONHECIMENTO (ARQUIVOS) ######\n";
+            // Inject Files
+            if (kb.files && kb.files.length > 0) {
+                systemPrompt += "\n\n###### BASE DE CONHECIMENTO (ARQUIVOS) ######\n";
 
-            // 1. Create Index Summary (Crucial for AI planning)
-            systemPrompt += "VOCÊ POSSUI OS SEGUINTES ARQUIVOS EM SUA MEMÓRIA:\n";
-            kb.files.forEach((f, idx) => {
-                systemPrompt += `${idx + 1}. [${f.name}] - Função: ${f.description || 'Geral'} (Gatilho: ${f.usageTrigger || 'Sempre que relevante'})\n`;
-            });
-            systemPrompt += "\nINSTRUÇÃO DE USO: Se a pergunta do usuário ativar um GATILHO acima, LEIA O CONTEÚDO DO ARQUIVO correspondente abaixo antes de responder.\n";
+                // 1. Create Index Summary (Crucial for AI planning)
+                systemPrompt += "VOCÊ POSSUI OS SEGUINTES ARQUIVOS EM SUA MEMÓRIA:\n";
+                kb.files.forEach((f, idx) => {
+                    systemPrompt += `${idx + 1}. [${f.name}] - Função: ${f.description || 'Geral'} (Gatilho: ${f.usageTrigger || 'Sempre que relevante'})\n`;
+                });
+                systemPrompt += "\nINSTRUÇÃO DE USO: Se a pergunta do usuário ativar um GATILHO acima, LEIA O CONTEÚDO DO ARQUIVO correspondente abaixo antes de responder.\n";
 
-            // 2. Inject Content
-            systemPrompt += "\n--- CONTEÚDO DETALHADO DOS ARQUIVOS ---\n";
+                // 2. Inject Content
+                systemPrompt += "\n--- CONTEÚDO DETALHADO DOS ARQUIVOS ---\n";
+                kb.files.forEach(f => {
+                    if (f.content) {
+                        systemPrompt += `\n[INÍCIO DO ARQUIVO: ${f.name}]\n`;
+                        if (f.description) systemPrompt += `> CONTEXTO: ${f.description}\n`;
+                        if (f.usageTrigger) systemPrompt += `> GATILHO: ${f.usageTrigger}\n`;
+                        systemPrompt += `> CONTEÚDO:\n${f.content}\n[FIM DO ARQUIVO: ${f.name}]\n`;
+                    }
+                });
+                systemPrompt += "--------------------------------------\n";
+            }
+
+            // Inject Links
+            if (kb.links && kb.links.length > 0) {
+                systemPrompt += "\n=== CONTEÚDO EXTRAÍDO DE LINKS ===\n";
+                kb.links.forEach(l => {
+                    if (l.content) {
+                        systemPrompt += `\n[FONTE: ${l.url}]\n${l.content}\n[FIM DA FONTE]\n`;
+                    }
+                });
+            }
+
+            // Inject Q&A
+            if (kb.qa && kb.qa.length > 0) {
+                systemPrompt += "\n=== PERGUNTAS E RESPOSTAS FREQUENTES (Q&A) ===\n";
+                kb.qa.forEach(item => {
+                    if (item.question && item.answer) {
+                        systemPrompt += `\nQ: ${item.question}\nA: ${item.answer}\n`;
+                    }
+                });
+            }
+
+            systemPrompt += "\n\nINSTRUÇÃO FINAL DE CONHECIMENTO: Verifique PRIMEIRO a lista de arquivos e Q&A. Se não encontrar a resposta, diga honestamente que não tem essa informação nos manuais disponíveis.";
+
+        } catch (e) {
+            console.error('Error parsing Knowledge Base:', e);
+        }
+    }
+
+    // --- DEBUG LOGS FOR CONTEXT ---
+    console.log('--- SYSTEM PROMPT DIAGNOSTICS ---');
+
+    // Check Products
+    if (config.products) {
+        let prods = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
+        console.log(`[Context] Total Products: ${prods.length}`);
+        console.log(`[Context] Product Names: ${prods.map(p => p.name).join(', ')}`);
+    } else {
+        console.log('[Context] No Producs found.');
+    }
+
+    // Check Knowledge Base
+    if (config.knowledgeBase) {
+        let kb = typeof config.knowledgeBase === 'string' ? JSON.parse(config.knowledgeBase) : config.knowledgeBase;
+        if (kb.files) {
+            console.log(`[Context] Total Files: ${kb.files.length}`);
             kb.files.forEach(f => {
-                if (f.content) {
-                    systemPrompt += `\n[INÍCIO DO ARQUIVO: ${f.name}]\n`;
-                    if (f.description) systemPrompt += `> CONTEXTO: ${f.description}\n`;
-                    if (f.usageTrigger) systemPrompt += `> GATILHO: ${f.usageTrigger}\n`;
-                    systemPrompt += `> CONTEÚDO:\n${f.content}\n[FIM DO ARQUIVO: ${f.name}]\n`;
-                }
-            });
-            systemPrompt += "--------------------------------------\n";
-        }
-
-        // Inject Links
-        if (kb.links && kb.links.length > 0) {
-            systemPrompt += "\n=== CONTEÚDO EXTRAÍDO DE LINKS ===\n";
-            kb.links.forEach(l => {
-                if (l.content) {
-                    systemPrompt += `\n[FONTE: ${l.url}]\n${l.content}\n[FIM DA FONTE]\n`;
-                }
+                console.log(` - File: ${f.name} (Content Length: ${f.content ? f.content.length : 0} chars)`);
             });
         }
-
-        // Inject Q&A
-        if (kb.qa && kb.qa.length > 0) {
-            systemPrompt += "\n=== PERGUNTAS E RESPOSTAS FREQUENTES (Q&A) ===\n";
-            kb.qa.forEach(item => {
-                if (item.question && item.answer) {
-                    systemPrompt += `\nQ: ${item.question}\nA: ${item.answer}\n`;
-                }
-            });
-        }
-
-        systemPrompt += "\n\nINSTRUÇÃO FINAL DE CONHECIMENTO: Verifique PRIMEIRO a lista de arquivos e Q&A. Se não encontrar a resposta, diga honestamente que não tem essa informação nos manuais disponíveis.";
-
-    } catch (e) {
-        console.error('Error parsing Knowledge Base:', e);
     }
-}
+    console.log('---------------------------------');
 
-// --- DEBUG LOGS FOR CONTEXT ---
-console.log('--- SYSTEM PROMPT DIAGNOSTICS ---');
+    console.log('[Chat] System Prompt Context:', systemPrompt); // DEBUG
 
-// Check Products
-if (config.products) {
-    let prods = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
-    console.log(`[Context] Total Products: ${prods.length}`);
-    console.log(`[Context] Product Names: ${prods.map(p => p.name).join(', ')}`);
-} else {
-    console.log('[Context] No Producs found.');
-}
+    // --- PROMPT REWRITING (Invisible Hand Strategy) ---
+    // Problem: AI hallucinates when user says just "Sim" because it loses context.
+    // Solution: Rewrite "Sim" to "Sim, envie o PDF do [Item Anterior]" before sending to AI.
 
-// Check Knowledge Base
-if (config.knowledgeBase) {
-    let kb = typeof config.knowledgeBase === 'string' ? JSON.parse(config.knowledgeBase) : config.knowledgeBase;
-    if (kb.files) {
-        console.log(`[Context] Total Files: ${kb.files.length}`);
-        kb.files.forEach(f => {
-            console.log(` - File: ${f.name} (Content Length: ${f.content ? f.content.length : 0} chars)`);
-        });
-    }
-}
-console.log('---------------------------------');
+    let finalUserMessage = message;
 
-console.log('[Chat] System Prompt Context:', systemPrompt); // DEBUG
+    if (history && history.length > 0) {
+        // Find last assistant message
+        const lastAiMsg = [...history].reverse().find(m => m.role === 'assistant');
 
-// --- PROMPT REWRITING (Invisible Hand Strategy) ---
-// Problem: AI hallucinates when user says just "Sim" because it loses context.
-// Solution: Rewrite "Sim" to "Sim, envie o PDF do [Item Anterior]" before sending to AI.
+        if (lastAiMsg) {
+            const aiContent = (lastAiMsg.content || '').toLowerCase();
+            const userContent = (message || '').toLowerCase();
 
-let finalUserMessage = message;
+            // Check if AI offered PDF recently (keywords: pdf OR generic file terms AND question words)
+            const fileKeywords = ['pdf', 'arquivo', 'material', 'lâmina', 'apresentação', 'catalogo', 'catálogo'];
+            const questionKeywords = ['?', 'gostaria', 'quer', 'deseja', 'posso', 'enviar'];
 
-if (history && history.length > 0) {
-    // Find last assistant message
-    const lastAiMsg = [...history].reverse().find(m => m.role === 'assistant');
+            const hasFileKeyword = fileKeywords.some(kw => aiContent.includes(kw));
+            const hasQuestionKeyword = questionKeywords.some(kw => aiContent.includes(kw));
 
-    if (lastAiMsg) {
-        const aiContent = (lastAiMsg.content || '').toLowerCase();
-        const userContent = (message || '').toLowerCase();
+            if (hasFileKeyword && hasQuestionKeyword) {
 
-        // Check if AI offered PDF recently (keywords: pdf OR generic file terms AND question words)
-        const fileKeywords = ['pdf', 'arquivo', 'material', 'lâmina', 'apresentação', 'catalogo', 'catálogo'];
-        const questionKeywords = ['?', 'gostaria', 'quer', 'deseja', 'posso', 'enviar'];
+                // Check if User accepted
+                const acceptanceKeywords = ['sim', 'quero', 'pode', 'manda', 'gostaria', 'yes', 'ok', 'envia', 'isso'];
+                const isAcceptance = acceptanceKeywords.some(kw => userContent.includes(kw));
 
-        const hasFileKeyword = fileKeywords.some(kw => aiContent.includes(kw));
-        const hasQuestionKeyword = questionKeywords.some(kw => aiContent.includes(kw));
+                if (isAcceptance) {
+                    console.log('[Context] Detected Acceptance of File Offer.');
 
-        if (hasFileKeyword && hasQuestionKeyword) {
+                    // Extract topic from AI message (simple heuristic: grab first 80 chars for context)
+                    const topicSnippet = lastAiMsg.content.substring(0, 100).replace(/\n/g, ' ');
 
-            // Check if User accepted
-            const acceptanceKeywords = ['sim', 'quero', 'pode', 'manda', 'gostaria', 'yes', 'ok', 'envia', 'isso'];
-            const isAcceptance = acceptanceKeywords.some(kw => userContent.includes(kw));
-
-            if (isAcceptance) {
-                console.log('[Context] Detected Acceptance of File Offer.');
-
-                // Extract topic from AI message (simple heuristic: grab first 80 chars for context)
-                const topicSnippet = lastAiMsg.content.substring(0, 100).replace(/\n/g, ' ');
-
-                // REWRITE PROMPT
-                finalUserMessage = `(Mensagem do Sistema: O usuário respondeu "${message}" confirmando o interesse no arquivo oferecido anteriormente.)
+                    // REWRITE PROMPT
+                    finalUserMessage = `(Mensagem do Sistema: O usuário respondeu "${message}" confirmando o interesse no arquivo oferecido anteriormente.)
                     
                     CONTEXTO DA OFERTA ANTERIOR: "${topicSnippet}..."
                     
@@ -911,234 +911,234 @@ if (history && history.length > 0) {
                     2. Envie IMEDIATAMENTE o PDF ou Arquivo relacionado a essa oferta.
                     3. Use a tag [SEND_PDF: ID] ou [SEND_IMAGE: ID] correta.`;
 
-                console.log('[Context] REWROTE USER PROMPT:', finalUserMessage);
+                    console.log('[Context] REWROTE USER PROMPT:', finalUserMessage);
+                }
             }
         }
     }
-}
-// --- END PROMPT REWRITING ---
+    // --- END PROMPT REWRITING ---
 
-// Prepare Messages (History + System)
-let messages = [{ role: "system", content: systemPrompt }];
+    // Prepare Messages (History + System)
+    let messages = [{ role: "system", content: systemPrompt }];
 
-if (Array.isArray(history) && history.length > 0) {
-    const cleanHistory = history.map(h => ({
-        role: h.role === 'user' || h.role === 'assistant' ? h.role : 'user',
-        content: h.content || ''
-    }));
-    messages = [...messages, ...cleanHistory];
-}
+    if (Array.isArray(history) && history.length > 0) {
+        const cleanHistory = history.map(h => ({
+            role: h.role === 'user' || h.role === 'assistant' ? h.role : 'user',
+            content: h.content || ''
+        }));
+        messages = [...messages, ...cleanHistory];
+    }
 
-// Add current user message (Rewritten or Original)
-messages.push({ role: "user", content: finalUserMessage });
+    // Add current user message (Rewritten or Original)
+    messages.push({ role: "user", content: finalUserMessage });
 
-const completion = await openai.chat.completions.create({
-    messages: messages,
-    model: "gpt-4o-mini", // Better & Cheaper than 3.5-turbo
-});
+    const completion = await openai.chat.completions.create({
+        messages: messages,
+        model: "gpt-4o-mini", // Better & Cheaper than 3.5-turbo
+    });
 
-let aiResponse = completion.choices[0].message.content;
+    let aiResponse = completion.choices[0].message.content;
 
-// --- Audio Script Extraction ---
-let textForAudio = aiResponse;
-const scriptRegex = /\[SCRIPT_AUDIO\]:([\s\S]*?)$/i; // Match until end or next tag? Assuming end or specific format.
-// Better: /\[SCRIPT_AUDIO\]:([\s\S]+)/ (Greedy until end usually, unless Image tag follows? Image logic is later)
-// Let's assume SCRIPT_AUDIO is at the very end.
+    // --- Audio Script Extraction ---
+    let textForAudio = aiResponse;
+    const scriptRegex = /\[SCRIPT_AUDIO\]:([\s\S]*?)$/i; // Match until end or next tag? Assuming end or specific format.
+    // Better: /\[SCRIPT_AUDIO\]:([\s\S]+)/ (Greedy until end usually, unless Image tag follows? Image logic is later)
+    // Let's assume SCRIPT_AUDIO is at the very end.
 
-const scriptMatch = aiResponse.match(scriptRegex);
-if (scriptMatch && scriptMatch[1]) {
-    textForAudio = scriptMatch[1].trim();
-    // Remove from visual text
-    aiResponse = aiResponse.replace(scriptRegex, '').trim();
-    console.log('[Chat] Separate Audio Script detected and extracted.');
-}
+    const scriptMatch = aiResponse.match(scriptRegex);
+    if (scriptMatch && scriptMatch[1]) {
+        textForAudio = scriptMatch[1].trim();
+        // Remove from visual text
+        aiResponse = aiResponse.replace(scriptRegex, '').trim();
+        console.log('[Chat] Separate Audio Script detected and extracted.');
+    }
 
-// --- Image Detection Logic ---
-let productImageUrl = null;
-let productCaption = ""; // Initialize caption
+    // --- Image Detection Logic ---
+    let productImageUrl = null;
+    let productCaption = ""; // Initialize caption
 
-// Robust Regex: Optional quotes, spaces, dots/dashes, AND SPACES in ID
-const imageTagRegex = /\[SHOW_IMAGE:\s*['"]?([^\]]+?)['"]?\s*\]/i;
-const imageMatch = aiResponse.match(imageTagRegex);
+    // Robust Regex: Optional quotes, spaces, dots/dashes, AND SPACES in ID
+    const imageTagRegex = /\[SHOW_IMAGE:\s*['"]?([^\]]+?)['"]?\s*\]/i;
+    const imageMatch = aiResponse.match(imageTagRegex);
 
-if (imageMatch && config.products) {
-    const targetId = imageMatch[1];
-    let found = false;
+    if (imageMatch && config.products) {
+        const targetId = imageMatch[1];
+        let found = false;
 
-    // Search in Parent Products or Variations
-    for (const p of config.products) {
-        // Check Parent (ID exact match)
-        if (String(p.id) === String(targetId)) {
-            if (p.image) {
-                productImageUrl = p.image;
-                productCaption = `${p.name} - R$ ${p.price}`;
-                found = true;
-                break;
-            }
-        }
-
-        // Check Parent (Name loose match - Fallback)
-        // If the ID looks like a name (contains letters/spaces not typical for our IDs?)
-        // We just check if targetId string matches product name logic
-        if (!found && p.name.toLowerCase().includes(String(targetId).toLowerCase())) {
-            if (p.image) {
-                productImageUrl = p.image;
-                productCaption = `${p.name} - R$ ${p.price}`;
-                found = true;
-                // We don't break immediately in case there's a better ID match later? 
-                // No, existing ID match loop prioritized. This is fallback.
-                break;
-            }
-        }
-
-        // Check Variations
-        if (p.variantItems) {
-            // Check Variant ID
-            const variant = p.variantItems.find(v => String(v.id) === String(targetId));
-            if (variant) {
-                // Fallback to Parent Image if Variant Image is missing
-                if (variant.image || p.image) {
-                    productImageUrl = variant.image || p.image;
-                    const details = [variant.color, variant.size].filter(Boolean).join(' / ');
-                    productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
+        // Search in Parent Products or Variations
+        for (const p of config.products) {
+            // Check Parent (ID exact match)
+            if (String(p.id) === String(targetId)) {
+                if (p.image) {
+                    productImageUrl = p.image;
+                    productCaption = `${p.name} - R$ ${p.price}`;
                     found = true;
                     break;
                 }
             }
-        }
-    }
 
-    if (found) {
-        console.log(`[Chat] Found Product/Variant Image for Target '${targetId}'`);
-        // Remove the tag successfully
-        aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]?\\s*\\]`, 'gi'), '').trim();
-    } else {
-        console.log(`[Chat] Image requested for Target '${targetId}' but not found.`);
-        // REPLACEMENT FEEDBACK: Keep tag or show error
-        // Escape regex special chars in targetId just in case
-        const safeId = targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${safeId}['"]?\\s*\\]`, 'gi'), `(❌ Imagem não encontrada: ${targetId})`);
-    }
-}
-
-// --- PDF Logic (Service Details) ---
-let pdfBase64 = null;
-let pdfName = null;
-const pdfTagRegex = /\[SEND_PDF:\s*['"]?([^\]]+?)['"]?\s*\]/i;
-const pdfMatch = aiResponse.match(pdfTagRegex);
-
-if (pdfMatch) {
-    const targetId = pdfMatch[1];
-    let foundPdf = null;
-    let foundName = null;
-
-    // Check Products/Services
-    if (config.products) {
-        const p = config.products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
-        if (p && p.pdf) {
-            foundPdf = p.pdf;
-            foundName = `${p.name}.pdf`; // Fallback name
-        }
-    }
-
-    if (foundPdf) {
-        try {
-            pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
-            pdfName = foundName;
-            console.log(`[Chat] Found PDF for ID ${targetId}.`);
-            // Remove tag
-            aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
-        } catch (e) {
-            console.error(`[Chat] PDF Processing Error:`, e);
-        }
-    } else {
-        console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
-        aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
-    }
-}
-
-// --- Audio Generation Logic ---
-let audioBase64 = null;
-const integrator = config.integrations || {};
-
-// 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
-// If disabled in config, we NEVER generate, even if user sent audio.
-// (User said: "Configuration needs to apply to the received audio format")
-const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
-
-// Check for API Key
-let apiKey = integrator.elevenLabsKey;
-
-// SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
-if (apiKey && (apiKey.trim().startsWith('sk-') || apiKey.trim().startsWith('sk_'))) {
-    console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
-    apiKey = null;
-}
-
-// Fallback to Global
-apiKey = apiKey || globalConfig?.elevenLabsKey;
-
-if (isVoiceEnabled && apiKey) {
-    let shouldGenerate = false;
-
-    // 2. Logic based on Input Type vs Config Trigger
-    if (isAudioInput) {
-        // Case A: User sent AUDIO
-        // We always reply in Audio if feature is enabled.
-        // (Even if set to 'percentage', Audio-for-Audio is the baseline expectation)
-        shouldGenerate = true;
-        console.log('[Audio] Audio Input detected -> Forcing Audio Response.');
-    } else {
-        // Case B: User sent TEXT
-        if (integrator.responseType === 'audio_only') {
-            // UI: "Responder em áudio apenas quando o cliente enviar áudio"
-            // Since this is TEXT input, we do NOT generate.
-            shouldGenerate = false;
-            console.log('[Audio] Text Input + AudioOnly Mode -> Skipping Audio.');
-        } else if (integrator.responseType === 'percentage') {
-            // UI: "Responder em áudio aleatoriamente (% das mensagens)"
-            const probability = parseInt(integrator.responsePercentage || 50, 10);
-            const randomVal = Math.random() * 100;
-
-            if (randomVal <= probability) {
-                shouldGenerate = true;
-                console.log(`[Audio] Probability Hit: ${randomVal.toFixed(0)} <= ${probability} -> Generating.`);
-            } else {
-                console.log(`[Audio] Probability Miss: ${randomVal.toFixed(0)} > ${probability} -> Skipping.`);
-            }
-        }
-    }
-
-    if (shouldGenerate) {
-        try {
-            let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
-
-            // Fallback for Agent IDs (Now supported via resolution)
-            let resolvedVoiceId = voiceId;
-            if (voiceId.startsWith('agent_')) {
-                const foundId = await resolveVoiceFromAgent(voiceId, apiKey);
-                if (foundId) {
-                    resolvedVoiceId = foundId;
-                } else {
-                    console.warn(`Could not resolve Agent ID. Falling back to default.`);
-                    resolvedVoiceId = '21m00Tcm4TlvDq8ikWAM';
+            // Check Parent (Name loose match - Fallback)
+            // If the ID looks like a name (contains letters/spaces not typical for our IDs?)
+            // We just check if targetId string matches product name logic
+            if (!found && p.name.toLowerCase().includes(String(targetId).toLowerCase())) {
+                if (p.image) {
+                    productImageUrl = p.image;
+                    productCaption = `${p.name} - R$ ${p.price}`;
+                    found = true;
+                    // We don't break immediately in case there's a better ID match later? 
+                    // No, existing ID match loop prioritized. This is fallback.
+                    break;
                 }
             }
 
-            console.log(`[Audio Debug] Generating Audio using VoiceID: ${resolvedVoiceId}`);
+            // Check Variations
+            if (p.variantItems) {
+                // Check Variant ID
+                const variant = p.variantItems.find(v => String(v.id) === String(targetId));
+                if (variant) {
+                    // Fallback to Parent Image if Variant Image is missing
+                    if (variant.image || p.image) {
+                        productImageUrl = variant.image || p.image;
+                        const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                        productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
 
-            // Use Helper (which handles Preprocessing + Phonetics)
-            // use textForAudio (Script) if available, otherwise aiResponse
-            const textToSpeak = textForAudio || aiResponse;
-
-            audioBase64 = await generateAudio(textToSpeak, apiKey, resolvedVoiceId);
-        } catch (audioError) {
-            console.error('Audio Generation Error:', audioError);
+        if (found) {
+            console.log(`[Chat] Found Product/Variant Image for Target '${targetId}'`);
+            // Remove the tag successfully
+            aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]?\\s*\\]`, 'gi'), '').trim();
+        } else {
+            console.log(`[Chat] Image requested for Target '${targetId}' but not found.`);
+            // REPLACEMENT FEEDBACK: Keep tag or show error
+            // Escape regex special chars in targetId just in case
+            const safeId = targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${safeId}['"]?\\s*\\]`, 'gi'), `(❌ Imagem não encontrada: ${targetId})`);
         }
     }
-}
 
-return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
+    // --- PDF Logic (Service Details) ---
+    let pdfBase64 = null;
+    let pdfName = null;
+    const pdfTagRegex = /\[SEND_PDF:\s*['"]?([^\]]+?)['"]?\s*\]/i;
+    const pdfMatch = aiResponse.match(pdfTagRegex);
+
+    if (pdfMatch) {
+        const targetId = pdfMatch[1];
+        let foundPdf = null;
+        let foundName = null;
+
+        // Check Products/Services
+        if (config.products) {
+            const p = config.products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
+            if (p && p.pdf) {
+                foundPdf = p.pdf;
+                foundName = `${p.name}.pdf`; // Fallback name
+            }
+        }
+
+        if (foundPdf) {
+            try {
+                pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
+                pdfName = foundName;
+                console.log(`[Chat] Found PDF for ID ${targetId}.`);
+                // Remove tag
+                aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
+            } catch (e) {
+                console.error(`[Chat] PDF Processing Error:`, e);
+            }
+        } else {
+            console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
+            aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
+        }
+    }
+
+    // --- Audio Generation Logic ---
+    let audioBase64 = null;
+    const integrator = config.integrations || {};
+
+    // 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
+    // If disabled in config, we NEVER generate, even if user sent audio.
+    // (User said: "Configuration needs to apply to the received audio format")
+    const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
+
+    // Check for API Key
+    let apiKey = integrator.elevenLabsKey;
+
+    // SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
+    if (apiKey && (apiKey.trim().startsWith('sk-') || apiKey.trim().startsWith('sk_'))) {
+        console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
+        apiKey = null;
+    }
+
+    // Fallback to Global
+    apiKey = apiKey || globalConfig?.elevenLabsKey;
+
+    if (isVoiceEnabled && apiKey) {
+        let shouldGenerate = false;
+
+        // 2. Logic based on Input Type vs Config Trigger
+        if (isAudioInput) {
+            // Case A: User sent AUDIO
+            // We always reply in Audio if feature is enabled.
+            // (Even if set to 'percentage', Audio-for-Audio is the baseline expectation)
+            shouldGenerate = true;
+            console.log('[Audio] Audio Input detected -> Forcing Audio Response.');
+        } else {
+            // Case B: User sent TEXT
+            if (integrator.responseType === 'audio_only') {
+                // UI: "Responder em áudio apenas quando o cliente enviar áudio"
+                // Since this is TEXT input, we do NOT generate.
+                shouldGenerate = false;
+                console.log('[Audio] Text Input + AudioOnly Mode -> Skipping Audio.');
+            } else if (integrator.responseType === 'percentage') {
+                // UI: "Responder em áudio aleatoriamente (% das mensagens)"
+                const probability = parseInt(integrator.responsePercentage || 50, 10);
+                const randomVal = Math.random() * 100;
+
+                if (randomVal <= probability) {
+                    shouldGenerate = true;
+                    console.log(`[Audio] Probability Hit: ${randomVal.toFixed(0)} <= ${probability} -> Generating.`);
+                } else {
+                    console.log(`[Audio] Probability Miss: ${randomVal.toFixed(0)} > ${probability} -> Skipping.`);
+                }
+            }
+        }
+
+        if (shouldGenerate) {
+            try {
+                let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
+
+                // Fallback for Agent IDs (Now supported via resolution)
+                let resolvedVoiceId = voiceId;
+                if (voiceId.startsWith('agent_')) {
+                    const foundId = await resolveVoiceFromAgent(voiceId, apiKey);
+                    if (foundId) {
+                        resolvedVoiceId = foundId;
+                    } else {
+                        console.warn(`Could not resolve Agent ID. Falling back to default.`);
+                        resolvedVoiceId = '21m00Tcm4TlvDq8ikWAM';
+                    }
+                }
+
+                console.log(`[Audio Debug] Generating Audio using VoiceID: ${resolvedVoiceId}`);
+
+                // Use Helper (which handles Preprocessing + Phonetics)
+                // use textForAudio (Script) if available, otherwise aiResponse
+                const textToSpeak = textForAudio || aiResponse;
+
+                audioBase64 = await generateAudio(textToSpeak, apiKey, resolvedVoiceId);
+            } catch (audioError) {
+                console.error('Audio Generation Error:', audioError);
+            }
+        }
+    }
+
+    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
 };
 
 // --- Config History Routes ---
