@@ -30,7 +30,13 @@ const cleanHtml = (html) => {
         if (this.type === 'comment') $(this).remove();
     });
 
-    let content = $('body').text().replace(/\s+/g, ' ').trim();
+    // Improve text structure: Replace block tags with newlines
+    $('br').replaceWith('\n');
+    $('div, p, li, h1, h2, h3, h4, h5, h6, tr').after('\n');
+
+    let content = $('body').text();
+    // Normalize whitespace but keep newlines
+    content = content.replace(/[ \t]+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
 
     // Append JSON-LD data to the content for the AI
     if (jsonLdData.length > 0) {
