@@ -1070,127 +1070,126 @@ CUMPRA ESTE PROTOCOLO AGORA.
         aiResponse += debugImageError;
     }
 
-}
-    }
 
-// --- PDF Logic (Service Details) ---
-let pdfBase64 = null;
-let pdfName = null;
-const pdfTagRegex = /\[SEND_PDF:\s*['"]?([^\]]+?)['"]?\s*\]/i;
-const pdfMatch = aiResponse.match(pdfTagRegex);
 
-if (pdfMatch) {
-    const targetId = pdfMatch[1];
-    let foundPdf = null;
-    let foundName = null;
+    // --- PDF Logic (Service Details) ---
+    let pdfBase64 = null;
+    let pdfName = null;
+    const pdfTagRegex = /\[SEND_PDF:\s*['"]?([^\]]+?)['"]?\s*\]/i;
+    const pdfMatch = aiResponse.match(pdfTagRegex);
 
-    // Check Products/Services
-    if (config.products) {
-        const p = config.products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
-        if (p && p.pdf) {
-            foundPdf = p.pdf;
-            foundName = `${p.name}.pdf`; // Fallback name
-        }
-    }
+    if (pdfMatch) {
+        const targetId = pdfMatch[1];
+        let foundPdf = null;
+        let foundName = null;
 
-    if (foundPdf) {
-        try {
-            pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
-            pdfName = foundName;
-            console.log(`[Chat] Found PDF for ID ${targetId}.`);
-            // Remove tag
-            aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
-        } catch (e) {
-            console.error(`[Chat] PDF Processing Error:`, e);
-        }
-    } else {
-        console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
-        aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
-    }
-}
-
-// --- Audio Generation Logic ---
-let audioBase64 = null;
-const integrator = config.integrations || {};
-
-// 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
-// If disabled in config, we NEVER generate, even if user sent audio.
-// (User said: "Configuration needs to apply to the received audio format")
-const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
-
-// Check for API Key
-let apiKey = integrator.elevenLabsKey;
-
-// SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
-if (apiKey && (apiKey.trim().startsWith('sk-') || apiKey.trim().startsWith('sk_'))) {
-    console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
-    apiKey = null;
-}
-
-// Fallback to Global
-apiKey = apiKey || globalConfig?.elevenLabsKey;
-
-if (isVoiceEnabled && apiKey) {
-    let shouldGenerate = false;
-
-    // 2. Logic based on Input Type vs Config Trigger
-    if (isAudioInput) {
-        // Case A: User sent AUDIO
-        // We always reply in Audio if feature is enabled.
-        // (Even if set to 'percentage', Audio-for-Audio is the baseline expectation)
-        shouldGenerate = true;
-        console.log('[Audio] Audio Input detected -> Forcing Audio Response.');
-    } else {
-        // Case B: User sent TEXT
-        if (integrator.responseType === 'audio_only') {
-            // UI: "Responder em áudio apenas quando o cliente enviar áudio"
-            // Since this is TEXT input, we do NOT generate.
-            shouldGenerate = false;
-            console.log('[Audio] Text Input + AudioOnly Mode -> Skipping Audio.');
-        } else if (integrator.responseType === 'percentage') {
-            // UI: "Responder em áudio aleatoriamente (% das mensagens)"
-            const probability = parseInt(integrator.responsePercentage || 50, 10);
-            const randomVal = Math.random() * 100;
-
-            if (randomVal <= probability) {
-                shouldGenerate = true;
-                console.log(`[Audio] Probability Hit: ${randomVal.toFixed(0)} <= ${probability} -> Generating.`);
-            } else {
-                console.log(`[Audio] Probability Miss: ${randomVal.toFixed(0)} > ${probability} -> Skipping.`);
+        // Check Products/Services
+        if (config.products) {
+            const p = config.products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
+            if (p && p.pdf) {
+                foundPdf = p.pdf;
+                foundName = `${p.name}.pdf`; // Fallback name
             }
         }
+
+        if (foundPdf) {
+            try {
+                pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
+                pdfName = foundName;
+                console.log(`[Chat] Found PDF for ID ${targetId}.`);
+                // Remove tag
+                aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
+            } catch (e) {
+                console.error(`[Chat] PDF Processing Error:`, e);
+            }
+        } else {
+            console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
+            aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
+        }
     }
 
-    if (shouldGenerate) {
-        try {
-            let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
+    // --- Audio Generation Logic ---
+    let audioBase64 = null;
+    const integrator = config.integrations || {};
 
-            // Fallback for Agent IDs (Now supported via resolution)
-            let resolvedVoiceId = voiceId;
-            if (voiceId.startsWith('agent_')) {
-                const foundId = await resolveVoiceFromAgent(voiceId, apiKey);
-                if (foundId) {
-                    resolvedVoiceId = foundId;
+    // 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
+    // If disabled in config, we NEVER generate, even if user sent audio.
+    // (User said: "Configuration needs to apply to the received audio format")
+    const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
+
+    // Check for API Key
+    let apiKey = integrator.elevenLabsKey;
+
+    // SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
+    if (apiKey && (apiKey.trim().startsWith('sk-') || apiKey.trim().startsWith('sk_'))) {
+        console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
+        apiKey = null;
+    }
+
+    // Fallback to Global
+    apiKey = apiKey || globalConfig?.elevenLabsKey;
+
+    if (isVoiceEnabled && apiKey) {
+        let shouldGenerate = false;
+
+        // 2. Logic based on Input Type vs Config Trigger
+        if (isAudioInput) {
+            // Case A: User sent AUDIO
+            // We always reply in Audio if feature is enabled.
+            // (Even if set to 'percentage', Audio-for-Audio is the baseline expectation)
+            shouldGenerate = true;
+            console.log('[Audio] Audio Input detected -> Forcing Audio Response.');
+        } else {
+            // Case B: User sent TEXT
+            if (integrator.responseType === 'audio_only') {
+                // UI: "Responder em áudio apenas quando o cliente enviar áudio"
+                // Since this is TEXT input, we do NOT generate.
+                shouldGenerate = false;
+                console.log('[Audio] Text Input + AudioOnly Mode -> Skipping Audio.');
+            } else if (integrator.responseType === 'percentage') {
+                // UI: "Responder em áudio aleatoriamente (% das mensagens)"
+                const probability = parseInt(integrator.responsePercentage || 50, 10);
+                const randomVal = Math.random() * 100;
+
+                if (randomVal <= probability) {
+                    shouldGenerate = true;
+                    console.log(`[Audio] Probability Hit: ${randomVal.toFixed(0)} <= ${probability} -> Generating.`);
                 } else {
-                    console.warn(`Could not resolve Agent ID. Falling back to default.`);
-                    resolvedVoiceId = '21m00Tcm4TlvDq8ikWAM';
+                    console.log(`[Audio] Probability Miss: ${randomVal.toFixed(0)} > ${probability} -> Skipping.`);
                 }
             }
+        }
 
-            console.log(`[Audio Debug] Generating Audio using VoiceID: ${resolvedVoiceId}`);
+        if (shouldGenerate) {
+            try {
+                let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
 
-            // Use Helper (which handles Preprocessing + Phonetics)
-            // use textForAudio (Script) if available, otherwise aiResponse
-            const textToSpeak = textForAudio || aiResponse;
+                // Fallback for Agent IDs (Now supported via resolution)
+                let resolvedVoiceId = voiceId;
+                if (voiceId.startsWith('agent_')) {
+                    const foundId = await resolveVoiceFromAgent(voiceId, apiKey);
+                    if (foundId) {
+                        resolvedVoiceId = foundId;
+                    } else {
+                        console.warn(`Could not resolve Agent ID. Falling back to default.`);
+                        resolvedVoiceId = '21m00Tcm4TlvDq8ikWAM';
+                    }
+                }
 
-            audioBase64 = await generateAudio(textToSpeak, apiKey, resolvedVoiceId);
-        } catch (audioError) {
-            console.error('Audio Generation Error:', audioError);
+                console.log(`[Audio Debug] Generating Audio using VoiceID: ${resolvedVoiceId}`);
+
+                // Use Helper (which handles Preprocessing + Phonetics)
+                // use textForAudio (Script) if available, otherwise aiResponse
+                const textToSpeak = textForAudio || aiResponse;
+
+                audioBase64 = await generateAudio(textToSpeak, apiKey, resolvedVoiceId);
+            } catch (audioError) {
+                console.error('Audio Generation Error:', audioError);
+            }
         }
     }
-}
 
-return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
+    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
 };
 
 // --- Config History Routes ---
