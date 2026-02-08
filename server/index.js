@@ -14,6 +14,10 @@ import axios from 'axios';
 import FormData from 'form-data';
 import { transcribeAudio, generateAudio, resolveVoiceFromAgent } from './audioActions.js';
 
+// Product Extraction Imports
+import { initScheduler } from './scheduler.js';
+import { extractFromUrl } from './extractor.js';
+
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,14 +27,15 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 // GLOBAL DEDUPLICATION SET
 const processedMessages = new Set();
 
-const app = express(); // RESTORING MISSING LINE
+const app = express();
 
-// Product Extraction Feature
-import { initScheduler } from './scheduler.js';
-import { extractFromUrl } from './extractor.js';
+const PORT = 3001;
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey'; // In production use .env
 
-// Initialize Scheduler
-initScheduler();
+const prisma = new PrismaClient();
+
+// Initialize Scheduler (Pass Prisma Instance)
+initScheduler(prisma);
 
 // ... (Keep existing code)
 

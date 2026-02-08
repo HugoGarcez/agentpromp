@@ -1,21 +1,19 @@
 import cron from 'node-cron';
-import { PrismaClient } from '@prisma/client';
+// Removed PrismaClient import to use dependency injection
 import { extractFromUrl } from './extractor.js'; // Note the .js extension for imports
 
-const prisma = new PrismaClient();
-
 // Initialize Scheduler
-export function initScheduler() {
+export function initScheduler(prisma) {
     console.log('[Scheduler] Initializing Product Extraction Scheduler...');
 
     // Run every hour
     cron.schedule('0 * * * *', async () => {
         console.log('[Scheduler] Running scheduled extraction task...');
-        await runScheduledExtractions();
+        await runScheduledExtractions(prisma);
     });
 }
 
-export async function runScheduledExtractions() {
+export async function runScheduledExtractions(prisma) {
     // ... (Logic remains same)
     try {
         const now = new Date();
