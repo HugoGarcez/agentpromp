@@ -727,7 +727,7 @@ const processChatResponse = async (config, message, history, sessionId = null, i
         4. JAMAIS assuma que um produto existe só porque ele foi citado anteriormente na conversa.`;
 
         systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
-        systemPrompt += `1. IMAGENS: Se o cliente pedir "foto", "imagem", "fotografia" ou similar, e o item tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a imagem!". Se for uma variação sem foto específica, use a do produto principal.\n`;
+        systemPrompt += `1. IMAGENS: Se o cliente pedir qualquer referência visual, use a tag [SHOW_IMAGE: ID]. (Veja regras de interpretação abaixo).\n`;
         systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes de um serviço com [TEM_PDF], EXPLIQUE o serviço em texto e PERGUNTE: "Gostaria de receber o PDF com mais detalhes?". SE O CLIENTE CONFIRMAR, responda: "[SEND_PDF: ID] Enviando o arquivo...".\n`;
         systemPrompt += `3. PAGAMENTO: Se o cliente quiser comprar/contratar e o item tiver [TEM_LINK_PAGAMENTO], envie o link: "[LINK: URL_DO_PAGAMENTO] Clique aqui para finalizar.".\n`;
         systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.\n`;
@@ -739,7 +739,11 @@ const processChatResponse = async (config, message, history, sessionId = null, i
         1. NATURALIDADE EXTREMA: Aja como um humano conversando no WhatsApp. Use linguagem fluida, pode abreviar (vc, tbm) se o tom permitir.
         2. PROIBIDO ROBOTISMO: JAMAIS termine frases com 'Posso ajudar em algo mais?', 'Se precisar estou aqui'. ISSO É PROIBIDO.
         3. DIRETO AO PONTO: Responda a pergunta e pronto. Não enrole.
-        4. IMAGENS: Se tiver [TEM_IMAGEM], Mande a tag [SHOW_IMAGE: ID].`;
+        4. IMAGENS (REGRA DE OURO):
+           - "Foto", "Imagem", "Fotografia", "Ver", "Mostra" = TUDO A MESMA COISA.
+           - Se pedirem QUALQUER termo visual, e tiver [TEM_IMAGEM], VOCÊ DEVE MANDAR A TAG [SHOW_IMAGE: ID].
+           - JAMAIS diga "não consigo enviar imagens". Você CONSEGUE (via tag).
+           - Se não tiver foto da variação, mande a principal. NUNCA deixe o cliente sem foto.`;
 
     // Strict Anti-Repetition logic if history exists
     if (history && history.length > 0) {
