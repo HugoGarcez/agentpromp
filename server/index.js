@@ -106,11 +106,6 @@ app.delete('/api/products/sources/:id', authenticateToken, async (req, res) => {
     }
 });
 
-const PORT = 3001;
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey'; // In production use .env
-
-const prisma = new PrismaClient();
-
 // Startup Check
 if (process.env.OPENAI_API_KEY) {
     console.log('[Startup] Global OpenAI Key detected in ENV.');
