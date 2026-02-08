@@ -707,7 +707,9 @@ const processChatResponse = async (config, message, history, sessionId = null, i
             // Variations (Only for Products usually, but code handles generically)
             if (p.variantItems && p.variantItems.length > 0) {
                 p.variantItems.forEach(v => {
-                    productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name} (${v.color || ''} ${v.size || ''}) | R$ ${v.price || p.price} | ${v.image ? '[TEM_IMAGEM]' : ''}\n`;
+                    // Check if image exists (Variant OR Parent Fallback)
+                    const hasImage = v.image || p.image;
+                    productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name} (${v.color || ''} ${v.size || ''}) | R$ ${v.price || p.price} | ${hasImage ? '[TEM_IMAGEM]' : ''}\n`;
                 });
             } else {
                 // Simple Item
@@ -723,7 +725,7 @@ const processChatResponse = async (config, message, history, sessionId = null, i
         4. JAMAIS assuma que um produto existe só porque ele foi citado anteriormente na conversa.`;
 
         systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
-        systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!".\n`;
+        systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!". Se for uma variação sem foto específica, use a do produto principal.\n`; // Added instruction
         systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes de um serviço com [TEM_PDF], EXPLIQUE o serviço em texto e PERGUNTE: "Gostaria de receber o PDF com mais detalhes?". SE O CLIENTE CONFIRMAR, responda: "[SEND_PDF: ID] Enviando o arquivo...".\n`;
         systemPrompt += `3. PAGAMENTO: Se o cliente quiser comprar/contratar e o item tiver [TEM_LINK_PAGAMENTO], envie o link: "[LINK: URL_DO_PAGAMENTO] Clique aqui para finalizar.".\n`;
         systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.\n`;
