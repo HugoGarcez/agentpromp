@@ -8,6 +8,15 @@ dotenv.config();
 // Helper: Clean HTML to reduce token usage
 const cleanHtml = (html) => {
     const $ = cheerio.load(html);
+
+    // Extract JSON-LD BEFORE cleaning
+    let jsonLdData = [];
+    $('script[type="application/ld+json"]').each((i, el) => {
+        try {
+            const data = JSON.parse($(el).html());
+            jsonLdData.push(JSON.stringify(data));
+        } catch (e) { }
+    });
     // ... (logic remains same)
     $('script').remove();
     $('style').remove();
