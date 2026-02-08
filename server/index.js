@@ -929,8 +929,28 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     }
     // --- END PROMPT REWRITING ---
 
+    // --- SYSTEM PROMPT INJECTION (CRITICAL FIX FOR IMAGES) ---
+    const imageEnforcementFooter = `
+*** ATENÇÃO: PROTOCOLO DE ENVIO DE IMAGEM (PRIORIDADE TOTAL) ***
+Detectamos que você às vezes esquece de enviar a tag da imagem.
+SE O USUÁRIO PEDIU UMA FOTO/IMAGEM E O PRODUTO TEM [TEM_IMAGEM]:
+1. VOCÊ É OBRIGADO A COLOCAR A TAG [SHOW_IMAGE: ID] NO INÍCIO.
+2. É PROIBIDO dizer "Aqui está" sem a tag.
+3. Se não colocar a tag, a imagem NÃO CHEGA e o cliente fica irritado.
+
+MODELO CORRETO:
+"[SHOW_IMAGE: 12345] Aqui está a imagem do produto!"
+
+MODELO ERRADO (CRIME):
+"Aqui está a imagem do produto!"
+
+CUMPRA ESTE PROTOCOLO AGORA.
+`;
+    // Append to system prompt just for this execution
+    const finalSystemPrompt = systemPrompt + "\n\n" + imageEnforcementFooter;
+
     // Prepare Messages (History + System)
-    let messages = [{ role: "system", content: systemPrompt }];
+    let messages = [{ role: "system", content: finalSystemPrompt }];
 
     if (Array.isArray(history) && history.length > 0) {
         const cleanHistory = history.map(h => ({
