@@ -934,15 +934,17 @@ const processChatResponse = async (config, message, history, sessionId = null, i
 *** ATENÇÃO: PROTOCOLO DE ENVIO DE IMAGEM (PRIORIDADE TOTAL) ***
 Detectamos que você às vezes esquece de enviar a tag da imagem.
 SE O USUÁRIO PEDIU UMA FOTO/IMAGEM E O PRODUTO TEM [TEM_IMAGEM]:
-1. VOCÊ É OBRIGADO A COLOCAR A TAG [SHOW_IMAGE: ID] NO INÍCIO.
+1. VOCÊ É OBRIGADO A COLOCAR A TAG [SHOW_IMAGE: ID] NO FINAL DA RESPOSTA.
 2. É PROIBIDO dizer "Aqui está" sem a tag.
-3. Se não colocar a tag, a imagem NÃO CHEGA e o cliente fica irritado.
+3. A tag deve ser a ÚLTIMA coisa que você escreve.
 
 MODELO CORRETO:
-"[SHOW_IMAGE: 12345] Aqui está a imagem do produto!"
+"Aqui está a imagem da Bandeja que você pediu! 😊✨
+[SHOW_IMAGE: 12345]"
 
 MODELO ERRADO (CRIME):
-"Aqui está a imagem do produto!"
+"[SHOW_IMAGE: 12345] Aqui está!" -> ERRADO (Tag no início)
+"Aqui está!" -> ERRADO (Sem tag)
 
 CUMPRA ESTE PROTOCOLO AGORA.
 `;
