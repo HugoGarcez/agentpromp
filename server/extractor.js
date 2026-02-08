@@ -46,15 +46,24 @@ export async function extractFromUrl(url) {
         console.log(`[Extractor] Fetching ${url}...`);
 
         // Use Axios instead of fetch (node-fetch not installed)
-        const response = await axios.get(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            },
-            // Ensure we get text/string
-            responseType: 'text'
-        });
+        let response;
+        try {
+            response = await axios.get(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                },
+                // Ensure we get text/string
+                responseType: 'text',
+                timeout: 30000 // 30s timeout
+            });
+        } catch (axiosError) {
+            console.error(`[Extractor] Axios Failed: ${axiosError.message}`);
+            if (axiosError.response) console.error(`[Extractor] Status: ${axiosError.response.status}`);
+            throw new Error(`Falha ao acessar o site: ${axiosError.message}`);
+        }
 
         const html = response.data;
+        if (!html) throw new Error("O site retornou um conteúdo vazio.");
 
         // --- IMAGE EXTRACTION START ---
         const $ = cheerio.load(html);

@@ -69,7 +69,7 @@ app.post('/api/products/extract', authenticateToken, async (req, res) => {
         res.json({ success: true, products });
     } catch (error) {
         console.error('Extraction error:', error);
-        res.status(500).json({ success: false, error: 'Failed to extract products' });
+        res.status(500).json({ success: false, error: error.message || 'Failed to extract products' });
     }
 });
 
