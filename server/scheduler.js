@@ -1,11 +1,11 @@
-const cron = require('node-cron');
-const { PrismaClient } = require('@prisma/client');
-const { extractFromUrl } = require('./extractor');
+import cron from 'node-cron';
+import { PrismaClient } from '@prisma/client';
+import { extractFromUrl } from './extractor.js'; // Note the .js extension for imports
 
 const prisma = new PrismaClient();
 
 // Initialize Scheduler
-function initScheduler() {
+export function initScheduler() {
     console.log('[Scheduler] Initializing Product Extraction Scheduler...');
 
     // Run every hour
@@ -15,7 +15,8 @@ function initScheduler() {
     });
 }
 
-async function runScheduledExtractions() {
+export async function runScheduledExtractions() {
+    // ... (Logic remains same)
     try {
         const now = new Date();
 
@@ -50,25 +51,12 @@ async function processSource(source) {
         if (source.type === 'URL' && source.url) {
             newProducts = await extractFromUrl(source.url);
         }
-        // TODO: Handle File re-processing if needed (usually files are one-time or re-uploaded)
 
         if (newProducts.length > 0) {
-            // Update Agent Config
-            // We need to merge or replace? 
-            // Strategy: Add new, Update existing by Name text match?
-            // For simplicity: Append new ones that don't exist?
-            // Or if it's a catalog sync, maybe replace ALL from this source?
-            // Current DB structure puts all products in one JSON blob in AgentConfig.
-            // This is tricky.
-            // Let's look at AgentConfig.
-
             const config = await prisma.agentConfig.findUnique({ where: { companyId: source.companyId } });
             if (config) {
                 let currentProducts = config.products ? JSON.parse(config.products) : [];
 
-                // Simple Merge Strategy: Append new items with a tag 'sourceId'?
-                // Or just add them.
-                // Let's map new products to our schema
                 const formattedProducts = newProducts.map(p => ({
                     id: `imp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                     name: p.name,
@@ -78,11 +66,9 @@ async function processSource(source) {
                     type: 'product',
                     active: true,
                     unit: 'Unidade',
-                    sourceId: source.id // Track origin
+                    sourceId: source.id
                 }));
 
-                // Filter out duplicates by name?
-                // Provide option later. For now, just add.
                 const updatedProducts = [...currentProducts, ...formattedProducts];
 
                 await prisma.agentConfig.update({
@@ -94,13 +80,11 @@ async function processSource(source) {
             }
         }
 
-        // Update Next Run
         let nextRun = new Date();
         if (source.frequency === 'hourly') nextRun.setHours(nextRun.getHours() + 1);
         else if (source.frequency === 'daily') nextRun.setDate(nextRun.getDate() + 1);
         else if (source.frequency === 'weekly') nextRun.setDate(nextRun.getDate() + 7);
         else {
-            // 'once' -> disable
             await prisma.productSource.update({
                 where: { id: source.id },
                 data: { status: 'completed', lastRun: new Date() }
@@ -121,9 +105,8 @@ async function processSource(source) {
         console.error(`[Scheduler] Error processing source ${source.id}:`, error);
         await prisma.productSource.update({
             where: { id: source.id },
-            data: { error: error.message, status: 'error' } // Or keep active to retry?
+            data: { error: error.message, status: 'error' }
         });
     }
 }
 
-module.exports = { initScheduler, runScheduledExtractions };

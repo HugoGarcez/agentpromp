@@ -1,6 +1,9 @@
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
-const OpenAI = require('openai');
+import fetch from 'node-fetch';
+import * as cheerio from 'cheerio';
+import OpenAI from 'openai';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // Initialize OpenAI
 const openai = new OpenAI({
@@ -10,6 +13,7 @@ const openai = new OpenAI({
 // Helper: Clean HTML to reduce token usage
 const cleanHtml = (html) => {
     const $ = cheerio.load(html);
+    // ... (logic remains same)
     $('script').remove();
     $('style').remove();
     $('noscript').remove();
@@ -22,21 +26,7 @@ const cleanHtml = (html) => {
         if (this.type === 'comment') $(this).remove();
     });
 
-    // Get text content but structured
-    // We want to keep some structure to help AI identifying product blocks
-    // Let's keep div, p, h1-h6, ul, li, span, img
-    // But remove attributes except src for img
-
-    // Actually, sending body text usually works well if not too large.
-    // Let's try to get 'main' content or body.
     let content = $('body').text().replace(/\s+/g, ' ').trim();
-
-    // If text is too long (token limit), we might need to truncate.
-    // A standard ecommerce page has a lot of noise.
-    // Better strategy: Select potential product containers.
-    // But generic extractor is hard.
-    // Let's try sending the first 15k characters of text + image URLs?
-
     return content.substring(0, 15000);
 };
 
@@ -45,7 +35,8 @@ const cleanHtml = (html) => {
  * @param {string} url 
  * @returns {Promise<Array>} List of extracted products
  */
-async function extractFromUrl(url) {
+export async function extractFromUrl(url) {
+    // ... (logic remains same)
     try {
         console.log(`[Extractor] Fetching ${url}...`);
         const response = await fetch(url, {
@@ -100,4 +91,3 @@ async function extractFromUrl(url) {
     }
 }
 
-module.exports = { extractFromUrl };

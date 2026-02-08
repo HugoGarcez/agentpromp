@@ -23,8 +23,8 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 // GLOBAL DEDUPLICATION SET
 const processedMessages = new Set();
 
-const { initScheduler } = require('./scheduler');
-const { extractFromUrl } = require('./extractor');
+import { initScheduler } from './scheduler.js';
+import { extractFromUrl } from './extractor.js';
 
 // Initialize Scheduler
 initScheduler();
