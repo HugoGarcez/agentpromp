@@ -1384,26 +1384,45 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
 
             } else if (isHttpUrl) {
                 // --- CASE B: Remote URL ---
-                console.log(`[Promp] Sending via /url endpoint: ${finalImageUrl}`);
-                const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/url`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${config.prompToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        number: number,
-                        body: caption || "",
-                        mediaUrl: finalImageUrl,
-                        externalKey: `ai_img_${Date.now()}`
-                    })
-                });
+                // Download and convert to Base64 to ensure it works (bypass External API fetch blocks)
+                console.log(`[Promp] Downloading Remote Image: ${finalImageUrl}`);
 
-                if (!imgResponse.ok) {
-                    const errRes = await imgResponse.text();
-                    console.error('[Promp] Remote URL Image Send Failed:', errRes);
-                } else {
-                    console.log('[Promp] SUCCESS: Image sent via URL endpoint.');
+                try {
+                    const downloadResponse = await axios.get(finalImageUrl, {
+                        responseType: 'arraybuffer',
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                        },
+                        timeout: 10000
+                    });
+
+                    const contentType = downloadResponse.headers['content-type'] || 'image/jpeg';
+                    const base64Data = Buffer.from(downloadResponse.data).toString('base64');
+                    // Create a valid filename from URL or default
+                    let ext = contentType.split('/')[1] || 'jpg';
+                    const fileName = `image_${Date.now()}.${ext}`;
+
+                    console.log(`[Promp] Download success. Sending as Base64 (${base64Data.length} chars)...`);
+                    await sendBase64Image(config, number, base64Data, contentType, fileName, caption);
+
+                } catch (dlError) {
+                    console.error('[Promp] Failed to download remote image for sending:', dlError.message);
+                    // Fallback to original method (sending URL directly) just in case
+                    console.log('[Promp] Asking Promp API to fetch URL directly (Fallback)...');
+
+                    const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/url`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${config.prompToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            number: number,
+                            body: caption || "",
+                            mediaUrl: finalImageUrl,
+                            externalKey: `ai_img_${Date.now()}`
+                        })
+                    });
                 }
 
             } else {
