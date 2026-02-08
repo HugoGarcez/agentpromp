@@ -12,9 +12,55 @@ const ProductConfig = () => {
     const [showImportModal, setShowImportModal] = useState(false);
     const [importUrl, setImportUrl] = useState('');
     const [importing, setImporting] = useState(false);
-    const [importSchedule, setImportSchedule] = useState('once');
+    const [importSchedule, setImportSchedule] = useState('once'); // 'once' | 'daily'
+
+    // Scheduled Sources State
+    const [sources, setSources] = useState([]);
+    const [loadingSources, setLoadingSources] = useState(false);
+
+    // Bulk Actions State
+    const [selectedItems, setSelectedItems] = useState(new Set());
 
     const token = localStorage.getItem('token');
+
+    // Fetch Sources when Modal Opens
+    useEffect(() => {
+        if (showImportModal && token) {
+            fetchSources();
+        }
+    }, [showImportModal, token]);
+
+    const fetchSources = async () => {
+        setLoadingSources(true);
+        try {
+            const res = await fetch('/api/products/sources', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setSources(data);
+            }
+        } catch (error) {
+            console.error("Error fetching sources:", error);
+        } finally {
+            setLoadingSources(false);
+        }
+    };
+
+    const handleDeleteSource = async (id) => {
+        if (!confirm("Parar monitoramento deste link?")) return;
+        try {
+            const res = await fetch(`/api/products/sources/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                setSources(prev => prev.filter(s => s.id !== id));
+            }
+        } catch (error) {
+            alert("Erro ao remover fonte.");
+        }
+    };
 
     // Fetch Products (and Services)
     useEffect(() => {
@@ -112,6 +158,38 @@ const ProductConfig = () => {
     const handleTogglePaymentLink = () => {
         setFormData(prev => ({ ...prev, hasPaymentLink: !prev.hasPaymentLink }));
     };
+
+    // --- BULK ACTION LOGIC ---
+    const toggleSelect = (id) => {
+        const newSelected = new Set(selectedItems);
+        if (newSelected.has(id)) newSelected.delete(id);
+        else newSelected.add(id);
+        setSelectedItems(newSelected);
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedItems.size === products.length) {
+            setSelectedItems(new Set());
+        } else {
+            setSelectedItems(new Set(products.map(p => p.id)));
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (!confirm(`Excluir ${selectedItems.size} itens selecionados?`)) return;
+        const newItems = products.filter(p => !selectedItems.has(p.id));
+        if (await saveItemsToApi(newItems)) {
+            setSelectedItems(new Set());
+        }
+    };
+
+    const handleBulkToggle = async (status) => { // status: true (enable) or false (disable)
+        const newItems = products.map(p => selectedItems.has(p.id) ? { ...p, active: status } : p);
+        if (await saveItemsToApi(newItems)) {
+            setSelectedItems(new Set());
+        }
+    };
+
 
     // --- VARIATION LOGIC (For Products) ---
     const addVariation = () => {
@@ -263,9 +341,28 @@ const ProductConfig = () => {
                 }));
 
                 // Save to List
-                // We need to merge with existing list
-                const currentItems = [...products];
-                const updatedList = [...currentItems, ...newItems];
+                // Save to List
+                // START MERGE LOGIC
+                let updatedList = [...products];
+
+                newItems.forEach(newItem => {
+                    const existingIndex = updatedList.findIndex(p => p.name.trim().toLowerCase() === newItem.name.trim().toLowerCase());
+
+                    if (existingIndex >= 0) {
+                        // UPDATE EXISTING
+                        updatedList[existingIndex] = {
+                            ...updatedList[existingIndex],
+                            ...newItem,
+                            id: updatedList[existingIndex].id, // Keep original ID
+                            active: updatedList[existingIndex].active, // Keep original status
+                            image: newItem.image || updatedList[existingIndex].image // Prefer new image, fallback to old
+                        };
+                    } else {
+                        // ADD NEW
+                        updatedList.push(newItem);
+                    }
+                });
+                // END MERGE LOGIC
 
                 // Save to Server
                 await saveItemsToApi(updatedList, config);
@@ -279,11 +376,14 @@ const ProductConfig = () => {
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                         body: JSON.stringify({ url: importUrl, type: 'URL', frequency: importSchedule })
                     });
-                    alert('Agendamento de atualização criado!');
+                    fetchSources(); // Refresh sources list
+                    alert('Monitoramento agendado!');
                 }
 
-                setShowImportModal(false);
-                setImportUrl('');
+                if (importSchedule === 'once') {
+                    setShowImportModal(false);
+                    setImportUrl('');
+                }
             } else {
                 alert('Erro na extração: ' + (data.error || 'Falha desconhecida'));
             }
@@ -301,7 +401,21 @@ const ProductConfig = () => {
     return (
         <div style={{ background: 'var(--bg-white)', padding: '24px', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Produtos e Serviços ({products.length})</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Produtos e Serviços ({products.length})</h2>
+                    {products.length > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', background: '#F3F4F6', padding: '4px 8px', borderRadius: '6px' }}>
+                            <input
+                                type="checkbox"
+                                checked={selectedItems.size === products.length && products.length > 0}
+                                onChange={toggleSelectAll}
+                                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                            />
+                            <span style={{ color: '#4B5563' }}>Selecionar Tudo</span>
+                        </div>
+                    )}
+                </div>
+
                 {!showForm && (
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <button
@@ -337,10 +451,28 @@ const ProductConfig = () => {
                 )}
             </div>
 
+            {/* BULK ACTION BAR */}
+            {selectedItems.size > 0 && !showForm && (
+                <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#EFF6FF', padding: '12px 16px', border: '1px solid #BFDBFE', borderRadius: '8px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 600, color: '#1E40AF' }}>{selectedItems.size} itens selecionados</span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button onClick={() => handleBulkToggle(false)} disabled={saving} style={{ background: 'white', color: '#6B7280', border: '1px solid #D1D5DB', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <ToggleLeft size={16} /> Desativar
+                        </button>
+                        <button onClick={() => handleBulkToggle(true)} disabled={saving} style={{ background: 'white', color: '#10B981', border: '1px solid #10B981', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <ToggleRight size={16} /> Ativar
+                        </button>
+                        <button onClick={handleBulkDelete} disabled={saving} style={{ background: '#EF4444', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <Trash2 size={16} /> Excluir
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* IMPORT MODAL */}
             {showImportModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ background: 'white', padding: '24px', borderRadius: '8px', width: '500px', maxWidth: '90%' }}>
+                    <div style={{ background: 'white', padding: '24px', borderRadius: '8px', width: '600px', maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
                         <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <Bot color="#8B5CF6" /> Importar Produtos com IA
                         </h3>
@@ -368,7 +500,35 @@ const ProductConfig = () => {
                             </label>
                         </div>
 
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                        {/* SCHEDULED SOURCES LIST */}
+                        <div style={{ marginTop: '24px', borderTop: '1px solid #E5E7EB', paddingTop: '16px' }}>
+                            <h4 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#4B5563' }}>Fontes Monitoradas ({sources.length})</h4>
+                            {loadingSources ? (
+                                <p style={{ padding: '12px', fontSize: '12px', color: '#9CA3AF', textAlign: 'center' }}>Carregando fontes...</p>
+                            ) : (
+                                <div style={{ background: '#F9FAFB', borderRadius: '6px', border: '1px solid #E5E7EB', maxHeight: '150px', overflowY: 'auto' }}>
+                                    {sources.length === 0 ? (
+                                        <p style={{ padding: '12px', fontSize: '12px', color: '#9CA3AF', textAlign: 'center' }}>Nenhuma fonte configurada.</p>
+                                    ) : (
+                                        sources.map(source => (
+                                            <div key={source.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #E5E7EB' }}>
+                                                <div style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', maxWidth: '350px' }}>
+                                                    <span style={{ fontSize: '12px', fontWeight: 500, display: 'block' }}>{source.url}</span>
+                                                    <span style={{ fontSize: '11px', color: '#6B7280' }}>
+                                                        {source.frequency === 'daily' ? 'Diário' : source.frequency} | Próx: {new Date(source.nextRun).toLocaleDateString()}
+                                                    </span>
+                                                </div>
+                                                <button onClick={() => handleDeleteSource(source.id)} style={{ padding: '4px', color: '#EF4444', background: 'none', border: 'none', cursor: 'pointer' }}>
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
                             <button onClick={() => setShowImportModal(false)} style={{ padding: '8px 16px', background: 'transparent', border: 'none', cursor: 'pointer' }}>Cancelar</button>
                             <button
                                 onClick={handleImport}
@@ -578,7 +738,16 @@ const ProductConfig = () => {
                         <div style={{ display: 'grid', gap: '16px' }}>
                             {products.map(item => (
                                 <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', border: '1px solid #E5E7EB', borderRadius: 'var(--radius-md)', background: item.type === 'service' ? '#FDFDFD' : 'white', opacity: (item.active === false) ? 0.6 : 1 }}>
+
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                        {/* SELECTION CHECKBOX */}
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedItems.has(item.id)}
+                                            onChange={() => toggleSelect(item.id)}
+                                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                        />
+
                                         {/* Icon/Image */}
                                         <div style={{ width: '50px', height: '50px', borderRadius: '8px', overflow: 'hidden', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             {item.image ? (
