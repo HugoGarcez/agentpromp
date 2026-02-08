@@ -13,8 +13,15 @@ import crypto from 'crypto';
 import axios from 'axios';
 import FormData from 'form-data';
 import { transcribeAudio, generateAudio, resolveVoiceFromAgent } from './audioActions.js';
+import fsCommon from 'fs'; // For synchronous appendFileSync
 
-// Product Extraction Imports
+// Helper for file logging
+const logFlow = (msg) => {
+    try {
+        const timestamp = new Date().toISOString();
+        fsCommon.appendFileSync('debug_flow.txt', `[${timestamp}] ${msg}\n`);
+    } catch (e) { /* ignore */ }
+};
 import { initScheduler } from './scheduler.js';
 import { extractFromUrl } from './extractor.js';
 
@@ -961,9 +968,17 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     let productImageUrl = null;
     let productCaption = ""; // Initialize caption
 
+    logFlow(`AI Response Raw: ${aiResponse.substring(0, 100)}...`);
+
     // Robust Regex: Optional quotes, spaces, dots/dashes, AND SPACES in ID
     const imageTagRegex = /\[SHOW_IMAGE:\s*['"]?([^\]]+?)['"]?\s*\]/i;
     const imageMatch = aiResponse.match(imageTagRegex);
+
+    if (imageMatch) {
+        logFlow(`Regex Match Found: ${imageMatch[1]}`);
+    } else {
+        logFlow(`No Image Tag Found in response.`);
+    }
 
     if (imageMatch && config.products) {
         const targetId = imageMatch[1];
@@ -1386,6 +1401,7 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
                 // --- CASE B: Remote URL ---
                 // Download and convert to Base64 to ensure it works (bypass External API fetch blocks)
                 console.log(`[Promp] Downloading Remote Image: ${finalImageUrl}`);
+                logFlow(`Starting Download of: ${finalImageUrl}`);
 
                 try {
                     const downloadResponse = await axios.get(finalImageUrl, {
@@ -1397,6 +1413,8 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
                         timeout: 15000
                     });
 
+                    logFlow(`Download Success. Status: ${downloadResponse.status}. Size: ${downloadResponse.data.length}`);
+
                     const contentType = downloadResponse.headers['content-type'] || 'image/jpeg';
                     const base64Data = Buffer.from(downloadResponse.data).toString('base64');
                     // Create a valid filename from URL or default
@@ -1404,9 +1422,12 @@ const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, cap
                     const fileName = `image_${Date.now()}.${ext}`;
 
                     console.log(`[Promp] Download success. Sending as Base64 (${base64Data.length} chars)...`);
+                    logFlow(`Sending Base64 to WhatsApp API...`);
                     await sendBase64Image(config, number, base64Data, contentType, fileName, caption);
+                    logFlow(`Send Base64 function returned.`);
 
                 } catch (dlError) {
+                    logFlow(`Download FAILED: ${dlError.message}`);
                     console.error('[Promp] Failed to download remote image for sending:', dlError.message);
                     // Fallback to original method (sending URL directly) just in case
                     console.log('[Promp] Asking Promp API to fetch URL directly (Fallback)...');
