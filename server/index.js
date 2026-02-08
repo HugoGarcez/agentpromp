@@ -1069,9 +1069,7 @@ CUMPRA ESTE PROTOCOLO AGORA.
     if (debugImageError) {
         aiResponse += debugImageError;
     }
-    // Escape regex special chars in targetId just in case
-    const safeId = targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    aiResponse = aiResponse.replace(new RegExp(`\\[SHOW_IMAGE:\\s*['"]?${safeId}['"]?\\s*\\]`, 'gi'), `(❌ Imagem não encontrada: ${targetId})`);
+
 }
     }
 
