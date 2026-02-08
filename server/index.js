@@ -715,7 +715,13 @@ const processChatResponse = async (config, message, history, sessionId = null, i
             }
         });
 
-        systemPrompt += `\n\nLISTA DE PRODUTOS/SERVIÇOS DISPONÍVEIS:\n${productList}\n\nINSTRUÇÃO: Use apenas informações desta lista. Se o cliente perguntar algo que não está aqui, diga que não sabe.`;
+        systemPrompt += `\n\nLISTA DE PRODUTOS/SERVIÇOS DISPONÍVEIS:\n${productList}\n\n`;
+        systemPrompt += `REGRA DE CONSISTÊNCIA DE ESTOQUE (CRÍTICO):
+        1. A lista acima é a ÚNICA fonte de verdade sobre o que está disponível AGORA.
+        2. Se o histórico de conversa mencionar um produto que NÃO está na lista acima, ele foi REMOVIDO ou ESGOTADO.
+        3. Se o usuário pedir esse produto "antigo", responda: "Esse item não está mais disponível no momento." e ofereça uma alternativa da lista.
+        4. JAMAIS assuma que um produto existe só porque ele foi citado anteriormente na conversa.`;
+
         systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
         systemPrompt += `1. IMAGENS: Se pedir foto e tiver [TEM_IMAGEM], responda: "[SHOW_IMAGE: ID] Aqui está a foto!".\n`;
         systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes de um serviço com [TEM_PDF], EXPLIQUE o serviço em texto e PERGUNTE: "Gostaria de receber o PDF com mais detalhes?". SE O CLIENTE CONFIRMAR, responda: "[SEND_PDF: ID] Enviando o arquivo...".\n`;
