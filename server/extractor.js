@@ -49,20 +49,60 @@ export async function extractFromUrl(url) {
         });
 
         const html = response.data;
+
+        // --- IMAGE EXTRACTION START ---
+        const $ = cheerio.load(html);
+        const images = [];
+
+        // 1. Open Graph Image (Best Candidate)
+        const ogImage = $('meta[property="og:image"]').attr('content');
+        if (ogImage) images.push(ogImage);
+
+        // 2. Twitter Image
+        const twitterImage = $('meta[name="twitter:image"]').attr('content');
+        if (twitterImage) images.push(twitterImage);
+
+        // 3. Schema.org Image
+        $('script[type="application/ld+json"]').each((i, el) => {
+            try {
+                const data = JSON.parse($(el).html());
+                if (data.image) {
+                    if (Array.isArray(data.image)) images.push(...data.image);
+                    else if (typeof data.image === 'string') images.push(data.image);
+                }
+            } catch (e) { }
+        });
+
+        // 4. Large Images from Body
+        $('img').each((i, el) => {
+            const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-lazy-src');
+            if (src && !src.startsWith('data:') && !src.includes('svg') && !src.includes('icon') && !src.includes('logo')) {
+                // Simple filter to avoid icons
+                images.push(src);
+            }
+        });
+
+        // De-duplicate and Limit
+        const uniqueImages = [...new Set(images)].slice(0, 15); // Top 15 unique images
+        // --- IMAGE EXTRACTION END ---
+
         const cleanedText = cleanHtml(html);
 
-        console.log(`[Extractor] Sending to OpenAI (${cleanedText.length} chars)...`);
+        console.log(`[Extractor] Sending to OpenAI (${cleanedText.length} chars) + ${uniqueImages.length} images...`);
 
         const prompt = `
         You are an intelligent product extractor. 
         Analyze the text content from an e-commerce page below and extract products.
+        
+        Here is a list of potential image URLs found on the page. Pick the most likely "Product Image" from this list, or find one in the text if better.
+        Image Candidates: ${JSON.stringify(uniqueImages)}
         
         Return a JSON object with a key "products" which is an array of objects.
         Each product object MUST have:
         - name (string)
         - price (number, numeric only)
         - description (string, stored as plain text)
-        - image (string URL, look for high res images in text if possible, or leave null)
+        - image (string URL, select best from candidates)
         - variantItems (array of objects with { name: string, price: number, color: string, size: string })
         
         If there are multiple products (category page), extract all.
@@ -81,7 +121,16 @@ export async function extractFromUrl(url) {
             response_format: { type: "json_object" }
         });
 
-        const result = JSON.parse(completion.choices[0].message.content);
+        let result = JSON.parse(completion.choices[0].message.content);
+
+        // Fallback: If OpenAI didn't find an image, force the OG Image
+        if (result.products) {
+            result.products = result.products.map(p => {
+                if (!p.image && ogImage) p.image = ogImage;
+                return p;
+            });
+        }
+
         console.log(`[Extractor] Extracted ${result.products?.length || 0} products.`);
 
         return result.products || [];
