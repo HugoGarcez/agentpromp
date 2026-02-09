@@ -1003,7 +1003,7 @@ CUMPRA ESTE PROTOCOLO AGORA.
     // (Variables already declared above)
     productImageUrl = null; // Reset for legacy
     productCaption = "";
-    messageChunks = []; // Ensure messageChunks is declared or use existing if any (it's new)
+    let messageChunks = []; // Ensure messageChunks is declared or use existing if any (it's new)
 
 
     // check if we have image tags
