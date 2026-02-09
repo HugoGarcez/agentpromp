@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import logo from '../assets/logo.png';
 
 const Login = () => {
     const [email, setEmail] = useState('');
@@ -40,12 +41,10 @@ const Login = () => {
                 border: '1px solid var(--border-color)'
             }}>
                 <div style={{ marginBottom: '30px', textAlign: 'center' }}>
-                    <h1 style={{
-                        color: 'var(--primary-blue)',
-                        fontSize: '24px',
-                        fontWeight: 'bold',
-                        marginBottom: '8px'
-                    }}>Promp</h1>
+                    <img src={logo} alt="Promp" style={{
+                        height: '60px',
+                        marginBottom: '16px'
+                    }} />
                     <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Entre para gerenciar seus agentes</p>
                 </div>
 
