@@ -935,6 +935,7 @@ const processChatResponse = async (config, message, history, sessionId = null, i
 *** ATENÇÃO: PROTOCOLO DE ENVIO DE IMAGEM (PRIORIDADE TOTAL) ***
 Detectamos que você às vezes esquece de enviar a tag da imagem.
 SE O USUÁRIO PEDIU UMA FOTO/IMAGEM E O PRODUTO TEM [TEM_IMAGEM]:
+(Exemplos de pedido: "Manda foto", "Quero ver", "Me mostra", "Tem imagem?", "Foto do produto")
 1. VOCÊ É OBRIGADO A COLOCAR A TAG [SHOW_IMAGE: ID] NO FINAL DA RESPOSTA.
 2. É PROIBIDO dizer "Aqui está" sem a tag.
 3. A tag deve ser a ÚLTIMA coisa que você escreve.
@@ -994,81 +995,80 @@ CUMPRA ESTE PROTOCOLO AGORA.
     logFlow(`AI Response Raw: ${aiResponse.substring(0, 100)}...`);
 
     // Robust Regex: Optional quotes (straight or smart), spaces, dots/dashes
-    const imageTagRegex = /\[SHOW_IMAGE:\s*['"“”]?([^\]]+?)['"“”]?\s*\]/i;
-    const imageMatch = aiResponse.match(imageTagRegex);
+    // (Legacy Logic Part 1 Removed)
 
-    if (imageMatch) {
-        logFlow(`Regex Match Found: ${imageMatch[1]}`);
-    } else {
-        logFlow(`No Image Tag Found in response.`);
-    }
-
-    let debugImageError = ""; // To append to response if validation fails
-
-    if (imageMatch && config.products) {
-        const targetId = imageMatch[1];
-        let found = false;
-
-        // Search in Parent Products or Variations
-        for (const p of config.products) {
-            // Check Parent (ID exact match)
-            if (String(p.id) === String(targetId)) {
-                if (p.image) {
-                    productImageUrl = p.image;
-                    productCaption = `${p.name} - R$ ${p.price}`;
-                    found = true;
-                    break;
-                }
-            }
-
-            // Check Parent (Name loose match - Fallback)
-            // If the ID looks like a name (contains letters/spaces not typical for our IDs?)
-            // We just check if targetId string matches product name logic
-            if (!found && p.name.toLowerCase().includes(String(targetId).toLowerCase())) {
-                if (p.image) {
-                    productImageUrl = p.image;
-                    productCaption = `${p.name} - R$ ${p.price}`;
-                    found = true;
-                    // We don't break immediately in case there's a better ID match later? 
-                    // No, existing ID match loop prioritized. This is fallback.
-                    break;
-                }
-            }
-
-            // Check Variations
-            if (p.variantItems) {
-                // Check Variant ID
-                const variant = p.variantItems.find(v => String(v.id) === String(targetId));
-                if (variant) {
-                    // Fallback to Parent Image if Variant Image is missing
-                    if (variant.image || p.image) {
-                        productImageUrl = variant.image || p.image;
-                        const details = [variant.color, variant.size].filter(Boolean).join(' / ');
-                        productCaption = `${p.name} - ${details} - R$ ${variant.price || p.price}`;
-                        found = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (found) {
-            console.log(`[Chat] Found Product/Variant Image for Target '${targetId}'`);
-            // Remove the tag successfully
-            const escapedTargetId = targetId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`\\[SHOW_IMAGE:\\s*['"“”]?${escapedTargetId}['"“”]?\\s*\\]`, 'gi');
-            aiResponse = aiResponse.replace(regex, '').trim();
-        } else {
-            console.log(`[Chat] Image requested for Target '${targetId}' but not found.`);
-            debugImageError = `\n(⚠️ Erro: Imagem não encontrada para o ID: ${targetId})`;
-        }
-    } else if (imageMatch && !config.products) {
-        debugImageError = `\n(⚠️ Erro: Lista de produtos vazia)`;
-    }
-
+    // (Legacy Logic Fully Removed)
     // Append debug error if any
-    if (debugImageError) {
-        aiResponse += debugImageError;
+    // --- 2. MULTI-IMAGE & TEXT SPLITTING LOGIC ---
+    // (Variables already declared above)
+    productImageUrl = null; // Reset for legacy
+    productCaption = "";
+    messageChunks = []; // Ensure messageChunks is declared or use existing if any (it's new)
+
+
+    // check if we have image tags
+    const globalImageRegex = /\[SHOW_IMAGE:\s*['"“”]?([^\]]+?)['"“”]?\s*\]/gi;
+    let match;
+    let lastIndex = 0;
+
+    // We need to execute regex in a loop to find all occurrences
+    // and split the text accordingly.
+
+    // First, check if ANY tag exists to avoid overhead
+    if (globalImageRegex.test(aiResponse)) {
+        globalImageRegex.lastIndex = 0; // Reset
+
+        while ((match = globalImageRegex.exec(aiResponse)) !== null) {
+            // Text BEFORE the tag
+            const textSegment = aiResponse.substring(lastIndex, match.index).trim();
+            if (textSegment) {
+                messageChunks.push({ type: 'text', content: textSegment });
+            }
+
+            // The Image Tag ID
+            const targetId = match[1];
+            const resolved = resolveProductImageFromConfig(targetId, config);
+
+            if (resolved.found) {
+                console.log(`[Chat] Found Image for ${targetId}`);
+                messageChunks.push({
+                    type: 'image',
+                    url: resolved.url,
+                    caption: resolved.caption,
+                    id: targetId
+                });
+
+                // Set legacy for first image found (backward compat)
+                if (!productImageUrl) {
+                    productImageUrl = resolved.url;
+                    productCaption = resolved.caption;
+                }
+            } else {
+                console.log(`[Chat] Image not found for ${targetId}`);
+                // Append error to the previous text chunk or new text chunk
+                messageChunks.push({
+                    type: 'text',
+                    content: `(⚠️ Erro: Imagem não encontrada para o ID: ${targetId})`
+                });
+            }
+
+            lastIndex = globalImageRegex.lastIndex;
+        }
+
+        // Text AFTER the last tag
+        const remainingText = aiResponse.substring(lastIndex).trim();
+        if (remainingText) {
+            messageChunks.push({ type: 'text', content: remainingText });
+        }
+
+        // CLEANUP: Remove tags from the main aiResponse used for history/audio?
+        // Actually, for audio, we probably want the text but NOT the tags.
+        // Let's strip tags from aiResponse for the return value
+        aiResponse = aiResponse.replace(globalImageRegex, '').trim();
+
+    } else {
+        // No images, just text
+        messageChunks.push({ type: 'text', content: aiResponse });
     }
 
 
@@ -1190,7 +1190,7 @@ CUMPRA ESTE PROTOCOLO AGORA.
         }
     }
 
-    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName };
+    return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName, messageChunks };
 };
 
 // --- Config History Routes ---
@@ -2150,17 +2150,21 @@ app.post('/webhook/:companyId', async (req, res) => {
 
         // 3. Process AI Response
         // Pass isAudioInput flag so AI can decide to reply with audio
-        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64 } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput);
+        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput);
 
         console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
+        if (messageChunks && messageChunks.length > 0) {
+            console.log(`[Webhook] Multi-message response detected: ${messageChunks.length} chunks.`);
+        }
 
         // Persist Chat (Using Persistent Session ID)
+        // We persist the FULL AI response for context, even if sent in chunks.
         try {
             await prisma.testMessage.create({
                 data: {
                     companyId: String(companyId),
                     sender: 'user',
-                    text: userMessage, // Save raw user message (Sim). AI runtime context will handle the rest.
+                    text: userMessage,
                     sessionId: String(dbSessionId),
                     metadata
                 }
@@ -2180,7 +2184,41 @@ app.post('/webhook/:companyId', async (req, res) => {
         // --- REPLY STRATEGY ---
         let sentViaApi = false;
         if (config.prompUuid && config.prompToken) {
-            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
+
+            // MULTI-MESSAGE SENDING LOOP
+            if (messageChunks && messageChunks.length > 0) {
+                console.log(`[Webhook] Sending ${messageChunks.length} chunks via API...`);
+
+                for (const [index, chunk] of messageChunks.entries()) {
+                    if (chunk.type === 'image') {
+                        // Send Image
+                        // For the FIRST chunk/image, maybe send audio if allowed? 
+                        // Let's stick to NO audio for images unless it's the *only* thing?
+                        // Actually, audioBase64 is global for the response.
+                        // We should only send Audio ONCE. Let's send it with the LAST chunk? Or First?
+                        // Let's send it with the first TEXT chunk.
+                        const isFirstText = index === 0;
+                        await sendPrompMessage(config, cleanNumber, null, null, chunk.url, chunk.caption);
+                        // small delay
+                        await new Promise(r => setTimeout(r, 600));
+                    } else if (chunk.type === 'text') {
+                        // Send Text
+                        // Attach Audio ONLY to the first text chunk (or if it's the only one)
+                        // If we attach audio, sendPrompMessage sends audio separately anyway.
+                        // But we want to avoid sending audio multiple times.
+                        const chunkAudio = (index === 0) ? audioBase64 : null;
+
+                        await sendPrompMessage(config, cleanNumber, chunk.content, chunkAudio, null, null);
+                        await new Promise(r => setTimeout(r, 800)); // Readability delay
+                    }
+                }
+                sentViaApi = true;
+
+            } else {
+                // Fallback (Should not happen if processChatResponse always returns chunks)
+                sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
+            }
+
             console.log(`[Webhook] Sent via API: ${sentViaApi}`);
         } else {
             console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
@@ -2441,3 +2479,43 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// --- HELPER: Resolve Product Image from Config ---
+function resolveProductImageFromConfig(targetId, config) {
+    if (!config || !config.products) return { found: false, error: 'Lista de produtos vazia' };
+
+    let productImageUrl = null;
+    let productCaption = "";
+    let found = false;
+    let cleanId = String(targetId).trim();
+
+    // Check Parent (ID exact match)
+    for (const p of config.products) {
+        if (String(p.id) === cleanId) {
+            if (p.image) {
+                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+            }
+        }
+
+        // Check Parent (Name loose match - Fallback)
+        if (p.name.toLowerCase().includes(cleanId.toLowerCase())) {
+            if (p.image) {
+                // Don't return immediately if exact match is better? No, loop order.
+                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+            }
+        }
+
+        // Check Variations
+        if (p.variantItems) {
+            const variant = p.variantItems.find(v => String(v.id) === cleanId);
+            if (variant) {
+                if (variant.image || p.image) {
+                    const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                    return { found: true, url: variant.image || p.image, caption: `${p.name} - ${details} - R$ ${variant.price || p.price}` };
+                }
+            }
+        }
+    }
+
+    return { found: false, error: `Imagem não encontrada para ID: ${cleanId}` };
+}
