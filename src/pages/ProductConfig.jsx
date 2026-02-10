@@ -145,7 +145,12 @@ const ProductConfig = () => {
             { id: 'card', label: 'Cartão', active: false, price: '' },
             { id: 'check', label: 'Cheque', active: false, price: '' },
             { id: 'presential', label: 'Presencial', active: false, price: '' }
-        ]
+        ],
+
+        // NEW: Price Visibility
+        priceHidden: false,
+        priceHiddenReason: 'Sob consulta', // 'Sob consulta', 'Preço com vendedor', 'Outro'
+        customPriceHiddenReason: ''
     };
 
     const [formData, setFormData] = useState(initialFormState);
@@ -575,8 +580,54 @@ const ProductConfig = () => {
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <div style={{ flex: 1 }}>
                                 <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Preço Base (R$)</label>
-                                <input type="number" name="price" value={formData.price} onChange={handleInputChange} required step="0.01"
-                                    style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <input
+                                        type="number"
+                                        name="price"
+                                        value={formData.price}
+                                        onChange={handleInputChange}
+                                        disabled={formData.priceHidden}
+                                        required={!formData.priceHidden}
+                                        step="0.01"
+                                        style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB', background: formData.priceHidden ? '#F3F4F6' : 'white' }}
+                                    />
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={formData.priceHidden}
+                                            onChange={(e) => setFormData(prev => ({ ...prev, priceHidden: e.target.checked }))}
+                                            id="hidePrice"
+                                            style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                        />
+                                        <label htmlFor="hidePrice" style={{ fontSize: '12px', cursor: 'pointer', userSelect: 'none' }}>Ocultar Preço</label>
+                                    </div>
+                                </div>
+                                {formData.priceHidden && (
+                                    <div style={{ marginTop: '8px', padding: '8px', background: '#FEF3C7', borderRadius: '6px', border: '1px solid #FCD34D' }}>
+                                        <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#92400E' }}>Motivo (O que a IA vai dizer?)</label>
+                                        <select
+                                            name="priceHiddenReason"
+                                            value={formData.priceHiddenReason}
+                                            onChange={handleInputChange}
+                                            style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #F59E0B', fontSize: '13px', marginBottom: formData.priceHiddenReason === 'Outro' ? '6px' : '0' }}
+                                        >
+                                            <option value="Sob consulta">Sob consulta</option>
+                                            <option value="Preço com vendedor">Preço com vendedor</option>
+                                            <option value="A partir de (Variável)">A partir de (Variável)</option>
+                                            <option value="Outro">Outro (Personalizado)</option>
+                                        </select>
+                                        {formData.priceHiddenReason === 'Outro' && (
+                                            <input
+                                                type="text"
+                                                name="customPriceHiddenReason"
+                                                value={formData.customPriceHiddenReason || ''}
+                                                onChange={handleInputChange}
+                                                placeholder="Ex: Valor sob projeto"
+                                                style={{ width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #F59E0B', fontSize: '13px' }}
+                                            />
+                                        )}
+                                    </div>
+                                )}
                             </div>
                             <div style={{ width: '120px' }}>
                                 <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Unidade</label>

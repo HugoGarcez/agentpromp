@@ -704,35 +704,46 @@ const processChatResponse = async (config, message, history, sessionId = null, i
             let unitLabel = p.unit || 'Unidade';
             if (p.unit === 'Outro' && p.customUnit) unitLabel = p.customUnit;
 
-            // Price Logic (Matrix)
+            // Price Visibility Logic
             let priceDisplay = `R$ ${p.price}`;
-            let activeMethods = p.paymentPrices ? p.paymentPrices.filter(pm => pm.active) : [];
             let priceDetails = "";
 
-            if (activeMethods.length > 0) {
-                // Find Min Price among active methods (or base price if specific price is not set)
-                let minPrice = parseFloat(p.price);
-                let cheapestMethod = "Base";
-
-                let specificPrices = [];
-
-                activeMethods.forEach(pm => {
-                    let methodPrice = pm.price ? parseFloat(pm.price) : parseFloat(p.price);
-                    if (!isNaN(methodPrice)) {
-                        specificPrices.push(`${pm.label}: R$ ${methodPrice.toFixed(2)}`);
-                        if (methodPrice < minPrice) {
-                            minPrice = methodPrice;
-                            cheapestMethod = pm.label;
-                        }
-                    }
-                });
-
-                if (minPrice < parseFloat(p.price)) {
-                    priceDisplay = `A partir de R$ ${minPrice.toFixed(2)} (no ${cheapestMethod})`;
+            if (p.priceHidden) {
+                // If price is hidden, use the reason as the display text
+                let reason = p.priceHiddenReason || 'Sob consulta';
+                if (reason === 'Outro' && p.customPriceHiddenReason) {
+                    reason = p.customPriceHiddenReason;
                 }
+                priceDisplay = `[PREÇO_OCULTO: ${reason}]`;
+            } else {
+                // Standard Price Logic (Matrix)
+                let activeMethods = p.paymentPrices ? p.paymentPrices.filter(pm => pm.active) : [];
 
-                if (specificPrices.length > 0) {
-                    priceDetails = ` [Tabela: ${specificPrices.join(', ')}]`;
+                if (activeMethods.length > 0) {
+                    // Find Min Price among active methods (or base price if specific price is not set)
+                    let minPrice = parseFloat(p.price);
+                    let cheapestMethod = "Base";
+
+                    let specificPrices = [];
+
+                    activeMethods.forEach(pm => {
+                        let methodPrice = pm.price ? parseFloat(pm.price) : parseFloat(p.price);
+                        if (!isNaN(methodPrice)) {
+                            specificPrices.push(`${pm.label}: R$ ${methodPrice.toFixed(2)}`);
+                            if (methodPrice < minPrice) {
+                                minPrice = methodPrice;
+                                cheapestMethod = pm.label;
+                            }
+                        }
+                    });
+
+                    if (minPrice < parseFloat(p.price)) {
+                        priceDisplay = `A partir de R$ ${minPrice.toFixed(2)} (no ${cheapestMethod})`;
+                    }
+
+                    if (specificPrices.length > 0) {
+                        priceDetails = ` [Tabela: ${specificPrices.join(', ')}]`;
+                    }
                 }
             }
 
@@ -769,7 +780,8 @@ const processChatResponse = async (config, message, history, sessionId = null, i
         systemPrompt += `2. PDF DE SERVIÇO: Se o cliente pedir detalhes de um serviço com [TEM_PDF], EXPLIQUE o serviço em texto e PERGUNTE: "Gostaria de receber o PDF com mais detalhes?". SE O CLIENTE CONFIRMAR, responda: "[SEND_PDF: ID] Enviando o arquivo...".\n`;
         systemPrompt += `3. PAGAMENTO: Se o cliente quiser comprar/contratar e o item tiver [TEM_LINK_PAGAMENTO], envie o link: "[LINK: URL_DO_PAGAMENTO] Clique aqui para finalizar.".\n`;
         systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.\n`;
-        systemPrompt += `5. UNIDADES DE MEDIDA (CRÍTICO): Cada produto tem sua própria unidade (Unidade, Kg, Rolo, Metro, etc.). JAMAIS GENERALIZE. Se o Produto A é "Rolo" e o Produto B é "Kg", fale exatamente assim. Nunca diga que "todos são vendidos por rolo". Verifique item por item.`;
+        systemPrompt += `5. UNIDADES DE MEDIDA (CRÍTICO): Cada produto tem sua própria unidade (Unidade, Kg, Rolo, Metro, etc.). JAMAIS GENERALIZE. Se o Produto A é "Rolo" e o Produto B é "Kg", fale exatamente assim. Nunca diga que "todos são vendidos por rolo". Verifique item por item.\n`;
+        systemPrompt += `6. PREÇOS OCULTOS [PREÇO_OCULTO: Motivo]: Se um produto estiver marcado com isso, NÃO INVENTE UM PREÇO. Responda ao cliente explicando o motivo (ex: "O valor é sob consulta", "Preciso verificar com o vendedor"). Se o motivo for "Preço com vendedor", diga que vai chamar um atendente humano.`;
     }
 
     // Humanization & Memory Control
