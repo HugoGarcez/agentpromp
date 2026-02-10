@@ -2,8 +2,34 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import { TextDecoder } from 'util';
 
 dotenv.config();
+
+// Helper: Detect encoding from buffer and headers
+const decodeBuffer = (buffer, contentType) => {
+    let encoding = 'utf-8';
+
+    // 1. Check Content-Type header
+    if (contentType) {
+        const match = contentType.match(/charset=([\w-]+)/i);
+        if (match) encoding = match[1];
+    }
+
+    // 2. Check HTML meta tags (if header didn't specify or we want to be sure)
+    // We decode a bit as ASCII/UTF-8 just to find the meta tag
+    const preview = new TextDecoder('utf-8').decode(buffer.slice(0, 1000));
+    const metaMatch = preview.match(/<meta.*?charset=["']?([\w-]+)["']?/i);
+    if (metaMatch) encoding = metaMatch[1];
+
+    try {
+        const decoder = new TextDecoder(encoding);
+        return decoder.decode(buffer);
+    } catch (e) {
+        console.warn(`[Extractor] Failed to decode as ${encoding}, falling back to utf-8.`);
+        return new TextDecoder('utf-8').decode(buffer);
+    }
+};
 
 // Helper: Clean HTML to reduce token usage
 const cleanHtml = (html) => {
@@ -17,7 +43,18 @@ const cleanHtml = (html) => {
             jsonLdData.push(JSON.stringify(data));
         } catch (e) { }
     });
-    // ... (logic remains same)
+
+    // --- PRESERVE IMAGES AS MARKERS ---
+    $('img').each((i, el) => {
+        const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-lazy-src');
+        if (src && !src.startsWith('data:') && !src.includes('svg') && !src.includes('icon') && !src.includes('logo')) {
+            // Replace with a marker that the AI can see
+            $(el).replaceWith(`\n[IMAGE: ${src}]\n`);
+        } else {
+            $(el).remove();
+        }
+    });
+
     $('script').remove();
     $('style').remove();
     $('noscript').remove();
@@ -43,7 +80,7 @@ const cleanHtml = (html) => {
         content += "\n\n--- STRUCTURAL DATA (JSON-LD) ---\n" + jsonLdData.join("\n");
     }
 
-    return content; // Return FULL content (Checker handles chunking)
+    return content; // Return FULL content
 };
 
 /**
@@ -60,15 +97,14 @@ export async function extractFromUrl(url) {
     try {
         console.log(`[Extractor] Fetching ${url}...`);
 
-        // Use Axios instead of fetch (node-fetch not installed)
         let response;
         try {
             response = await axios.get(url, {
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
                 },
-                // Ensure we get text/string
-                responseType: 'text',
+                responseType: 'arraybuffer', // Get raw buffer for manual decoding
                 timeout: 30000 // 30s timeout
             });
         } catch (axiosError) {
@@ -77,10 +113,12 @@ export async function extractFromUrl(url) {
             throw new Error(`Falha ao acessar o site: ${axiosError.message}`);
         }
 
-        const html = response.data;
+        // DECODE CONTENT
+        const html = decodeBuffer(response.data, response.headers['content-type']);
+
         if (!html) throw new Error("O site retornou um conteúdo vazio.");
 
-        // --- IMAGE EXTRACTION START ---
+        // --- IMAGE EXTRACTION (Global Candidates) ---
         const $ = cheerio.load(html);
         const images = [];
 
@@ -88,11 +126,7 @@ export async function extractFromUrl(url) {
         const ogImage = $('meta[property="og:image"]').attr('content');
         if (ogImage) images.push(ogImage);
 
-        // 2. Twitter Image
-        const twitterImage = $('meta[name="twitter:image"]').attr('content');
-        if (twitterImage) images.push(twitterImage);
-
-        // 3. Schema.org Image
+        // 2. Schema.org Image
         $('script[type="application/ld+json"]').each((i, el) => {
             try {
                 const data = JSON.parse($(el).html());
@@ -103,26 +137,18 @@ export async function extractFromUrl(url) {
             } catch (e) { }
         });
 
-        // 4. Large Images from Body
-        $('img').each((i, el) => {
-            const src = $(el).attr('src') || $(el).attr('data-src') || $(el).attr('data-lazy-src');
-            if (src && !src.startsWith('data:') && !src.includes('svg') && !src.includes('icon') && !src.includes('logo')) {
-                // Simple filter to avoid icons
-                images.push(src);
-            }
-        });
-
-        // De-duplicate and Limit
-        const uniqueImages = [...new Set(images)].slice(0, 15); // Top 15 unique images
-        // --- IMAGE EXTRACTION END ---
+        // De-duplicate Global Candidates
+        // We do NOT limit this list artificially anymore, let the AI decide or use the first few if too many.
+        // But passing 100 URLs to LLM is expensive. We'll stick to a reasonable number but prioritize better ones.
+        const uniqueImages = [...new Set(images)].slice(0, 30); // Increased to 30
 
         // CHUNKING STRATEGY FOR LARGE PAGES
         // The page might be huge (e.g. 300k chars). We can't send it all.
-        // We split into chunks of 20,000 chars with 1,000 char overlap.
+        // We split into chunks of 25,000 chars with 1,000 char overlap.
 
-        const CHUNK_SIZE = 20000;
+        const CHUNK_SIZE = 25000; // Increased chunk size
         const OVERLAP = 1000;
-        const cleanedText = cleanHtml(html); // Now returns FULL text (remove substring limit in cleanHtml first!)
+        const cleanedText = cleanHtml(html);
 
         const chunks = [];
         for (let i = 0; i < cleanedText.length; i += (CHUNK_SIZE - OVERLAP)) {
@@ -147,23 +173,24 @@ export async function extractFromUrl(url) {
                 You are an intelligent product extractor. 
                 Analyze the text content from an e-commerce page below and extract products.
                 
-                CRITICAL: Look for "STRUCTURAL DATA (JSON-LD)" at the end of the text. This often contains the most accurate product list (schema.org/Product or ItemList). PREFER data from JSON-LD over raw text if available.
+                CRITICAL: Look for "STRUCTURAL DATA (JSON-LD)" at the end. PREFER this data.
                 
-                Here is a list of potential image URLs found on the page. Pick the most likely "Product Image" from this list, or find one in the text if better.
-                Image Candidates: ${JSON.stringify(uniqueImages)}
+                IMAGES:
+                1. The text contains "[IMAGE: url]" markers. These are images found near the text. Use these if they seem to belong to the product.
+                2. If no marker is found near the product, pick from this backup list: ${JSON.stringify(uniqueImages)}
                 
-                Return a JSON object with a key "products" which is an array of objects.
+                Return a JSON object with a key "products" (array of objects).
                 Each product object MUST have:
                 - name (string)
                 - price (number, numeric only)
-                - description (string, stored as plain text)
-                - image (string URL, select best from candidates)
-                - variantItems (array of objects with { name: string, price: number, color: string, size: string })
+                - description (string)
+                - image (string URL)
+                - variantItems (array: name, price, color, size)
                 
                 rules:
-                1. Extract ALL products visible in this text chunk.
-                2. Do not invent products. Only extract what is explicitly there.
-                3. If a product is cut off at the start/end, try to reconstruct it or ignore it if too fragmented.
+                1. Extract ALL products visible.
+                2. Do not invent products.
+                3. If a product is cut off, ignore it.
                 
                 Text Content (Chunk ${chunkIndex + 1}/${chunks.length}):
                 "${chunk}"
@@ -173,7 +200,7 @@ export async function extractFromUrl(url) {
                     const completion = await openai.chat.completions.create({
                         model: "gpt-4o-mini",
                         messages: [
-                            { role: "system", content: "You are a helpful assistant that extracts structured product data from raw text involved in e-commerce." },
+                            { role: "system", content: "You are a helpful assistant that extracts structured product data from e-commerce text." },
                             { role: "user", content: prompt }
                         ],
                         response_format: { type: "json_object" }
