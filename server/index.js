@@ -73,7 +73,37 @@ app.post('/api/products/extract', authenticateToken, async (req, res) => {
         const { url } = req.body;
         if (!url) return res.status(400).json({ error: 'URL is required' });
 
-        const products = await extractFromUrl(url);
+        if (!url) return res.status(400).json({ error: 'URL is required' });
+
+        // Retrieve API Key from DB (Agent Config or Global)
+        let apiKey = process.env.OPENAI_API_KEY;
+        const companyId = req.user?.companyId;
+
+        if (companyId) {
+            const config = await prisma.agentConfig.findUnique({
+                where: { companyId },
+                select: { integrations: true }
+            });
+            if (config && config.integrations) {
+                try {
+                    const integrations = typeof config.integrations === 'string'
+                        ? JSON.parse(config.integrations)
+                        : config.integrations;
+
+                    if (integrations.openaiKey) apiKey = integrations.openaiKey;
+                } catch (e) {
+                    console.error('[Extract API] Error parsing integrations:', e);
+                }
+            }
+        }
+
+        // Fallback to Global Config if still no key
+        if (!apiKey) {
+            const globalConfig = await prisma.globalConfig.findFirst();
+            if (globalConfig?.openaiKey) apiKey = globalConfig.openaiKey;
+        }
+
+        const products = await extractFromUrl(url, apiKey);
         res.json({ success: true, products });
     } catch (error) {
         console.error('Extraction error:', error);

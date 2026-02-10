@@ -88,10 +88,16 @@ const cleanHtml = (html) => {
  * @param {string} url 
  * @returns {Promise<Array>} List of extracted products
  */
-export async function extractFromUrl(url) {
-    // Initialize OpenAI Lazily to ensure ENV is loaded
+export async function extractFromUrl(url, apiKeyOverride = null) {
+    const apiKey = apiKeyOverride || process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+        console.error('[Extractor] No OpenAI API Key found (Env or Override).');
+        throw new Error('OpenAI API Key is missing. Please configure it in settings.');
+    }
+
     const openai = new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY
+        apiKey: apiKey
     });
 
     try {
@@ -244,7 +250,11 @@ export async function extractFromUrl(url) {
         return uniqueProducts;
 
     } catch (error) {
-        console.error('[Extractor] Error:', error);
-        throw error;
+        console.error('[Extractor] Critical Error:', error.message);
+        if (error.response) {
+            console.error('[Extractor] OpenAI Error Data:', error.response.data);
+        }
+        return [];
     }
 }
+
