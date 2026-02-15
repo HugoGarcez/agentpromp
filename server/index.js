@@ -2108,7 +2108,7 @@ app.post('/webhook/:companyId', async (req, res) => {
     const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
 
     // Clean Sender Number if it has @s.whatsapp.net
-    const cleanNumber = senderNumber ? String(senderNumber).replace('@s.whatsapp.net', '') : null;
+    const cleanNumber = senderNumber ? String(senderNumber).replace(/\D/g, '') : null;
 
     if (!cleanNumber) {
         console.log('[Webhook] No specific sender number found. Ignoring.');
