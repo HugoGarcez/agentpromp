@@ -463,34 +463,45 @@ app.put('/api/admin/users/:id', authenticateAdmin, async (req, res) => {
 // Helper to get config from DB
 
 const getCompanyConfig = async (companyId) => {
-    const config = await prisma.agentConfig.findUnique({
-        where: { companyId },
-        include: {
-            company: {
-                include: {
-                    specialists: { where: { active: true } },
-                    appointmentTypes: { where: { active: true } },
-                    // googleConfig: true // DISABLING TEMPORARILY TO FIX CRASH ON OLD DB
+    if (!companyId) return null;
+
+    try {
+        const config = await prisma.agentConfig.findUnique({
+            where: { companyId },
+            include: {
+                company: {
+                    include: {
+                        specialists: { where: { active: true } },
+                        appointmentTypes: { where: { active: true } },
+                        // googleConfig: true // DISABLING TEMPORARILY TO FIX CRASH ON OLD DB
+                    }
                 }
             }
-        }
-    });
+        });
 
-    if (!config) return null;
+        if (!config) return null;
 
-    // Parse JSON fields
-    return {
-        ...config,
-        persona: config.persona ? JSON.parse(config.persona) : undefined,
-        integrations: config.integrations ? JSON.parse(config.integrations) : undefined,
-        products: config.products ? JSON.parse(config.products) : undefined,
-        knowledgeBase: config.knowledgeBase ? JSON.parse(config.knowledgeBase) : undefined,
-        followUpConfig: config.followUpConfig ? JSON.parse(config.followUpConfig) : undefined,
-        // Scheduling Data
-        specialists: config.company?.specialists || [],
-        appointmentTypes: config.company?.appointmentTypes || [],
-        googleConfig: null // config.company?.googleConfig || null
-    };
+        // SAFE PARSING (JSON.parse CAN THROW if invalid JSON string)
+        const safeParse = (str) => {
+            try { return str ? JSON.parse(str) : undefined; } catch (e) { return undefined; }
+        };
+
+        return {
+            ...config,
+            persona: safeParse(config.persona),
+            integrations: safeParse(config.integrations),
+            products: safeParse(config.products),
+            knowledgeBase: safeParse(config.knowledgeBase),
+            followUpConfig: safeParse(config.followUpConfig),
+            // Scheduling Data
+            specialists: config.company?.specialists || [],
+            appointmentTypes: config.company?.appointmentTypes || [],
+            googleConfig: null // config.company?.googleConfig || null
+        };
+    } catch (error) {
+        console.error(`[Config] Error fetching config for ${companyId}:`, error);
+        return null; // Return null instead of crashing
+    }
 };
 
 
