@@ -8,6 +8,7 @@ export const getOAuth2Client = async () => {
     const globalConfig = await prisma.globalConfig.findFirst();
 
     if (!globalConfig || !globalConfig.googleClientId || !globalConfig.googleClientSecret || !globalConfig.googleRedirectUri) {
+        console.error('[GoogleAuth] Missing Global Config:', globalConfig);
         throw new Error('Google Calendar integration not configured globally.');
     }
 

@@ -859,7 +859,7 @@ app.post('/api/appointment-types', authenticateToken, async (req, res) => {
     const type = await prisma.appointmentType.create({
         data: {
             companyId: req.user.companyId,
-            name, description, duration, color, active
+            name, description, duration: parseInt(duration), color, active
         }
     });
     res.json(type);
@@ -870,7 +870,7 @@ app.put('/api/appointment-types/:id', authenticateToken, async (req, res) => {
     const { name, description, duration, color, active } = req.body;
     const type = await prisma.appointmentType.update({
         where: { id },
-        data: { name, description, duration, color, active }
+        data: { name, description, duration: parseInt(duration), color, active }
     });
     res.json(type);
 });
