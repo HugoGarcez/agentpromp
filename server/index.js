@@ -91,7 +91,7 @@ initScheduler(prisma);
 // --- HEALTH CHECK ROUTE (NO AUTH - defined BEFORE auth middleware if desired, or after) ---
 // Defined here to be publicly accessible
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', version: '1.0.1', time: new Date().toISOString() });
+    res.json({ status: 'ok', version: '2.0.0-REALTIME-INVENTORY', time: new Date().toISOString() });
 });
 
 // --- WEBHOOK ROUTES (Moved to TOP for Priority) ---
