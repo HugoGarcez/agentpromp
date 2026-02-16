@@ -2486,7 +2486,7 @@ CUMPRA ESTE PROTOCOLO AGORA.
         if (!payload || Object.keys(payload).length === 0) {
             console.error('[Webhook] Empty Payload! Check Content-Type.');
         } else {
-            console.log(`[Webhook] Payload Preview:`, JSON.stringify(payload).substring(0, 200));
+            console.log(`[Webhook] FULL PAYLOAD (${companyId}):`, JSON.stringify(payload, null, 2));
         }
 
         // Load Config EARLY (needed for Identity check)
