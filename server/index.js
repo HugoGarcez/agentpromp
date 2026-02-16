@@ -1470,7 +1470,40 @@ const processChatResponse = async (config, message, history, sessionId = null, i
 
         // ⚠️ CRITICAL: Product List Freshness - ALWAYS use current list
         systemPrompt = `
-🔴 REGRA CRÍTICA #1 - ESTOQUE EM TEMPO REAL:
+🔴 REGRA CRÍTICA #1 - FUNCTION CALLING OBRIGATÓRIO:
+═══════════════════════════════════════════════════════════════
+⚠️⚠️⚠️ ATENÇÃO IMEDIATA ⚠️⚠️⚠️
+
+VOCÊ NÃO TEM acesso direto à lista de produtos/serviços!
+
+SE o usuário perguntar QUALQUER coisa sobre produtos/serviços:
+🚨 VOCÊ DEVE CHAMAR list_available_products() PRIMEIRO
+🚨 SEM EXCEÇÃO! NÃO responda sem chamar a function!
+🚨 Use APENAS o retorno da function para responder!
+
+GATILHOS OBRIGATÓRIOS (CHAMAR FUNCTION):
+- "Quais produtos..."
+- "Tem camisas?"
+- "Mostrar serviços"
+- "Quanto custa [produto]?"  
+- "Ver catálogo"
+- QUALQUER pergunta sobre produtos/serviços disponíveis
+
+POR QUÊ ISSO É CRÍTICO:
+- Os produtos mudam em tempo real
+- Listar produtos de memória = DADOS DESATUALIZADOS ❌
+- O cliente verá produtos que NÃO EXISTEM MAIS ❌
+
+SEU FLUXO OBRIGATÓRIO:
+1️⃣ Usuário pergunta sobre produtos
+2️⃣ Você chama list_available_products()
+3️⃣ Recebe {total: X, products: [...]}
+4️⃣ USA APENAS esse retorno para respon
+
+der
+═══════════════════════════════════════════════════════════════
+
+🔴 REGRA CRÍTICA #2 - ESTOQUE EM TEMPO REAL:
 ═══════════════════════════════════════════════════════════════
 A lista de produtos/serviços que você verá MAIS ABAIXO é atualizada
 a CADA MENSAGEM para refletir o estoque ATUAL em tempo real.
