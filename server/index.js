@@ -130,7 +130,13 @@ const handleWebhookRequest = async (req, res) => {
     // ------------------------------------------------------------------
     // 0. DEDUPLICATION (Prevent Triple Replies)
     // ------------------------------------------------------------------
-    const msgId = payload.key?.id || payload.id || payload.data?.id;
+    const msgId = payload.key?.id ||
+        payload.id ||
+        payload.data?.id ||
+        payload.msg?.id ||
+        payload.content?.messageId ||
+        payload.ticket?.uniqueId; // Add more candidates
+
     if (msgId) {
         if (processedMessages.has(msgId)) {
             console.log(`[Webhook] Duplicate Message ID ${msgId}. Ignoring.`);
@@ -199,7 +205,11 @@ const handleWebhookRequest = async (req, res) => {
         return res.json({ status: 'ignored_protocol' });
     }
 
-    let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
+    let isFromMe = payload.key?.fromMe ||
+        payload.fromMe ||
+        payload.data?.key?.fromMe ||
+        payload.msg?.fromMe ||
+        payload.ticket?.fromMe; // Add n8n ticket check
 
     // ------------------------------------------------------------------
     // FLOW A: AGENT SENT MESSAGE -> START TIMER
@@ -265,6 +275,12 @@ const handleWebhookRequest = async (req, res) => {
     // Check if Status Update again (redundant but safe)
     if (payload.type === 'message_status' || payload.status) {
         return res.json({ status: 'ignored_status_update' });
+    }
+
+    // Ignore ACKs (Delivery/Read Receipts)
+    if (payload.msg?.ack && payload.msg.ack > 1) {
+        console.log(`[Webhook] Ignoring Message ACK (${payload.msg.ack}).`);
+        return res.json({ status: 'ignored_ack' });
     }
 
     // Safety Check for Content
