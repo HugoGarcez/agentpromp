@@ -705,6 +705,45 @@ app.get('/api/auth/google/url', authenticateToken, async (req, res) => {
 });
 
 // 2. OAuth: Callback
+// 2. OAuth: Callback
+app.get('/api/auth/google/callback', async (req, res) => {
+    try {
+        const { code, state } = req.query;
+        let companyId = null;
+        try { companyId = JSON.parse(state).companyId; } catch (_) { }
+
+        if (!code || !companyId) {
+            return res.status(400).send('Invalid request: Missing Code or State (CompanyId)');
+        }
+
+        const tokens = await handleOAuthCallback(code);
+
+        // Save tokens for company
+        await prisma.googleCalendarConfig.upsert({
+            where: { companyId },
+            update: {
+                accessToken: tokens.access_token,
+                refreshToken: tokens.refresh_token,
+                tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
+            },
+            create: {
+                companyId,
+                accessToken: tokens.access_token,
+                refreshToken: tokens.refresh_token,
+                tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
+            }
+        });
+
+        // Redirect back to frontend
+        // Assuming frontend is at root/scheduling or similar
+        res.redirect('/scheduling?success=true');
+
+    } catch (error) {
+        console.error('Google Auth Callback Error:', error);
+        res.status(500).send(`Authentication Failed: ${error.message}`);
+    }
+});
+
 app.post('/api/auth/google/callback', authenticateToken, async (req, res) => {
     try {
         const { code } = req.body;
@@ -715,7 +754,7 @@ app.post('/api/auth/google/callback', authenticateToken, async (req, res) => {
             where: { companyId: req.user.companyId },
             update: {
                 accessToken: tokens.access_token,
-                refreshToken: tokens.refresh_token, // Only returned on first consent or if forced
+                refreshToken: tokens.refresh_token,
                 tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : undefined
             },
             create: {
