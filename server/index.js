@@ -1775,10 +1775,11 @@ const processChatResponse = async (config, message, history, sessionId = null, i
                     }
                 }
             }
-            // --- END PROMPT REWRITING ---
+        }
+        // --- END PROMPT REWRITING ---
 
-            // --- SYSTEM PROMPT INJECTION (CRITICAL FIX FOR IMAGES) ---
-            const imageEnforcementFooter = `
+        // --- SYSTEM PROMPT INJECTION (CRITICAL FIX FOR IMAGES) ---
+        const imageEnforcementFooter = `
 *** ATENÇÃO: PROTOCOLO DE ENVIO DE IMAGEM ***
 SE O USUÁRIO PEDIU UMA FOTO E O PRODUTO TEM IMAGEM (campo [TEM_IMAGEM]):
 1. É PROIBIDO DIZER QUE VAI ENVIAR A IMAGEM SEM COLOCAR A TAG.
@@ -1794,1291 +1795,1291 @@ NÃO INVENTE IDs. USE APENAS OS QUE ESTÃO NA LISTA DE PRODUTOS.
 
 CUMPRA ESTE PROTOCOLO AGORA.
 `;
-            // Append to system prompt just for this execution
-            const finalSystemPrompt = systemPrompt + "\n\n" + imageEnforcementFooter;
-
-            // Prepare Messages (History + System)
-            let messages = [{ role: "system", content: finalSystemPrompt }];
-
-            if (Array.isArray(history) && history.length > 0) {
-                const cleanHistory = history.map(h => ({
-                    role: h.role === 'user' || h.role === 'assistant' || h.role === 'tool' ? h.role : 'user',
-                    content: h.content || '',
-                    tool_calls: h.tool_calls,
-                    tool_call_id: h.tool_call_id
-                }));
-                messages = [...messages, ...cleanHistory];
-            }
-
-            // Add current user message (Rewritten or Original)
-            messages.push({ role: "user", content: finalUserMessage });
-
-            // --- TOOL DEFINITIONS ---
-            const tools = [
-                {
-                    type: "function",
-                    function: {
-                        name: "check_availability",
-                        description: "Verifica horários disponíveis para agendamento.",
-                        parameters: {
-                            type: "object",
-                            properties: {
-                                date: { type: "string", description: "Data desejada (YYYY-MM-DD)" },
-                                specialistId: { type: "string" },
-                                typeId: { type: "string" }
-                            },
-                            required: ["date"]
-                        }
-                    }
-                },
-                {
-                    type: "function",
-                    function: {
-                        name: "book_appointment",
-                        description: "Realiza o agendamento.",
-                        parameters: {
-                            type: "object",
-                            properties: {
-                                startTime: { type: "string", description: "Horário de início (ISO 8601)" },
-                                customerName: { type: "string" },
-                                customerPhone: { type: "string" },
-                                specialistId: { type: "string" },
-                                typeId: { type: "string" },
-                                notes: { type: "string" }
-                            },
-                            required: ["startTime", "customerName", "customerPhone"]
-                        }
-                    }
-                }
-            ];
-
-            // --- TOOL LOOP (Max 3 Turns) ---
-            let aiResponse = "";
-            let turns = 0;
-            const maxTurns = 3;
-            // Check if Google Config exists and has token
-            const shouldUseTools = config.googleConfig && config.googleConfig.accessToken;
-
-            // Create OpenAI Client dynamically with the correct key
-            let openaiApiKey = process.env.OPENAI_API_KEY;
-            if (config.integrations && config.integrations.openaiKey) {
-                openaiApiKey = config.integrations.openaiKey;
-            }
-
-            if (!openaiApiKey) {
-                console.error('[AI] No OpenAI Key found in Config or Env!');
-                return { aiResponse: "Erro: Chave de API não configurada." };
-            }
-
-            const client = new OpenAI({ apiKey: openaiApiKey });
-
-            if (!shouldUseTools) {
-                console.log('[AI] Running in TEXT-ONLY mode (Calendar not connected or token missing).');
-            } else {
-                console.log('[AI] Running in TOOL-ENABLED mode (Calendar connected).');
-            }
-
-            while (turns < maxTurns) {
-                const completion = await client.chat.completions.create({
-                    messages: messages,
-                    model: config.model || "gpt-4o-mini", // Use config model or default
-                    tools: shouldUseTools ? tools : undefined,
-                    tool_choice: shouldUseTools ? "auto" : undefined
-                });
-
-                const msg = completion.choices[0].message;
-                aiResponse = msg.content || "";
-
-                // Check for Tool Calls
-                if (msg.tool_calls && msg.tool_calls.length > 0) {
-                    messages.push(msg); // Add AI's intent to history
-
-                    for (const toolCall of msg.tool_calls) {
-                        const fnName = toolCall.function.name;
-                        const args = JSON.parse(toolCall.function.arguments);
-                        let toolResult = "";
-                        console.log(`[AI Tool] Executing ${fnName}`, args);
-
-                        try {
-                            if (fnName === 'check_availability') {
-                                const calConfig = await prisma.googleCalendarConfig.findUnique({ where: { companyId: config.companyId } });
-                                const date = args.date;
-                                const timeZone = calConfig?.timezone || 'America/Sao_Paulo';
-                                const startIso = `${date}T00:00:00Z`;
-                                const endIso = `${date}T23:59:59Z`;
-                                const busy = await checkAvailability(config.companyId, startIso, endIso, timeZone);
-                                toolResult = JSON.stringify({ status: 'success', busySlots: busy, officeHours: calConfig?.officeHours });
-                            }
-                            else if (fnName === 'book_appointment') {
-                                const eventDetails = {
-                                    summary: `Agendamento - ${args.customerName}`,
-                                    description: `Tel: ${args.customerPhone}\nNotas: ${args.notes}`,
-                                    startTime: args.startTime,
-                                    endTime: new Date(new Date(args.startTime).getTime() + 30 * 60000).toISOString()
-                                };
-                                if (args.typeId && config.appointmentTypes) {
-                                    const t = config.appointmentTypes.find(x => x.id === args.typeId);
-                                    if (t) {
-                                        eventDetails.summary = `${t.name} - ${args.customerName}`;
-                                        eventDetails.endTime = new Date(new Date(args.startTime).getTime() + t.duration * 60000).toISOString();
-                                    }
-                                }
-                                const gEvent = await createCalendarEvent(config.companyId, eventDetails);
-                                await prisma.appointment.create({
-                                    data: {
-                                        companyId: config.companyId,
-                                        googleEventId: gEvent.id,
-                                        customerName: args.customerName,
-                                        customerPhone: args.customerPhone,
-                                        startTime: new Date(eventDetails.startTime),
-                                        endTime: new Date(eventDetails.endTime),
-                                        notes: args.notes,
-                                        specialistId: args.specialistId,
-                                        typeId: args.typeId,
-                                        status: 'CONFIRMED'
-                                    }
-                                });
-                                toolResult = JSON.stringify({ status: 'success', message: 'Agendamento confirmado!', link: gEvent.htmlLink });
-                            }
-                        } catch (e) {
-                            toolResult = JSON.stringify({ status: 'error', message: e.message });
-                        }
-
-                        messages.push({
-                            role: "tool",
-                            tool_call_id: toolCall.id,
-                            content: toolResult
-                        });
-                    }
-                    turns++;
-                } else {
-                    break;
-                }
-            }
-
-            // --- Audio Script Extraction ---
-            let textForAudio = aiResponse;
-            const scriptRegex = /\[SCRIPT_AUDIO\]:([\s\S]*?)$/i;
-
-            const scriptMatch = aiResponse.match(scriptRegex);
-            if (scriptMatch && scriptMatch[1]) {
-                textForAudio = scriptMatch[1].trim();
-                aiResponse = aiResponse.replace(scriptRegex, '').trim();
-                console.log('[Chat] Separate Audio Script detected and extracted.');
-            }
-
-            // --- Image Detection Logic ---
-            let productImageUrl = null;
-            let productCaption = ""; // Initialize caption
-
-            logFlow(`AI Response Raw: ${aiResponse.substring(0, 100)}...`);
-
-            // Robust Regex: Optional quotes (straight or smart), spaces, dots/dashes
-            // (Legacy Logic Part 1 Removed)
-
-            // (Legacy Logic Fully Removed)
-            // Append debug error if any
-            // --- 2. MULTI-IMAGE & TEXT SPLITTING LOGIC ---
-            // (Variables already declared above)
-            productImageUrl = null; // Reset for legacy
-            productCaption = "";
-            let messageChunks = []; // Ensure messageChunks is declared or use existing if any (it's new)
-
-
-            // check if we have image tags
-            const globalImageRegex = /\[SHOW_IMAGE:\s*['"“”]?([^\]]+?)['"“”]?\s*\]/gi;
-            let match;
-            let lastIndex = 0;
-
-            // We need to execute regex in a loop to find all occurrences
-            // and split the text accordingly.
-
-            // First, check if ANY tag exists to avoid overhead
-            if (globalImageRegex.test(aiResponse)) {
-                console.log(`[Multi - Image] DETECTED IMAGE TAGS IN RESPONSE!`);
-                globalImageRegex.lastIndex = 0; // Reset
-
-                while ((match = globalImageRegex.exec(aiResponse)) !== null) {
-                    // Text BEFORE the tag
-                    const textSegment = aiResponse.substring(lastIndex, match.index).trim();
-                    if (textSegment) {
-                        messageChunks.push({ type: 'text', content: textSegment });
-                    }
-
-                    // The Image Tag ID
-                    const targetId = match[1];
-                    const resolved = resolveProductImageFromConfig(targetId, config);
-
-                    if (resolved.found) {
-                        console.log(`[Chat] Found Image for ${targetId}`);
-                        messageChunks.push({
-                            type: 'image',
-                            url: resolved.url,
-                            caption: resolved.caption,
-                            id: targetId
-                        });
-
-                        // Set legacy for first image found (backward compat)
-                        if (!productImageUrl) {
-                            productImageUrl = resolved.url;
-                            productCaption = resolved.caption;
-                        }
-                    } else {
-                        console.log(`[Chat] Image not found for ${targetId}`);
-                        // Append error to the previous text chunk or new text chunk
-                        messageChunks.push({
-                            type: 'text',
-                            content: `(⚠️ Erro: Imagem não encontrada para o ID: ${targetId})`
-                        });
-                    }
-
-                    lastIndex = globalImageRegex.lastIndex;
-                }
-
-                // Text AFTER the last tag
-                const remainingText = aiResponse.substring(lastIndex).trim();
-                if (remainingText) {
-                    messageChunks.push({ type: 'text', content: remainingText });
-                }
-
-
-                // CLEANUP: Remove tags from the main aiResponse used for history/audio?
-                // Actually, for audio, we probably want the text but NOT the tags.
-                // Let's strip tags from aiResponse for the return value
-                aiResponse = aiResponse.replace(globalImageRegex, '').trim();
-
-            } else {
-                // No images, just text
-                messageChunks.push({ type: 'text', content: aiResponse });
-            }
-
-
-
-            // --- PDF Logic (Service Details) ---
-            let pdfBase64 = null;
-            let pdfName = null;
-            const pdfTagRegex = /\[SEND_PDF:\s*['"]?([^\]]+?)['"]?\s*\]/i;
-            const pdfMatch = aiResponse.match(pdfTagRegex);
-
-            if (pdfMatch) {
-                const targetId = pdfMatch[1];
-                let foundPdf = null;
-                let foundName = null;
-
-                // Check Products/Services
-                if (config.products) {
-                    const p = config.products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
-                    if (p && p.pdf) {
-                        foundPdf = p.pdf;
-                        foundName = `${p.name}.pdf`; // Fallback name
-                    }
-                }
-
-                if (foundPdf) {
-                    try {
-                        pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
-                        pdfName = foundName;
-                        console.log(`[Chat] Found PDF for ID ${targetId}.`);
-                        // Remove tag
-                        aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF: \\s * ['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
-                    } catch (e) {
-                        console.error(`[Chat] PDF Processing Error:`, e);
-                    }
-                } else {
-                    console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
-                    aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
-                }
-            }
-
-            // --- Audio Generation Logic ---
-            let audioBase64 = null;
-            const integrator = config.integrations || {};
-
-            // 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
-            // If disabled in config, we NEVER generate, even if user sent audio.
-            // (User said: "Configuration needs to apply to the received audio format")
-            const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
-
-            // Check for API Key
-            let apiKey = integrator.elevenLabsKey;
-
-            // SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
-            if (apiKey && (apiKey.trim().startsWith('sk-') || apiKey.trim().startsWith('sk_'))) {
-                console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
-                apiKey = null;
-            }
-
-            // Fallback to Global
-            apiKey = apiKey || globalConfig?.elevenLabsKey;
-
-            if (isVoiceEnabled && apiKey) {
-                let shouldGenerate = false;
-
-                // 2. Logic based on Input Type vs Config Trigger
-                if (isAudioInput) {
-                    // Case A: User sent AUDIO
-                    // We always reply in Audio if feature is enabled.
-                    // (Even if set to 'percentage', Audio-for-Audio is the baseline expectation)
-                    shouldGenerate = true;
-                    console.log('[Audio] Audio Input detected -> Forcing Audio Response.');
-                } else {
-                    // Case B: User sent TEXT
-                    if (integrator.responseType === 'audio_only') {
-                        // UI: "Responder em áudio apenas quando o cliente enviar áudio"
-                        // Since this is TEXT input, we do NOT generate.
-                        shouldGenerate = false;
-                        console.log('[Audio] Text Input + AudioOnly Mode -> Skipping Audio.');
-                    } else if (integrator.responseType === 'percentage') {
-                        // UI: "Responder em áudio aleatoriamente (% das mensagens)"
-                        const probability = parseInt(integrator.responsePercentage || 50, 10);
-                        const randomVal = Math.random() * 100;
-
-                        if (randomVal <= probability) {
-                            shouldGenerate = true;
-                            console.log(`[Audio] Probability Hit: ${randomVal.toFixed(0)} <= ${probability} -> Generating.`);
-                        } else {
-                            console.log(`[Audio] Probability Miss: ${randomVal.toFixed(0)} > ${probability} -> Skipping.`);
-                        }
-                    }
-                }
-
-                if (shouldGenerate) {
-                    try {
-                        let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
-
-                        // Fallback for Agent IDs (Now supported via resolution)
-                        let resolvedVoiceId = voiceId;
-                        if (voiceId.startsWith('agent_')) {
-                            const foundId = await resolveVoiceFromAgent(voiceId, apiKey);
-                            if (foundId) {
-                                resolvedVoiceId = foundId;
-                            } else {
-                                console.warn(`Could not resolve Agent ID. Falling back to default.`);
-                                resolvedVoiceId = '21m00Tcm4TlvDq8ikWAM';
-                            }
-                        }
-
-                        console.log(`[Audio Debug] Generating Audio using VoiceID: ${resolvedVoiceId}`);
-
-                        // Use Helper (which handles Preprocessing + Phonetics)
-                        // use textForAudio (Script) if available, otherwise aiResponse
-                        const textToSpeak = textForAudio || aiResponse;
-
-                        audioBase64 = await generateAudio(textToSpeak, apiKey, resolvedVoiceId);
-                    } catch (audioError) {
-                        console.error('Audio Generation Error:', audioError);
-                    }
-                }
-            }
-
-            return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName, messageChunks };
-
-        } catch (error) {
-            console.error('[ProcessChat] Critical Error:', error);
-            return {
-                aiResponse: "Desculpe, ocorreu um erro interno ao processar sua mensagem.",
-                messageChunks: [{ type: 'text', content: "Desculpe, ocorreu um erro interno." }]
-            };
-        }
-    };
-
-    // --- Config History Routes ---
-    app.get('/api/config/history', authenticateToken, async (req, res) => {
-        const companyId = req.user.companyId;
-        try {
-            const config = await prisma.agentConfig.findUnique({ where: { companyId } });
-            if (!config) return res.json([]);
-
-            const history = await prisma.promptHistory.findMany({
-                where: { agentConfigId: config.id },
-                orderBy: { createdAt: 'desc' },
-                take: 20
-            });
-
-            res.json(history);
-        } catch (error) {
-            res.status(500).json({ message: 'Erro ao buscar histórico' });
-        }
-    });
-
-    app.post('/api/config/restore', authenticateToken, async (req, res) => {
-        const { historyId } = req.body;
-        const companyId = req.user.companyId;
-
-        try {
-            const historyItem = await prisma.promptHistory.findUnique({ where: { id: historyId } });
-            if (!historyItem) return res.status(404).json({ message: 'Versão não encontrada' });
-
-            await prisma.agentConfig.update({
-                where: { companyId },
-                data: { systemPrompt: historyItem.systemPrompt }
-            });
-
-            res.json({ success: true, message: 'Prompt restaurado com sucesso' });
-        } catch (error) {
-            res.status(500).json({ message: 'Erro ao restaurar versão' });
-        }
-    });
-
-
-
-
-
-    // --- Chat Endpoint (Protected - Panel Test) ---
-    app.post('/api/chat', authenticateToken, async (req, res) => {
-        const companyId = req.user.companyId;
-        const { message, history, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
-
-        console.log(`[API Chat] Request received from Company: ${companyId}`);
-        if (!message) return res.status(400).json({ error: 'Message required' });
-
-        try {
-            console.log('[API Chat] Fetching config...');
-            const config = await getCompanyConfig(companyId);
-            if (!config) {
-                console.error(`[API Chat] Config not found for company ${companyId}`);
-                return res.status(404).json({ error: 'Company config not found' });
-            }
-            console.log('[API Chat] Config loaded. Calling processChatResponse...');
-
-            // Allow override for Test Panel
-            if (!useConfigPrompt && overridePrompt) {
-                config.systemPrompt = overridePrompt;
-            }
-
-            const { aiResponse, audioBase64, productImageUrl, pdfBase64, pdfName } = await processChatResponse(config, message, history, null);
-
-            // Persist Chat (Test Mode - No Session)
-            try {
-                await prisma.testMessage.create({ data: { companyId, sender: 'user', text: message } });
-                await prisma.testMessage.create({ data: { companyId, sender: 'ai', text: aiResponse } });
-            } catch (dbError) {
-                console.error('Failed to save chat history:', dbError);
-            }
-
-            res.json({ response: aiResponse, audio: audioBase64, image: productImageUrl, pdf: pdfBase64, pdfName });
-
-        } catch (error) {
-            console.error('Chat API Error:', error);
-            res.status(500).json({ error: error.message || 'Error processing chat' });
-        }
-    });
-
-    app.get('/api/chat/history', authenticateToken, async (req, res) => {
-        try {
-            const history = await prisma.testMessage.findMany({
-                where: { companyId: req.user.companyId },
-                orderBy: { createdAt: 'asc' }, // Oldest first
-                take: 50 // Limit to last 50
-            });
-
-            // Map to frontend format
-            const formatted = history.map(h => ({
-                id: h.id, // String UUID
-                sender: h.sender,
-                text: h.text
+        // Append to system prompt just for this execution
+        const finalSystemPrompt = systemPrompt + "\n\n" + imageEnforcementFooter;
+
+        // Prepare Messages (History + System)
+        let messages = [{ role: "system", content: finalSystemPrompt }];
+
+        if (Array.isArray(history) && history.length > 0) {
+            const cleanHistory = history.map(h => ({
+                role: h.role === 'user' || h.role === 'assistant' || h.role === 'tool' ? h.role : 'user',
+                content: h.content || '',
+                tool_calls: h.tool_calls,
+                tool_call_id: h.tool_call_id
             }));
-
-            res.json(formatted);
-        } catch (error) {
-            console.error('Error fetching chat history:', error);
-            res.status(500).json({ message: 'Failed to fetch history' });
-        }
-    });
-
-
-    // --- PROMP API INTEGRATION ---
-
-
-    app.post('/api/promp/connect', authenticateToken, async (req, res) => {
-        // SessionID manual input support
-        const { identity, sessionId, manualUserId } = req.body;
-        const companyId = req.user.companyId;
-
-        if (!PROMP_ADMIN_TOKEN) {
-            return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
+            messages = [...messages, ...cleanHistory];
         }
 
-        try {
-            console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
+        // Add current user message (Rewritten or Original)
+        messages.push({ role: "user", content: finalUserMessage });
 
-            // 1. List Tenants to get IDs
-            const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
-                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
-            });
-
-            if (!tenantsRes.ok) throw new Error('Failed to list tenants');
-
-            const tenantsData = await tenantsRes.json();
-            const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
-
-            console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
-
-            // 2. Parallel Fetch Details (identity is only in detailed view)
-            const detailPromises = tenantListBasic.map(async (t) => {
-                try {
-                    const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                            'Content-Type': 'application/json'
+        // --- TOOL DEFINITIONS ---
+        const tools = [
+            {
+                type: "function",
+                function: {
+                    name: "check_availability",
+                    description: "Verifica horários disponíveis para agendamento.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            date: { type: "string", description: "Data desejada (YYYY-MM-DD)" },
+                            specialistId: { type: "string" },
+                            typeId: { type: "string" }
                         },
-                        body: JSON.stringify({ id: t.id })
-                    });
-                    if (!res.ok) return null;
-                    const json = await res.json();
-                    const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
-                    return tenantObj || json;
-                } catch (e) {
-                    return null;
-                }
-            });
-
-            const detailedTenants = await Promise.all(detailPromises);
-
-            // Exact match on identity string (Sanitized)
-            const sanitize = (str) => String(str || '').replace(/\D/g, '');
-            const targetIdentity = sanitize(identity);
-
-            const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
-
-            if (!targetTenant) {
-                console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
-                return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
-            }
-
-            console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
-
-            // 3. Create API (Best Effort)
-            const apiName = "Agente IA Auto";
-
-            // Priority: Manual Session ID > Tenant ID (Fallback)
-            // If manual sessionId is provided, use it blindly.
-            // If not, use tenant.id (which failed before, but is the best guess if no other option).
-            const finalSessionId = sessionId || targetTenant.id;
-
-            // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
-            // We must find a valid User ID *inside* this specific tenant.
-
-            let targetUserId = null;
-
-            // Strategy 0: Manual User ID (Override - Highest Priority)
-            if (manualUserId) {
-                const manualIdInt = parseInt(manualUserId);
-                if (!isNaN(manualIdInt)) {
-                    console.log(`[Promp] Manual User ID provided: ${manualIdInt}. Validating against Tenant...`);
-
-                    let fetchDebug = '';
-                    let tenantUsers = targetTenant.users;
-                    // Fetch if missing
-                    if (!tenantUsers || !Array.isArray(tenantUsers) || tenantUsers.length === 0) {
-                        try {
-                            console.log(`[Promp] Fetching users for Tenant ${targetTenant.id} (manual validation)...`);
-                            const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
-                                method: 'POST',
-                                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ tenantId: targetTenant.id })
-                            });
-
-                            if (usersRes.ok) {
-                                const usersData = await usersRes.json();
-                                tenantUsers = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
-                                targetTenant.users = tenantUsers;
-                                console.log(`[Promp] Fetched ${tenantUsers.length} users.`);
-                            } else {
-                                const errText = await usersRes.text();
-                                fetchDebug = `Status: ${usersRes.status}, Resp: ${errText}`;
-                                console.error('[Promp] Fetch User List Failed:', fetchDebug);
-                            }
-                        } catch (e) {
-                            fetchDebug = `Exception: ${e.message}`;
-                            console.error('Error fetching users for manual validation:', e);
-                        }
+                        required: ["date"]
                     }
-
-                    if (Array.isArray(tenantUsers)) {
-                        const exists = tenantUsers.find(u => u.id === manualIdInt);
-                        if (exists) {
-                            targetUserId = manualIdInt;
-                            console.log(`[Promp] MANUAL USER ID VALIDATED and SELECTED: ${targetUserId}`);
-                        } else {
-                            console.warn(`[Promp] Manual User ID ${manualIdInt} NOT FOUND in Tenant #${targetTenant.id}.`);
-                            return res.status(400).json({
-                                message: `O ID de usuário informado (${manualIdInt}) não foi encontrado neste Tenant (ID: ${targetTenant.id}). IDs disponíveis: ${tenantUsers.map(u => u.id + ' (' + u.name + ')').join(', ')}`
-                            });
-                        }
-                    } else {
-                        // If we can't validate (API failure), TRUST THE USER.
-                        console.warn(`[Promp] Validation skipped (API error: ${fetchDebug || 'Unknown'}). Trusting Manual ID: ${manualIdInt}`);
-                        targetUserId = manualIdInt;
+                }
+            },
+            {
+                type: "function",
+                function: {
+                    name: "book_appointment",
+                    description: "Realiza o agendamento.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            startTime: { type: "string", description: "Horário de início (ISO 8601)" },
+                            customerName: { type: "string" },
+                            customerPhone: { type: "string" },
+                            specialistId: { type: "string" },
+                            typeId: { type: "string" },
+                            notes: { type: "string" }
+                        },
+                        required: ["startTime", "customerName", "customerPhone"]
                     }
                 }
             }
+        ];
 
-            // Strategy 1: Match by Email (Identity Alignment)
-            if (!targetUserId) {
+        // --- TOOL LOOP (Max 3 Turns) ---
+        let aiResponse = "";
+        let turns = 0;
+        const maxTurns = 3;
+        // Check if Google Config exists and has token
+        const shouldUseTools = config.googleConfig && config.googleConfig.accessToken;
 
-                // Check if the current logged-in Agent user exists in the Target Tenant's user list
-
-                try {
-                    const currentUser = await prisma.user.findUnique({
-                        where: { id: req.user.userId }
-                    });
-
-                    if (currentUser && currentUser.email) {
-                        const currentUserEmail = currentUser.email.trim().toLowerCase();
-
-                        if (Array.isArray(targetTenant.users)) {
-                            // Case-insensitive match
-                            const matchedUser = targetTenant.users.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
-
-                            if (matchedUser) {
-                                targetUserId = matchedUser.id;
-                                console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUserEmail} -> User ID: ${targetUserId}`);
-                            } else {
-                                console.log(`[Promp] No match for ${currentUserEmail} in tenant users:`, targetTenant.users.map(u => u.email));
-                            }
-                        }
-                    }
-                } catch (authErr) {
-                    console.error('[Promp] Auth lookup failed (skipping email match):', authErr);
-                }
-
-                // Strategy 2: Admin/Owner Fallback (if no email match)
-                if (!targetUserId) {
-                    targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
-                }
-
-                // Inspect 'users' array if available (Fallback to first user)
-                if (!targetUserId && Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
-                    targetUserId = targetTenant.users[0].id;
-                    console.log(`[Promp] Found User ID from 'users' array (First User): ${targetUserId}`);
-                }
-
-                // Inspect 'admin' object if available
-                if (!targetUserId && targetTenant.admin && targetTenant.admin.id) {
-                    targetUserId = targetTenant.admin.id;
-                    console.log(`[Promp] Found User ID from 'admin' object: ${targetUserId}`);
-                }
-
-                // Final Fallback (Try 1, but warn)
-                if (!targetUserId) {
-                    console.warn('[Promp] WARNING: No explicit User ID found in Tenant object. Defaulting to 1 (Risk of failure).');
-                    console.log('[Promp] Tenant Keys:', Object.keys(targetTenant).join(', '));
-                    targetUserId = 1;
-                }
-
-            }
-
-            console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
-
-            const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    name: apiName,
-                    sessionId: finalSessionId,
-                    userId: targetUserId,
-                    authToken: Math.random().toString(36).substring(7),
-                    tenant: targetTenant.id
-                })
-            });
-
-            let apiData = await createApiRes.json();
-
-            if (!createApiRes.ok || !apiData.id) {
-                console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
-                // Return ACTUAL error from upstream + Context
-                return res.status(400).json({
-                    message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
-                });
-            }
-
-            // SAVE TO DB (Upsert to create if missing)
-            await prisma.agentConfig.upsert({
-                where: { companyId },
-                update: {
-                    prompIdentity: identity,
-                    prompUuid: apiData.id,
-                    prompToken: apiData.token
-                },
-                create: {
-                    companyId,
-                    prompIdentity: identity,
-                    prompUuid: apiData.id,
-                    prompToken: apiData.token
-                }
-            });
-
-            res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
-
-        } catch (error) {
-            console.error('Promp Connect Error:', error);
-            res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+        // Create OpenAI Client dynamically with the correct key
+        let openaiApiKey = process.env.OPENAI_API_KEY;
+        if (config.integrations && config.integrations.openaiKey) {
+            openaiApiKey = config.integrations.openaiKey;
         }
-    });
 
-
-    // --- Webhook Integration (Public) ---
-    // Generic Webhook Fallback (if companyId missing in URL)
-    app.post('/webhook', async (req, res) => {
-        console.log('[Webhook] Received request on generic /webhook endpoint (No ID).');
-
-        // Try to find a default company or extract from payload
-        // This is a Safety Net for misconfigured integrations.
-        const firstCompany = await prisma.company.findFirst();
-        if (firstCompany) {
-            console.log(`[Webhook] Redirecting to Company ${firstCompany.id}`);
-            // Internally forward or redirect? 
-            // Better to just call the handler or duplicate logic?
-            // Let's redirect 307 to the correct URL if possible, or handle it here.
-            // Since this is S2S, redirect might not be followed.
-            // We'll just call the logic via internal redirect if we could, but express doesn't support internal dispatch easily.
-            // We'll just return an error telling them to configure the URL correctly.
-            console.error('[Webhook] ERROR: Integration URL is missing Company ID. Use: /webhook/' + firstCompany.id);
-            return res.status(400).json({
-                error: 'Webhook URL must include Company ID',
-                correctUrl: `/webhook/${firstCompany.id}`,
-                example: `https://seu-dominio.com/webhook/${firstCompany.id}`
-            });
+        if (!openaiApiKey) {
+            console.error('[AI] No OpenAI Key found in Config or Env!');
+            return { aiResponse: "Erro: Chave de API não configurada." };
         }
-        res.status(400).send('Missing Company ID in URL');
-    });
 
-    // Webhook Handlers (Defined explicitly for compatibility)
-    const handleWebhookRequest = async (req, res) => {
-        const { companyId } = req.params;
-        const payload = req.body;
+        const client = new OpenAI({ apiKey: openaiApiKey });
 
-        console.log(`[Webhook] HEADERS Content-Type: ${req.get('Content-Type')}`);
-        console.log(`[Webhook] Handler Reached for Company: ${companyId}`);
-
-        if (!payload || Object.keys(payload).length === 0) {
-            console.error('[Webhook] Empty Payload! Check Content-Type.');
+        if (!shouldUseTools) {
+            console.log('[AI] Running in TEXT-ONLY mode (Calendar not connected or token missing).');
         } else {
-            console.log(`[Webhook] FULL PAYLOAD (${companyId}):`, JSON.stringify(payload, null, 2));
+            console.log('[AI] Running in TOOL-ENABLED mode (Calendar connected).');
         }
 
-        // Load Config EARLY (needed for Identity check)
-        let followUpCfg = null;
-        let config = null;
-        try {
-            config = await getCompanyConfig(companyId);
-            if (config?.followUpConfig) {
-                // Safe JSON Parsing to avoid SyntaxError
-                if (typeof config.followUpConfig === 'string') {
-                    if (config.followUpConfig.trim().startsWith('{')) {
-                        followUpCfg = JSON.parse(config.followUpConfig);
-                    }
-                } else if (typeof config.followUpConfig === 'object') {
-                    followUpCfg = config.followUpConfig;
-                }
-            }
-        } catch (e) {
-            console.error('[Webhook] Failed to load config:', e);
-        }
-
-        // ------------------------------------------------------------------
-        // 0. DEDUPLICATION (Prevent Triple Replies)
-        // ------------------------------------------------------------------
-        const msgId = payload.key?.id || payload.id || payload.data?.id;
-        if (msgId) {
-            if (processedMessages.has(msgId)) {
-                console.log(`[Webhook] Duplicate Message ID ${msgId}. Ignoring.`);
-                return res.json({ status: 'ignored_duplicate' });
-            }
-            processedMessages.add(msgId);
-            // Clear from memory after 15 seconds
-            setTimeout(() => processedMessages.delete(msgId), 15000);
-        }
-
-        // ------------------------------------------------------------------
-        // LOOP PROTECTION & SENDER IDENTITY
-        // ------------------------------------------------------------------
-
-        // 1. Check "wasSentByApi" (Explicit flag from some Providers)
-        // If true, it is DEFINITELY the bot/agent.
-        if (payload.wasSentByApi || payload.msg?.wasSentByApi || payload.data?.wasSentByApi) {
-            console.log('[Webhook] Loop Protection: Message marked as "wasSentByApi". Ignoring.');
-            return res.json({ status: 'ignored_api_sent' });
-        }
-
-        // 2. Identify Sender
-        const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
-        const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
-
-        // 3. Identify Protocol Owner (The session/bot number)
-        const rawOwner = payload.msg?.owner || payload.owner;
-        const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
-
-        // 4. Identify Configured Identity (From DB)
-        let dbIdentity = null;
-        if (config?.prompIdentity) {
-            dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
-        }
-
-        // IDENTITY CHECK: "Consider ONLY what is sent TO the number that is in the AI"
-        // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
-        // (Only if both are known)
-        if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
-            console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
-            return res.json({ status: 'ignored_wrong_identity' });
-        }
-
-        // ------------------------------------------------------------------
-        // 5. STRICT FILTERS (Groups, Status, Broadcasts)
-        // ------------------------------------------------------------------
-        const isGroup = rawSender ? rawSender.includes('@g.us') : false;
-        const isBroadcast = rawSender ? (rawSender.includes('broadcast') || rawSender.includes('@lid')) : false;
-        // Note: @lid is sometimes used for individual chats in new WhatsApp versions. 
-        // If it is 'status@broadcast', ignore. If it is '123...456@lid', it might be a user.
-        // SAFE BET: Ignore 'status@broadcast' explicitly.
-        // Also ignore empty messages or protocol messages.
-        const messageType = payload.messageType || payload.type;
-        const isProtocol = messageType === 'protocolMessage' || messageType === 'senderKeyDistributionMessage';
-
-        if (rawSender && rawSender.includes('status@broadcast')) {
-            console.log('[Webhook] Ignoring Status Update (status@broadcast).');
-            return res.json({ status: 'ignored_status' });
-        }
-
-        if (isGroup) {
-            console.log('[Webhook] Ignoring Group Message.');
-            return res.json({ status: 'ignored_group' });
-        }
-
-
-
-        if (isProtocol) {
-            console.log('[Webhook] Ignoring Protocol Message.');
-            return res.json({ status: 'ignored_protocol' });
-        }
-
-        let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
-
-        // REVERTED: Removed "Smart" Auto-Detection of Identity/Owner to avoid "Double Reply" bugs.
-        // Relying Strictly on API 'fromMe' flag.
-
-        // ------------------------------------------------------------------
-        // FLOW A: AGENT SENT MESSAGE -> START TIMER
-        // ------------------------------------------------------------------
-
-        if (isFromMe) {
-            console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
-
-            // For OUTBOUND messages, we need to find the RECIPIENT to set the timer for.
-            // Usually in `payload.key.remoteJid` or `payload.to` or `payload.msg.chatid`
-            // CAREFUL: In some webhooks, key.remoteJid is the Chat ID (User).
-            // Let's inspect `remoteJid`. If it's the User, use it.
-
-            let targetJid = payload.key?.remoteJid || payload.to || payload.msg?.chatid;
-            // If remoteJid contains status@broadcast, we already ignored it.
-
-            // Sanity Check: If targetJid IS the agent (unlikely for outbound), we have a problem.
-            // Assuming targetJid is the User.
-
-            if (targetJid) {
-                const cleanTarget = String(targetJid).replace(/\D/g, '');
-
-                // SAFETY CHECK: If Target is myself (Agent), ABORT.
-                if (cleanTarget === cleanOwner || cleanTarget === dbIdentity || cleanTarget === cleanSender) {
-                    console.log(`[FollowUp] Timer SKIPPED. Target (${cleanTarget}) is myself/sender. (Owner: ${cleanOwner}, ID: ${dbIdentity})`);
-                    return res.json({ status: 'ignored_self_target' });
-                }
-
-                // Check if Follow-up is Enabled
-                if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
-                    const firstAttempt = followUpCfg.attempts[0];
-                    const now = new Date();
-                    let nextDate = new Date();
-                    if (firstAttempt.delayUnit === 'minutes') nextDate.setMinutes(now.getMinutes() + firstAttempt.delayValue);
-                    if (firstAttempt.delayUnit === 'hours') nextDate.setHours(now.getHours() + firstAttempt.delayValue);
-                    if (firstAttempt.delayUnit === 'days') nextDate.setDate(now.getDate() + firstAttempt.delayValue);
-
-                    // UPSERT STATE for the USER (Target)
-                    // Use full JID for DB uniqueness
-                    await prisma.contactState.upsert({
-                        where: { companyId_remoteJid: { companyId, remoteJid: targetJid } },
-                        create: {
-                            companyId,
-                            remoteJid: targetJid,
-                            isActive: true,
-                            attemptIndex: 0,
-                            lastOutbound: now,
-                            nextFollowUp: nextDate
-                        },
-                        update: {
-                            isActive: true,
-                            attemptIndex: 0,
-                            lastOutbound: now,
-                            nextFollowUp: nextDate
-                        }
-                    });
-                    console.log(`[FollowUp] Timer STARTED for ${cleanTarget}. Next: ${nextDate.toISOString()}`);
-                } else {
-                    console.log('[FollowUp] Timer IGNORED (Disabled or No Attempts).');
-                }
-            }
-
-            // CRITICAL: STOP HERE. Do not process as user message.
-            return res.json({ status: 'agent_action_processed' });
-        }
-
-        // ------------------------------------------------------------------
-        // FLOW B: USER SENT MESSAGE -> STOP TIMER & REPLY
-        // ------------------------------------------------------------------
-
-        console.log(`[Webhook] Processing User Message from ${cleanSender}...`);
-
-        // Check if Status Update again (redundant but safe)
-        if (payload.type === 'message_status' || payload.status) {
-            return res.json({ status: 'ignored_status_update' });
-        }
-
-        // Safety Check for Content
-        // Wuzapi: payload.data.message.conversation OR payload.content.text
-        // User Log Payload: payload.msg.text Or payload.msg.content
-        let userMessage = payload.content?.text ||
-            payload.data?.message?.conversation ||
-            payload.data?.message?.extendedTextMessage?.text ||
-            payload.msg?.text ||
-            payload.msg?.body ||
-            payload.msg?.content;
-
-        // --- AUDIO HANDLING ---
-        // If text is "ptt" (Push To Talk) or "audio" AND we have media, it's an Audio Message.
-        let isAudioInput = false;
-        const mediaBase64 = payload.content?.media || payload.msg?.media || payload.media; // Try all paths
-
-        if ((userMessage === 'ptt' || userMessage === 'audio' || payload.type === 'audio') && mediaBase64) {
-            console.log('[Webhook] Audio Message Detected. Attempting Transcription...');
-
-            // Need Global Key for Whisper
-            const globalConfig = await getGlobalConfig();
-            if (globalConfig?.openaiKey) {
-                const transcription = await transcribeAudio(mediaBase64, globalConfig.openaiKey);
-                if (transcription) {
-                    userMessage = `[ÁUDIO TRANSCRITO]: ${transcription}`;
-                    isAudioInput = true;
-                    console.log(`[Webhook] Audio Transcribed: "${userMessage}"`);
-                } else {
-                    userMessage = "[Áudio inaudível]";
-                }
-            } else {
-                console.warn('[Webhook] No Global OpenAI Key. Cannot transcribe audio.');
-                userMessage = "[Áudio recebido, mas sem chave para transcrever]";
-            }
-        }
-
-        if (!userMessage) {
-            // If it's a media message or something else we don't support yet, ignore gracefully
-            console.log('[Webhook] Payload missing text content. Ignoring.');
-            return res.json({ status: 'ignored_no_text' });
-        }
-        if (!userMessage) {
-            // If it's a media message or something else we don't support yet, ignore gracefully
-            console.log('[Webhook] Payload missing text content. Ignoring.');
-            return res.json({ status: 'ignored_no_text' });
-        }
-
-        // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
-        const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
-        const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
-
-        // Clean Sender Number if it has @s.whatsapp.net
-        const cleanNumber = senderNumber ? String(senderNumber).replace(/\D/g, '') : null;
-
-        if (!cleanNumber) {
-            console.log('[Webhook] No specific sender number found. Ignoring.');
-            return res.json({ status: 'ignored_no_number' });
-        }
-
-        // --- STOP FOLLOW-UP TIMER (User Replied) ---
-        try {
-            // If user replies, we stop any pending sequence
-            // We use updateMany just in case record doesn't exist (avoid error) or findUnique check
-            // Ideally:
-            const jid = senderNumber.includes('@') ? senderNumber : `${senderNumber}@s.whatsapp.net`;
-
-            await prisma.contactState.updateMany({
-                where: {
-                    companyId: companyId,
-                    remoteJid: jid // We must match what we saved (likely full JID)
-                },
-                data: { isActive: false }
-            });
-            console.log(`[FollowUp] Timer STOPPED for ${cleanNumber}`);
-        } catch (e) {
-            // Ignore error
-        }
-
-        const metadata = JSON.stringify(payload);
-
-        try {
-            const config = await getCompanyConfig(companyId);
-            if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
-
-            const msgLog = userMessage ? String(userMessage).substring(0, 50) : '[No Content]';
-            console.log(`[Webhook] Processing message for ${cleanNumber}: "${msgLog}..."`);
-
-            // Fetch History
-            let history = [];
-
-            // STRATEGY: Try fetching by sessionId. If fails (or sessionId null), try fetching by senderNumber (via metadata or new field... but metadata is lazy).
-            // Let's rely on sessionId first. If sessionId is missing, we MIGHT lose history.
-            // However, if the webhook provides ticket.id (which it seems to), we are good.
-            // Issue: Previous logs show ticket.id changing.
-            // Fallback: Query by metadata contains senderNumber? No, too slow.
-            // Fix: Use sessionId (ticket.id) if available. If ticket.id IS available, trust it.
-            // If ticket.id changes, it might be a new ticket/support case.
-            // BUT, for a persistent AI, we might want to fetch history by 'sender' NOT 'sessionId'.
-            // Let's Try: Find messages where companyId matches and metadata CONTAINS cleanNumber. (Slow regex)
-            // BETTER: Use 'sessionId' field in DB to store 'cleanNumber' as a fallback identifier if ticket ID is unstable?
-            // NO, 'sessionId' is for ticket grouping.
-            // Let's stick to sessionId for now but improve the lookup debugging.
-
-            // --- DATABASE MEMORY FIX (Persistent Session + Chronological Order) ---
-            // 1. Session ID: Use cleanNumber (Phone) if available to ensure persistence across tickets.
-            //    Fallback to ticket.id if needed, but phone is better for long-term memory.
-            const dbSessionId = cleanNumber || sessionId || 'unknown_session';
-
-            if (cleanNumber) {
-                try {
-                    // 2. Fetch History: Get 20 *MOST RECENT* messages (descending)
-                    const storedMessages = await prisma.testMessage.findMany({
-                        where: {
-                            companyId: String(companyId),
-                            sessionId: String(dbSessionId)
-                        },
-                        orderBy: { createdAt: 'desc' }, // Get newest first
-                        take: 20
-                    });
-
-                    // 3. Reverse to Chronological Order for OpenAI (Oldest -> Newest)
-                    history = storedMessages.reverse().map(m => ({
-                        role: m.sender === 'user' ? 'user' : 'assistant',
-                        content: m.text
-                    }));
-
-                    console.log(`[Webhook] Fetched ${history.length} msgs of Persistent History for ${dbSessionId}`);
-                } catch (histError) {
-                    console.error('[Webhook] History Fetch Error:', histError);
-                }
-            }
-
-            // 3. Process AI Response
-            // Pass isAudioInput flag so AI can decide to reply with audio
-            const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput);
-
-            console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
-            if (messageChunks && messageChunks.length > 0) {
-                console.log(`[Webhook] Multi-message response detected: ${messageChunks.length} chunks.`);
-            }
-
-            // Persist Chat (Using Persistent Session ID)
-            // We persist the FULL AI response for context, even if sent in chunks.
-            try {
-                await prisma.testMessage.create({
-                    data: {
-                        companyId: String(companyId),
-                        sender: 'user',
-                        text: userMessage,
-                        sessionId: String(dbSessionId),
-                        metadata
-                    }
-                });
-                await prisma.testMessage.create({
-                    data: {
-                        companyId: String(companyId),
-                        sender: 'ai',
-                        text: aiResponse,
-                        sessionId: String(dbSessionId)
-                    }
-                });
-            } catch (dbError) {
-                console.error('[Webhook] Failed to save chat:', dbError);
-            }
-
-            // --- REPLY STRATEGY ---
-            let sentViaApi = false;
-            if (config.prompUuid && config.prompToken) {
-
-                // MULTI-MESSAGE SENDING LOOP
-                if (messageChunks && messageChunks.length > 0) {
-                    console.log(`[Webhook] Sending ${messageChunks.length} chunks via API...`);
-
-                    for (const [index, chunk] of messageChunks.entries()) {
-                        if (chunk.type === 'image') {
-                            // Send Image
-                            // For the FIRST chunk/image, maybe send audio if allowed? 
-                            // Let's stick to NO audio for images unless it's the *only* thing?
-                            // Actually, audioBase64 is global for the response.
-                            // We should only send Audio ONCE. Let's send it with the LAST chunk? Or First?
-                            // Let's send it with the first TEXT chunk.
-                            const isFirstText = index === 0;
-                            await sendPrompMessage(config, cleanNumber, null, null, chunk.url, chunk.caption);
-                            // small delay
-                            await new Promise(r => setTimeout(r, 600));
-                        } else if (chunk.type === 'text') {
-                            // Send Text
-                            // Attach Audio ONLY to the first text chunk (or if it's the only one)
-                            // If we attach audio, sendPrompMessage sends audio separately anyway.
-                            // But we want to avoid sending audio multiple times.
-                            const chunkAudio = (index === 0) ? audioBase64 : null;
-
-                            await sendPrompMessage(config, cleanNumber, chunk.content, chunkAudio, null, null);
-                            await new Promise(r => setTimeout(r, 800)); // Readability delay
-                        }
-                    }
-                    sentViaApi = true;
-
-                } else {
-                    // Fallback (Should not happen if processChatResponse always returns chunks)
-                    sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
-                }
-
-                console.log(`[Webhook] Sent via API: ${sentViaApi}`);
-            } else {
-                console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
-            }
-
-            if (sentViaApi) {
-                res.json({ status: 'sent_via_api' });
-            } else {
-                res.json({
-                    text: aiResponse,
-                    audio: audioBase64,
-                    image: productImageUrl,
-                    sessionId: sessionId
-                });
-            }
-
-        } catch (error) {
-            console.error('[Webhook] Error:', error);
-            res.status(500).json({ error: error.message || 'Processing failed' });
-        }
-    };
-
-    // MOVED HANDLER TO TOP OF FILE FOR PRIORITY
-    // app.post('/webhook/:companyId', handleWebhookRequest);
-    // app.post('/api/webhook/:companyId', handleWebhookRequest);
-    // app.post('/api/promp/webhook/:companyId', handleWebhookRequest);
-
-    // --- INTELLIGENT FOLLOW-UP SCHEDULER ---
-    const FOLLOW_UP_INTERVAL_MS = 60 * 1000; // Check every 60s
-
-    // Helper to calculate date
-    const calculateNextDate = (value, unit) => {
-        const now = new Date();
-        if (unit === 'minutes') now.setMinutes(now.getMinutes() + value);
-        if (unit === 'hours') now.setHours(now.getHours() + value);
-        if (unit === 'days') now.setDate(now.getDate() + value);
-        return now;
-    };
-
-    setInterval(async () => {
-        try {
-            const now = new Date();
-            // Log heartbeat every minute (or every 5 minutes if too noisy, but for debug every min is good)
-            // console.log(`[FollowUp] Heartbeat at ${now.toISOString()}`); 
-
-            // 1. Find contacts due for follow-up
-            const pendingContacts = await prisma.contactState.findMany({
-                where: {
-                    isActive: true,
-                    nextFollowUp: { lte: now }
-                }
+        while (turns < maxTurns) {
+            const completion = await client.chat.completions.create({
+                messages: messages,
+                model: config.model || "gpt-4o-mini", // Use config model or default
+                tools: shouldUseTools ? tools : undefined,
+                tool_choice: shouldUseTools ? "auto" : undefined
             });
 
-            if (pendingContacts.length > 0) {
-                console.log(`[FollowUp] Found ${pendingContacts.length} contacts due for follow-up at ${now.toISOString()}`);
-                pendingContacts.forEach(c => console.log(` - Contact: ${c.remoteJid}, Next: ${c.nextFollowUp}, Attempt: ${c.attemptIndex}`));
-            } else {
-                // Uncomment to debug if loop is running at all
-                console.log(`[FollowUp] No pending contacts. (Checked at ${now.toISOString()})`);
-            }
+            const msg = completion.choices[0].message;
+            aiResponse = msg.content || "";
 
-            for (const contact of pendingContacts) {
-                try {
-                    // 2. Load Config
-                    // FIX: Use robust JSON parsing same as Webhook
-                    const config = await getCompanyConfig(contact.companyId);
-                    let followUpCfg = null;
-                    if (config?.followUpConfig) {
-                        try {
-                            if (typeof config.followUpConfig === 'string') {
-                                if (config.followUpConfig.trim().startsWith('{')) {
-                                    followUpCfg = JSON.parse(config.followUpConfig);
-                                } else {
-                                    console.warn(`[FollowUp] Invalid JSON string for config: ${config.followUpConfig}`);
-                                }
-                            } else if (typeof config.followUpConfig === 'object') {
-                                followUpCfg = config.followUpConfig;
-                            }
-                        } catch (err) {
-                            console.error(`[FollowUp] JSON Parse Error for contact ${contact.id}:`, err);
-                        }
-                    }
+            // Check for Tool Calls
+            if (msg.tool_calls && msg.tool_calls.length > 0) {
+                messages.push(msg); // Add AI's intent to history
 
-                    // Stop if disabled globally
-                    if (!followUpCfg || !followUpCfg.enabled) {
-                        await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
-                        continue;
-                    }
+                for (const toolCall of msg.tool_calls) {
+                    const fnName = toolCall.function.name;
+                    const args = JSON.parse(toolCall.function.arguments);
+                    let toolResult = "";
+                    console.log(`[AI Tool] Executing ${fnName}`, args);
 
-                    // 3. Check attempts config
-                    const attempts = followUpCfg.attempts || [];
-                    const currentAttemptIndex = contact.attemptIndex;
-
-                    if (currentAttemptIndex >= attempts.length) {
-                        // Exhausted all attempts
-                        await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
-                        continue;
-                    }
-
-                    const currentAttemptConfig = attempts[currentAttemptIndex];
-                    if (!currentAttemptConfig.active) {
-                        // If this specific attempt is disabled, skip to next or stop? 
-                        // Usually we might want to skip. Let's increment index and schedule next immediately (soft skip).
-                        // Or just stop? User said "pause an attempt".
-                        // Let's increment and reschedule for next attempt if exists.
-                        const nextIndex = currentAttemptIndex + 1;
-                        if (nextIndex < attempts.length) {
-                            const nextCfg = attempts[nextIndex];
-                            const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
-                            await prisma.contactState.update({
-                                where: { id: contact.id },
-                                data: { attemptIndex: nextIndex, nextFollowUp: nextDate }
-                            });
-                        } else {
-                            await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
-                        }
-                        continue;
-                    }
-
-                    // 4. Generate AI Message
-                    // FIX: Safe JSON parsing for persona
-                    let persona = {};
                     try {
-                        if (config.persona && typeof config.persona === 'string') {
-                            persona = JSON.parse(config.persona);
-                        } else if (typeof config.persona === 'object') {
-                            persona = config.persona;
+                        if (fnName === 'check_availability') {
+                            const calConfig = await prisma.googleCalendarConfig.findUnique({ where: { companyId: config.companyId } });
+                            const date = args.date;
+                            const timeZone = calConfig?.timezone || 'America/Sao_Paulo';
+                            const startIso = `${date}T00:00:00Z`;
+                            const endIso = `${date}T23:59:59Z`;
+                            const busy = await checkAvailability(config.companyId, startIso, endIso, timeZone);
+                            toolResult = JSON.stringify({ status: 'success', busySlots: busy, officeHours: calConfig?.officeHours });
+                        }
+                        else if (fnName === 'book_appointment') {
+                            const eventDetails = {
+                                summary: `Agendamento - ${args.customerName}`,
+                                description: `Tel: ${args.customerPhone}\nNotas: ${args.notes}`,
+                                startTime: args.startTime,
+                                endTime: new Date(new Date(args.startTime).getTime() + 30 * 60000).toISOString()
+                            };
+                            if (args.typeId && config.appointmentTypes) {
+                                const t = config.appointmentTypes.find(x => x.id === args.typeId);
+                                if (t) {
+                                    eventDetails.summary = `${t.name} - ${args.customerName}`;
+                                    eventDetails.endTime = new Date(new Date(args.startTime).getTime() + t.duration * 60000).toISOString();
+                                }
+                            }
+                            const gEvent = await createCalendarEvent(config.companyId, eventDetails);
+                            await prisma.appointment.create({
+                                data: {
+                                    companyId: config.companyId,
+                                    googleEventId: gEvent.id,
+                                    customerName: args.customerName,
+                                    customerPhone: args.customerPhone,
+                                    startTime: new Date(eventDetails.startTime),
+                                    endTime: new Date(eventDetails.endTime),
+                                    notes: args.notes,
+                                    specialistId: args.specialistId,
+                                    typeId: args.typeId,
+                                    status: 'CONFIRMED'
+                                }
+                            });
+                            toolResult = JSON.stringify({ status: 'success', message: 'Agendamento confirmado!', link: gEvent.htmlLink });
                         }
                     } catch (e) {
-                        console.error('[FollowUp] Error parsing persona:', e);
+                        toolResult = JSON.stringify({ status: 'error', message: e.message });
                     }
-                    const tone = followUpCfg.tone || 'serious';
 
-                    let tonePrompt = "";
-                    if (tone === 'animated') tonePrompt = "Estilo: Energético, motivador, use emojis positivos 🚀.";
-                    if (tone === 'serious') tonePrompt = "Estilo: Profissional, direto, sem gírias.";
-                    if (tone === 'ice_breaker') tonePrompt = "Estilo: Leve, bem-humorado, simpático 😄.";
+                    messages.push({
+                        role: "tool",
+                        tool_call_id: toolCall.id,
+                        content: toolResult
+                    });
+                }
+                turns++;
+            } else {
+                break;
+            }
+        }
 
-                    const systemInstruction = `
+        // --- Audio Script Extraction ---
+        let textForAudio = aiResponse;
+        const scriptRegex = /\[SCRIPT_AUDIO\]:([\s\S]*?)$/i;
+
+        const scriptMatch = aiResponse.match(scriptRegex);
+        if (scriptMatch && scriptMatch[1]) {
+            textForAudio = scriptMatch[1].trim();
+            aiResponse = aiResponse.replace(scriptRegex, '').trim();
+            console.log('[Chat] Separate Audio Script detected and extracted.');
+        }
+
+        // --- Image Detection Logic ---
+        let productImageUrl = null;
+        let productCaption = ""; // Initialize caption
+
+        logFlow(`AI Response Raw: ${aiResponse.substring(0, 100)}...`);
+
+        // Robust Regex: Optional quotes (straight or smart), spaces, dots/dashes
+        // (Legacy Logic Part 1 Removed)
+
+        // (Legacy Logic Fully Removed)
+        // Append debug error if any
+        // --- 2. MULTI-IMAGE & TEXT SPLITTING LOGIC ---
+        // (Variables already declared above)
+        productImageUrl = null; // Reset for legacy
+        productCaption = "";
+        let messageChunks = []; // Ensure messageChunks is declared or use existing if any (it's new)
+
+
+        // check if we have image tags
+        const globalImageRegex = /\[SHOW_IMAGE:\s*['"“”]?([^\]]+?)['"“”]?\s*\]/gi;
+        let match;
+        let lastIndex = 0;
+
+        // We need to execute regex in a loop to find all occurrences
+        // and split the text accordingly.
+
+        // First, check if ANY tag exists to avoid overhead
+        if (globalImageRegex.test(aiResponse)) {
+            console.log(`[Multi - Image] DETECTED IMAGE TAGS IN RESPONSE!`);
+            globalImageRegex.lastIndex = 0; // Reset
+
+            while ((match = globalImageRegex.exec(aiResponse)) !== null) {
+                // Text BEFORE the tag
+                const textSegment = aiResponse.substring(lastIndex, match.index).trim();
+                if (textSegment) {
+                    messageChunks.push({ type: 'text', content: textSegment });
+                }
+
+                // The Image Tag ID
+                const targetId = match[1];
+                const resolved = resolveProductImageFromConfig(targetId, config);
+
+                if (resolved.found) {
+                    console.log(`[Chat] Found Image for ${targetId}`);
+                    messageChunks.push({
+                        type: 'image',
+                        url: resolved.url,
+                        caption: resolved.caption,
+                        id: targetId
+                    });
+
+                    // Set legacy for first image found (backward compat)
+                    if (!productImageUrl) {
+                        productImageUrl = resolved.url;
+                        productCaption = resolved.caption;
+                    }
+                } else {
+                    console.log(`[Chat] Image not found for ${targetId}`);
+                    // Append error to the previous text chunk or new text chunk
+                    messageChunks.push({
+                        type: 'text',
+                        content: `(⚠️ Erro: Imagem não encontrada para o ID: ${targetId})`
+                    });
+                }
+
+                lastIndex = globalImageRegex.lastIndex;
+            }
+
+            // Text AFTER the last tag
+            const remainingText = aiResponse.substring(lastIndex).trim();
+            if (remainingText) {
+                messageChunks.push({ type: 'text', content: remainingText });
+            }
+
+
+            // CLEANUP: Remove tags from the main aiResponse used for history/audio?
+            // Actually, for audio, we probably want the text but NOT the tags.
+            // Let's strip tags from aiResponse for the return value
+            aiResponse = aiResponse.replace(globalImageRegex, '').trim();
+
+        } else {
+            // No images, just text
+            messageChunks.push({ type: 'text', content: aiResponse });
+        }
+
+
+
+        // --- PDF Logic (Service Details) ---
+        let pdfBase64 = null;
+        let pdfName = null;
+        const pdfTagRegex = /\[SEND_PDF:\s*['"]?([^\]]+?)['"]?\s*\]/i;
+        const pdfMatch = aiResponse.match(pdfTagRegex);
+
+        if (pdfMatch) {
+            const targetId = pdfMatch[1];
+            let foundPdf = null;
+            let foundName = null;
+
+            // Check Products/Services
+            if (config.products) {
+                const p = config.products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
+                if (p && p.pdf) {
+                    foundPdf = p.pdf;
+                    foundName = `${p.name}.pdf`; // Fallback name
+                }
+            }
+
+            if (foundPdf) {
+                try {
+                    pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
+                    pdfName = foundName;
+                    console.log(`[Chat] Found PDF for ID ${targetId}.`);
+                    // Remove tag
+                    aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF: \\s * ['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
+                } catch (e) {
+                    console.error(`[Chat] PDF Processing Error:`, e);
+                }
+            } else {
+                console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
+                aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
+            }
+        }
+
+        // --- Audio Generation Logic ---
+        let audioBase64 = null;
+        const integrator = config.integrations || {};
+
+        // 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
+        // If disabled in config, we NEVER generate, even if user sent audio.
+        // (User said: "Configuration needs to apply to the received audio format")
+        const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
+
+        // Check for API Key
+        let apiKey = integrator.elevenLabsKey;
+
+        // SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
+        if (apiKey && (apiKey.trim().startsWith('sk-') || apiKey.trim().startsWith('sk_'))) {
+            console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
+            apiKey = null;
+        }
+
+        // Fallback to Global
+        apiKey = apiKey || globalConfig?.elevenLabsKey;
+
+        if (isVoiceEnabled && apiKey) {
+            let shouldGenerate = false;
+
+            // 2. Logic based on Input Type vs Config Trigger
+            if (isAudioInput) {
+                // Case A: User sent AUDIO
+                // We always reply in Audio if feature is enabled.
+                // (Even if set to 'percentage', Audio-for-Audio is the baseline expectation)
+                shouldGenerate = true;
+                console.log('[Audio] Audio Input detected -> Forcing Audio Response.');
+            } else {
+                // Case B: User sent TEXT
+                if (integrator.responseType === 'audio_only') {
+                    // UI: "Responder em áudio apenas quando o cliente enviar áudio"
+                    // Since this is TEXT input, we do NOT generate.
+                    shouldGenerate = false;
+                    console.log('[Audio] Text Input + AudioOnly Mode -> Skipping Audio.');
+                } else if (integrator.responseType === 'percentage') {
+                    // UI: "Responder em áudio aleatoriamente (% das mensagens)"
+                    const probability = parseInt(integrator.responsePercentage || 50, 10);
+                    const randomVal = Math.random() * 100;
+
+                    if (randomVal <= probability) {
+                        shouldGenerate = true;
+                        console.log(`[Audio] Probability Hit: ${randomVal.toFixed(0)} <= ${probability} -> Generating.`);
+                    } else {
+                        console.log(`[Audio] Probability Miss: ${randomVal.toFixed(0)} > ${probability} -> Skipping.`);
+                    }
+                }
+            }
+
+            if (shouldGenerate) {
+                try {
+                    let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
+
+                    // Fallback for Agent IDs (Now supported via resolution)
+                    let resolvedVoiceId = voiceId;
+                    if (voiceId.startsWith('agent_')) {
+                        const foundId = await resolveVoiceFromAgent(voiceId, apiKey);
+                        if (foundId) {
+                            resolvedVoiceId = foundId;
+                        } else {
+                            console.warn(`Could not resolve Agent ID. Falling back to default.`);
+                            resolvedVoiceId = '21m00Tcm4TlvDq8ikWAM';
+                        }
+                    }
+
+                    console.log(`[Audio Debug] Generating Audio using VoiceID: ${resolvedVoiceId}`);
+
+                    // Use Helper (which handles Preprocessing + Phonetics)
+                    // use textForAudio (Script) if available, otherwise aiResponse
+                    const textToSpeak = textForAudio || aiResponse;
+
+                    audioBase64 = await generateAudio(textToSpeak, apiKey, resolvedVoiceId);
+                } catch (audioError) {
+                    console.error('Audio Generation Error:', audioError);
+                }
+            }
+        }
+
+        return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName, messageChunks };
+
+    } catch (error) {
+        console.error('[ProcessChat] Critical Error:', error);
+        return {
+            aiResponse: "Desculpe, ocorreu um erro interno ao processar sua mensagem.",
+            messageChunks: [{ type: 'text', content: "Desculpe, ocorreu um erro interno." }]
+        };
+    }
+};
+
+// --- Config History Routes ---
+app.get('/api/config/history', authenticateToken, async (req, res) => {
+    const companyId = req.user.companyId;
+    try {
+        const config = await prisma.agentConfig.findUnique({ where: { companyId } });
+        if (!config) return res.json([]);
+
+        const history = await prisma.promptHistory.findMany({
+            where: { agentConfigId: config.id },
+            orderBy: { createdAt: 'desc' },
+            take: 20
+        });
+
+        res.json(history);
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao buscar histórico' });
+    }
+});
+
+app.post('/api/config/restore', authenticateToken, async (req, res) => {
+    const { historyId } = req.body;
+    const companyId = req.user.companyId;
+
+    try {
+        const historyItem = await prisma.promptHistory.findUnique({ where: { id: historyId } });
+        if (!historyItem) return res.status(404).json({ message: 'Versão não encontrada' });
+
+        await prisma.agentConfig.update({
+            where: { companyId },
+            data: { systemPrompt: historyItem.systemPrompt }
+        });
+
+        res.json({ success: true, message: 'Prompt restaurado com sucesso' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao restaurar versão' });
+    }
+});
+
+
+
+
+
+// --- Chat Endpoint (Protected - Panel Test) ---
+app.post('/api/chat', authenticateToken, async (req, res) => {
+    const companyId = req.user.companyId;
+    const { message, history, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
+
+    console.log(`[API Chat] Request received from Company: ${companyId}`);
+    if (!message) return res.status(400).json({ error: 'Message required' });
+
+    try {
+        console.log('[API Chat] Fetching config...');
+        const config = await getCompanyConfig(companyId);
+        if (!config) {
+            console.error(`[API Chat] Config not found for company ${companyId}`);
+            return res.status(404).json({ error: 'Company config not found' });
+        }
+        console.log('[API Chat] Config loaded. Calling processChatResponse...');
+
+        // Allow override for Test Panel
+        if (!useConfigPrompt && overridePrompt) {
+            config.systemPrompt = overridePrompt;
+        }
+
+        const { aiResponse, audioBase64, productImageUrl, pdfBase64, pdfName } = await processChatResponse(config, message, history, null);
+
+        // Persist Chat (Test Mode - No Session)
+        try {
+            await prisma.testMessage.create({ data: { companyId, sender: 'user', text: message } });
+            await prisma.testMessage.create({ data: { companyId, sender: 'ai', text: aiResponse } });
+        } catch (dbError) {
+            console.error('Failed to save chat history:', dbError);
+        }
+
+        res.json({ response: aiResponse, audio: audioBase64, image: productImageUrl, pdf: pdfBase64, pdfName });
+
+    } catch (error) {
+        console.error('Chat API Error:', error);
+        res.status(500).json({ error: error.message || 'Error processing chat' });
+    }
+});
+
+app.get('/api/chat/history', authenticateToken, async (req, res) => {
+    try {
+        const history = await prisma.testMessage.findMany({
+            where: { companyId: req.user.companyId },
+            orderBy: { createdAt: 'asc' }, // Oldest first
+            take: 50 // Limit to last 50
+        });
+
+        // Map to frontend format
+        const formatted = history.map(h => ({
+            id: h.id, // String UUID
+            sender: h.sender,
+            text: h.text
+        }));
+
+        res.json(formatted);
+    } catch (error) {
+        console.error('Error fetching chat history:', error);
+        res.status(500).json({ message: 'Failed to fetch history' });
+    }
+});
+
+
+// --- PROMP API INTEGRATION ---
+
+
+app.post('/api/promp/connect', authenticateToken, async (req, res) => {
+    // SessionID manual input support
+    const { identity, sessionId, manualUserId } = req.body;
+    const companyId = req.user.companyId;
+
+    if (!PROMP_ADMIN_TOKEN) {
+        return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
+    }
+
+    try {
+        console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
+
+        // 1. List Tenants to get IDs
+        const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
+            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
+        });
+
+        if (!tenantsRes.ok) throw new Error('Failed to list tenants');
+
+        const tenantsData = await tenantsRes.json();
+        const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
+
+        console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
+
+        // 2. Parallel Fetch Details (identity is only in detailed view)
+        const detailPromises = tenantListBasic.map(async (t) => {
+            try {
+                const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ id: t.id })
+                });
+                if (!res.ok) return null;
+                const json = await res.json();
+                const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
+                return tenantObj || json;
+            } catch (e) {
+                return null;
+            }
+        });
+
+        const detailedTenants = await Promise.all(detailPromises);
+
+        // Exact match on identity string (Sanitized)
+        const sanitize = (str) => String(str || '').replace(/\D/g, '');
+        const targetIdentity = sanitize(identity);
+
+        const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
+
+        if (!targetTenant) {
+            console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
+            return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
+        }
+
+        console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
+
+        // 3. Create API (Best Effort)
+        const apiName = "Agente IA Auto";
+
+        // Priority: Manual Session ID > Tenant ID (Fallback)
+        // If manual sessionId is provided, use it blindly.
+        // If not, use tenant.id (which failed before, but is the best guess if no other option).
+        const finalSessionId = sessionId || targetTenant.id;
+
+        // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
+        // We must find a valid User ID *inside* this specific tenant.
+
+        let targetUserId = null;
+
+        // Strategy 0: Manual User ID (Override - Highest Priority)
+        if (manualUserId) {
+            const manualIdInt = parseInt(manualUserId);
+            if (!isNaN(manualIdInt)) {
+                console.log(`[Promp] Manual User ID provided: ${manualIdInt}. Validating against Tenant...`);
+
+                let fetchDebug = '';
+                let tenantUsers = targetTenant.users;
+                // Fetch if missing
+                if (!tenantUsers || !Array.isArray(tenantUsers) || tenantUsers.length === 0) {
+                    try {
+                        console.log(`[Promp] Fetching users for Tenant ${targetTenant.id} (manual validation)...`);
+                        const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ tenantId: targetTenant.id })
+                        });
+
+                        if (usersRes.ok) {
+                            const usersData = await usersRes.json();
+                            tenantUsers = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
+                            targetTenant.users = tenantUsers;
+                            console.log(`[Promp] Fetched ${tenantUsers.length} users.`);
+                        } else {
+                            const errText = await usersRes.text();
+                            fetchDebug = `Status: ${usersRes.status}, Resp: ${errText}`;
+                            console.error('[Promp] Fetch User List Failed:', fetchDebug);
+                        }
+                    } catch (e) {
+                        fetchDebug = `Exception: ${e.message}`;
+                        console.error('Error fetching users for manual validation:', e);
+                    }
+                }
+
+                if (Array.isArray(tenantUsers)) {
+                    const exists = tenantUsers.find(u => u.id === manualIdInt);
+                    if (exists) {
+                        targetUserId = manualIdInt;
+                        console.log(`[Promp] MANUAL USER ID VALIDATED and SELECTED: ${targetUserId}`);
+                    } else {
+                        console.warn(`[Promp] Manual User ID ${manualIdInt} NOT FOUND in Tenant #${targetTenant.id}.`);
+                        return res.status(400).json({
+                            message: `O ID de usuário informado (${manualIdInt}) não foi encontrado neste Tenant (ID: ${targetTenant.id}). IDs disponíveis: ${tenantUsers.map(u => u.id + ' (' + u.name + ')').join(', ')}`
+                        });
+                    }
+                } else {
+                    // If we can't validate (API failure), TRUST THE USER.
+                    console.warn(`[Promp] Validation skipped (API error: ${fetchDebug || 'Unknown'}). Trusting Manual ID: ${manualIdInt}`);
+                    targetUserId = manualIdInt;
+                }
+            }
+        }
+
+        // Strategy 1: Match by Email (Identity Alignment)
+        if (!targetUserId) {
+
+            // Check if the current logged-in Agent user exists in the Target Tenant's user list
+
+            try {
+                const currentUser = await prisma.user.findUnique({
+                    where: { id: req.user.userId }
+                });
+
+                if (currentUser && currentUser.email) {
+                    const currentUserEmail = currentUser.email.trim().toLowerCase();
+
+                    if (Array.isArray(targetTenant.users)) {
+                        // Case-insensitive match
+                        const matchedUser = targetTenant.users.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
+
+                        if (matchedUser) {
+                            targetUserId = matchedUser.id;
+                            console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUserEmail} -> User ID: ${targetUserId}`);
+                        } else {
+                            console.log(`[Promp] No match for ${currentUserEmail} in tenant users:`, targetTenant.users.map(u => u.email));
+                        }
+                    }
+                }
+            } catch (authErr) {
+                console.error('[Promp] Auth lookup failed (skipping email match):', authErr);
+            }
+
+            // Strategy 2: Admin/Owner Fallback (if no email match)
+            if (!targetUserId) {
+                targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
+            }
+
+            // Inspect 'users' array if available (Fallback to first user)
+            if (!targetUserId && Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
+                targetUserId = targetTenant.users[0].id;
+                console.log(`[Promp] Found User ID from 'users' array (First User): ${targetUserId}`);
+            }
+
+            // Inspect 'admin' object if available
+            if (!targetUserId && targetTenant.admin && targetTenant.admin.id) {
+                targetUserId = targetTenant.admin.id;
+                console.log(`[Promp] Found User ID from 'admin' object: ${targetUserId}`);
+            }
+
+            // Final Fallback (Try 1, but warn)
+            if (!targetUserId) {
+                console.warn('[Promp] WARNING: No explicit User ID found in Tenant object. Defaulting to 1 (Risk of failure).');
+                console.log('[Promp] Tenant Keys:', Object.keys(targetTenant).join(', '));
+                targetUserId = 1;
+            }
+
+        }
+
+        console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
+
+        const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: apiName,
+                sessionId: finalSessionId,
+                userId: targetUserId,
+                authToken: Math.random().toString(36).substring(7),
+                tenant: targetTenant.id
+            })
+        });
+
+        let apiData = await createApiRes.json();
+
+        if (!createApiRes.ok || !apiData.id) {
+            console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
+            // Return ACTUAL error from upstream + Context
+            return res.status(400).json({
+                message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
+            });
+        }
+
+        // SAVE TO DB (Upsert to create if missing)
+        await prisma.agentConfig.upsert({
+            where: { companyId },
+            update: {
+                prompIdentity: identity,
+                prompUuid: apiData.id,
+                prompToken: apiData.token
+            },
+            create: {
+                companyId,
+                prompIdentity: identity,
+                prompUuid: apiData.id,
+                prompToken: apiData.token
+            }
+        });
+
+        res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
+
+    } catch (error) {
+        console.error('Promp Connect Error:', error);
+        res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+    }
+});
+
+
+// --- Webhook Integration (Public) ---
+// Generic Webhook Fallback (if companyId missing in URL)
+app.post('/webhook', async (req, res) => {
+    console.log('[Webhook] Received request on generic /webhook endpoint (No ID).');
+
+    // Try to find a default company or extract from payload
+    // This is a Safety Net for misconfigured integrations.
+    const firstCompany = await prisma.company.findFirst();
+    if (firstCompany) {
+        console.log(`[Webhook] Redirecting to Company ${firstCompany.id}`);
+        // Internally forward or redirect? 
+        // Better to just call the handler or duplicate logic?
+        // Let's redirect 307 to the correct URL if possible, or handle it here.
+        // Since this is S2S, redirect might not be followed.
+        // We'll just call the logic via internal redirect if we could, but express doesn't support internal dispatch easily.
+        // We'll just return an error telling them to configure the URL correctly.
+        console.error('[Webhook] ERROR: Integration URL is missing Company ID. Use: /webhook/' + firstCompany.id);
+        return res.status(400).json({
+            error: 'Webhook URL must include Company ID',
+            correctUrl: `/webhook/${firstCompany.id}`,
+            example: `https://seu-dominio.com/webhook/${firstCompany.id}`
+        });
+    }
+    res.status(400).send('Missing Company ID in URL');
+});
+
+// Webhook Handlers (Defined explicitly for compatibility)
+const handleWebhookRequest = async (req, res) => {
+    const { companyId } = req.params;
+    const payload = req.body;
+
+    console.log(`[Webhook] HEADERS Content-Type: ${req.get('Content-Type')}`);
+    console.log(`[Webhook] Handler Reached for Company: ${companyId}`);
+
+    if (!payload || Object.keys(payload).length === 0) {
+        console.error('[Webhook] Empty Payload! Check Content-Type.');
+    } else {
+        console.log(`[Webhook] FULL PAYLOAD (${companyId}):`, JSON.stringify(payload, null, 2));
+    }
+
+    // Load Config EARLY (needed for Identity check)
+    let followUpCfg = null;
+    let config = null;
+    try {
+        config = await getCompanyConfig(companyId);
+        if (config?.followUpConfig) {
+            // Safe JSON Parsing to avoid SyntaxError
+            if (typeof config.followUpConfig === 'string') {
+                if (config.followUpConfig.trim().startsWith('{')) {
+                    followUpCfg = JSON.parse(config.followUpConfig);
+                }
+            } else if (typeof config.followUpConfig === 'object') {
+                followUpCfg = config.followUpConfig;
+            }
+        }
+    } catch (e) {
+        console.error('[Webhook] Failed to load config:', e);
+    }
+
+    // ------------------------------------------------------------------
+    // 0. DEDUPLICATION (Prevent Triple Replies)
+    // ------------------------------------------------------------------
+    const msgId = payload.key?.id || payload.id || payload.data?.id;
+    if (msgId) {
+        if (processedMessages.has(msgId)) {
+            console.log(`[Webhook] Duplicate Message ID ${msgId}. Ignoring.`);
+            return res.json({ status: 'ignored_duplicate' });
+        }
+        processedMessages.add(msgId);
+        // Clear from memory after 15 seconds
+        setTimeout(() => processedMessages.delete(msgId), 15000);
+    }
+
+    // ------------------------------------------------------------------
+    // LOOP PROTECTION & SENDER IDENTITY
+    // ------------------------------------------------------------------
+
+    // 1. Check "wasSentByApi" (Explicit flag from some Providers)
+    // If true, it is DEFINITELY the bot/agent.
+    if (payload.wasSentByApi || payload.msg?.wasSentByApi || payload.data?.wasSentByApi) {
+        console.log('[Webhook] Loop Protection: Message marked as "wasSentByApi". Ignoring.');
+        return res.json({ status: 'ignored_api_sent' });
+    }
+
+    // 2. Identify Sender
+    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
+    const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
+
+    // 3. Identify Protocol Owner (The session/bot number)
+    const rawOwner = payload.msg?.owner || payload.owner;
+    const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+
+    // 4. Identify Configured Identity (From DB)
+    let dbIdentity = null;
+    if (config?.prompIdentity) {
+        dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
+    }
+
+    // IDENTITY CHECK: "Consider ONLY what is sent TO the number that is in the AI"
+    // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
+    // (Only if both are known)
+    if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
+        console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
+        return res.json({ status: 'ignored_wrong_identity' });
+    }
+
+    // ------------------------------------------------------------------
+    // 5. STRICT FILTERS (Groups, Status, Broadcasts)
+    // ------------------------------------------------------------------
+    const isGroup = rawSender ? rawSender.includes('@g.us') : false;
+    const isBroadcast = rawSender ? (rawSender.includes('broadcast') || rawSender.includes('@lid')) : false;
+    // Note: @lid is sometimes used for individual chats in new WhatsApp versions. 
+    // If it is 'status@broadcast', ignore. If it is '123...456@lid', it might be a user.
+    // SAFE BET: Ignore 'status@broadcast' explicitly.
+    // Also ignore empty messages or protocol messages.
+    const messageType = payload.messageType || payload.type;
+    const isProtocol = messageType === 'protocolMessage' || messageType === 'senderKeyDistributionMessage';
+
+    if (rawSender && rawSender.includes('status@broadcast')) {
+        console.log('[Webhook] Ignoring Status Update (status@broadcast).');
+        return res.json({ status: 'ignored_status' });
+    }
+
+    if (isGroup) {
+        console.log('[Webhook] Ignoring Group Message.');
+        return res.json({ status: 'ignored_group' });
+    }
+
+
+
+    if (isProtocol) {
+        console.log('[Webhook] Ignoring Protocol Message.');
+        return res.json({ status: 'ignored_protocol' });
+    }
+
+    let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
+
+    // REVERTED: Removed "Smart" Auto-Detection of Identity/Owner to avoid "Double Reply" bugs.
+    // Relying Strictly on API 'fromMe' flag.
+
+    // ------------------------------------------------------------------
+    // FLOW A: AGENT SENT MESSAGE -> START TIMER
+    // ------------------------------------------------------------------
+
+    if (isFromMe) {
+        console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
+
+        // For OUTBOUND messages, we need to find the RECIPIENT to set the timer for.
+        // Usually in `payload.key.remoteJid` or `payload.to` or `payload.msg.chatid`
+        // CAREFUL: In some webhooks, key.remoteJid is the Chat ID (User).
+        // Let's inspect `remoteJid`. If it's the User, use it.
+
+        let targetJid = payload.key?.remoteJid || payload.to || payload.msg?.chatid;
+        // If remoteJid contains status@broadcast, we already ignored it.
+
+        // Sanity Check: If targetJid IS the agent (unlikely for outbound), we have a problem.
+        // Assuming targetJid is the User.
+
+        if (targetJid) {
+            const cleanTarget = String(targetJid).replace(/\D/g, '');
+
+            // SAFETY CHECK: If Target is myself (Agent), ABORT.
+            if (cleanTarget === cleanOwner || cleanTarget === dbIdentity || cleanTarget === cleanSender) {
+                console.log(`[FollowUp] Timer SKIPPED. Target (${cleanTarget}) is myself/sender. (Owner: ${cleanOwner}, ID: ${dbIdentity})`);
+                return res.json({ status: 'ignored_self_target' });
+            }
+
+            // Check if Follow-up is Enabled
+            if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
+                const firstAttempt = followUpCfg.attempts[0];
+                const now = new Date();
+                let nextDate = new Date();
+                if (firstAttempt.delayUnit === 'minutes') nextDate.setMinutes(now.getMinutes() + firstAttempt.delayValue);
+                if (firstAttempt.delayUnit === 'hours') nextDate.setHours(now.getHours() + firstAttempt.delayValue);
+                if (firstAttempt.delayUnit === 'days') nextDate.setDate(now.getDate() + firstAttempt.delayValue);
+
+                // UPSERT STATE for the USER (Target)
+                // Use full JID for DB uniqueness
+                await prisma.contactState.upsert({
+                    where: { companyId_remoteJid: { companyId, remoteJid: targetJid } },
+                    create: {
+                        companyId,
+                        remoteJid: targetJid,
+                        isActive: true,
+                        attemptIndex: 0,
+                        lastOutbound: now,
+                        nextFollowUp: nextDate
+                    },
+                    update: {
+                        isActive: true,
+                        attemptIndex: 0,
+                        lastOutbound: now,
+                        nextFollowUp: nextDate
+                    }
+                });
+                console.log(`[FollowUp] Timer STARTED for ${cleanTarget}. Next: ${nextDate.toISOString()}`);
+            } else {
+                console.log('[FollowUp] Timer IGNORED (Disabled or No Attempts).');
+            }
+        }
+
+        // CRITICAL: STOP HERE. Do not process as user message.
+        return res.json({ status: 'agent_action_processed' });
+    }
+
+    // ------------------------------------------------------------------
+    // FLOW B: USER SENT MESSAGE -> STOP TIMER & REPLY
+    // ------------------------------------------------------------------
+
+    console.log(`[Webhook] Processing User Message from ${cleanSender}...`);
+
+    // Check if Status Update again (redundant but safe)
+    if (payload.type === 'message_status' || payload.status) {
+        return res.json({ status: 'ignored_status_update' });
+    }
+
+    // Safety Check for Content
+    // Wuzapi: payload.data.message.conversation OR payload.content.text
+    // User Log Payload: payload.msg.text Or payload.msg.content
+    let userMessage = payload.content?.text ||
+        payload.data?.message?.conversation ||
+        payload.data?.message?.extendedTextMessage?.text ||
+        payload.msg?.text ||
+        payload.msg?.body ||
+        payload.msg?.content;
+
+    // --- AUDIO HANDLING ---
+    // If text is "ptt" (Push To Talk) or "audio" AND we have media, it's an Audio Message.
+    let isAudioInput = false;
+    const mediaBase64 = payload.content?.media || payload.msg?.media || payload.media; // Try all paths
+
+    if ((userMessage === 'ptt' || userMessage === 'audio' || payload.type === 'audio') && mediaBase64) {
+        console.log('[Webhook] Audio Message Detected. Attempting Transcription...');
+
+        // Need Global Key for Whisper
+        const globalConfig = await getGlobalConfig();
+        if (globalConfig?.openaiKey) {
+            const transcription = await transcribeAudio(mediaBase64, globalConfig.openaiKey);
+            if (transcription) {
+                userMessage = `[ÁUDIO TRANSCRITO]: ${transcription}`;
+                isAudioInput = true;
+                console.log(`[Webhook] Audio Transcribed: "${userMessage}"`);
+            } else {
+                userMessage = "[Áudio inaudível]";
+            }
+        } else {
+            console.warn('[Webhook] No Global OpenAI Key. Cannot transcribe audio.');
+            userMessage = "[Áudio recebido, mas sem chave para transcrever]";
+        }
+    }
+
+    if (!userMessage) {
+        // If it's a media message or something else we don't support yet, ignore gracefully
+        console.log('[Webhook] Payload missing text content. Ignoring.');
+        return res.json({ status: 'ignored_no_text' });
+    }
+    if (!userMessage) {
+        // If it's a media message or something else we don't support yet, ignore gracefully
+        console.log('[Webhook] Payload missing text content. Ignoring.');
+        return res.json({ status: 'ignored_no_text' });
+    }
+
+    // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
+    const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
+    const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
+
+    // Clean Sender Number if it has @s.whatsapp.net
+    const cleanNumber = senderNumber ? String(senderNumber).replace(/\D/g, '') : null;
+
+    if (!cleanNumber) {
+        console.log('[Webhook] No specific sender number found. Ignoring.');
+        return res.json({ status: 'ignored_no_number' });
+    }
+
+    // --- STOP FOLLOW-UP TIMER (User Replied) ---
+    try {
+        // If user replies, we stop any pending sequence
+        // We use updateMany just in case record doesn't exist (avoid error) or findUnique check
+        // Ideally:
+        const jid = senderNumber.includes('@') ? senderNumber : `${senderNumber}@s.whatsapp.net`;
+
+        await prisma.contactState.updateMany({
+            where: {
+                companyId: companyId,
+                remoteJid: jid // We must match what we saved (likely full JID)
+            },
+            data: { isActive: false }
+        });
+        console.log(`[FollowUp] Timer STOPPED for ${cleanNumber}`);
+    } catch (e) {
+        // Ignore error
+    }
+
+    const metadata = JSON.stringify(payload);
+
+    try {
+        const config = await getCompanyConfig(companyId);
+        if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
+
+        const msgLog = userMessage ? String(userMessage).substring(0, 50) : '[No Content]';
+        console.log(`[Webhook] Processing message for ${cleanNumber}: "${msgLog}..."`);
+
+        // Fetch History
+        let history = [];
+
+        // STRATEGY: Try fetching by sessionId. If fails (or sessionId null), try fetching by senderNumber (via metadata or new field... but metadata is lazy).
+        // Let's rely on sessionId first. If sessionId is missing, we MIGHT lose history.
+        // However, if the webhook provides ticket.id (which it seems to), we are good.
+        // Issue: Previous logs show ticket.id changing.
+        // Fallback: Query by metadata contains senderNumber? No, too slow.
+        // Fix: Use sessionId (ticket.id) if available. If ticket.id IS available, trust it.
+        // If ticket.id changes, it might be a new ticket/support case.
+        // BUT, for a persistent AI, we might want to fetch history by 'sender' NOT 'sessionId'.
+        // Let's Try: Find messages where companyId matches and metadata CONTAINS cleanNumber. (Slow regex)
+        // BETTER: Use 'sessionId' field in DB to store 'cleanNumber' as a fallback identifier if ticket ID is unstable?
+        // NO, 'sessionId' is for ticket grouping.
+        // Let's stick to sessionId for now but improve the lookup debugging.
+
+        // --- DATABASE MEMORY FIX (Persistent Session + Chronological Order) ---
+        // 1. Session ID: Use cleanNumber (Phone) if available to ensure persistence across tickets.
+        //    Fallback to ticket.id if needed, but phone is better for long-term memory.
+        const dbSessionId = cleanNumber || sessionId || 'unknown_session';
+
+        if (cleanNumber) {
+            try {
+                // 2. Fetch History: Get 20 *MOST RECENT* messages (descending)
+                const storedMessages = await prisma.testMessage.findMany({
+                    where: {
+                        companyId: String(companyId),
+                        sessionId: String(dbSessionId)
+                    },
+                    orderBy: { createdAt: 'desc' }, // Get newest first
+                    take: 20
+                });
+
+                // 3. Reverse to Chronological Order for OpenAI (Oldest -> Newest)
+                history = storedMessages.reverse().map(m => ({
+                    role: m.sender === 'user' ? 'user' : 'assistant',
+                    content: m.text
+                }));
+
+                console.log(`[Webhook] Fetched ${history.length} msgs of Persistent History for ${dbSessionId}`);
+            } catch (histError) {
+                console.error('[Webhook] History Fetch Error:', histError);
+            }
+        }
+
+        // 3. Process AI Response
+        // Pass isAudioInput flag so AI can decide to reply with audio
+        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput);
+
+        console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
+        if (messageChunks && messageChunks.length > 0) {
+            console.log(`[Webhook] Multi-message response detected: ${messageChunks.length} chunks.`);
+        }
+
+        // Persist Chat (Using Persistent Session ID)
+        // We persist the FULL AI response for context, even if sent in chunks.
+        try {
+            await prisma.testMessage.create({
+                data: {
+                    companyId: String(companyId),
+                    sender: 'user',
+                    text: userMessage,
+                    sessionId: String(dbSessionId),
+                    metadata
+                }
+            });
+            await prisma.testMessage.create({
+                data: {
+                    companyId: String(companyId),
+                    sender: 'ai',
+                    text: aiResponse,
+                    sessionId: String(dbSessionId)
+                }
+            });
+        } catch (dbError) {
+            console.error('[Webhook] Failed to save chat:', dbError);
+        }
+
+        // --- REPLY STRATEGY ---
+        let sentViaApi = false;
+        if (config.prompUuid && config.prompToken) {
+
+            // MULTI-MESSAGE SENDING LOOP
+            if (messageChunks && messageChunks.length > 0) {
+                console.log(`[Webhook] Sending ${messageChunks.length} chunks via API...`);
+
+                for (const [index, chunk] of messageChunks.entries()) {
+                    if (chunk.type === 'image') {
+                        // Send Image
+                        // For the FIRST chunk/image, maybe send audio if allowed? 
+                        // Let's stick to NO audio for images unless it's the *only* thing?
+                        // Actually, audioBase64 is global for the response.
+                        // We should only send Audio ONCE. Let's send it with the LAST chunk? Or First?
+                        // Let's send it with the first TEXT chunk.
+                        const isFirstText = index === 0;
+                        await sendPrompMessage(config, cleanNumber, null, null, chunk.url, chunk.caption);
+                        // small delay
+                        await new Promise(r => setTimeout(r, 600));
+                    } else if (chunk.type === 'text') {
+                        // Send Text
+                        // Attach Audio ONLY to the first text chunk (or if it's the only one)
+                        // If we attach audio, sendPrompMessage sends audio separately anyway.
+                        // But we want to avoid sending audio multiple times.
+                        const chunkAudio = (index === 0) ? audioBase64 : null;
+
+                        await sendPrompMessage(config, cleanNumber, chunk.content, chunkAudio, null, null);
+                        await new Promise(r => setTimeout(r, 800)); // Readability delay
+                    }
+                }
+                sentViaApi = true;
+
+            } else {
+                // Fallback (Should not happen if processChatResponse always returns chunks)
+                sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
+            }
+
+            console.log(`[Webhook] Sent via API: ${sentViaApi}`);
+        } else {
+            console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
+        }
+
+        if (sentViaApi) {
+            res.json({ status: 'sent_via_api' });
+        } else {
+            res.json({
+                text: aiResponse,
+                audio: audioBase64,
+                image: productImageUrl,
+                sessionId: sessionId
+            });
+        }
+
+    } catch (error) {
+        console.error('[Webhook] Error:', error);
+        res.status(500).json({ error: error.message || 'Processing failed' });
+    }
+};
+
+// MOVED HANDLER TO TOP OF FILE FOR PRIORITY
+// app.post('/webhook/:companyId', handleWebhookRequest);
+// app.post('/api/webhook/:companyId', handleWebhookRequest);
+// app.post('/api/promp/webhook/:companyId', handleWebhookRequest);
+
+// --- INTELLIGENT FOLLOW-UP SCHEDULER ---
+const FOLLOW_UP_INTERVAL_MS = 60 * 1000; // Check every 60s
+
+// Helper to calculate date
+const calculateNextDate = (value, unit) => {
+    const now = new Date();
+    if (unit === 'minutes') now.setMinutes(now.getMinutes() + value);
+    if (unit === 'hours') now.setHours(now.getHours() + value);
+    if (unit === 'days') now.setDate(now.getDate() + value);
+    return now;
+};
+
+setInterval(async () => {
+    try {
+        const now = new Date();
+        // Log heartbeat every minute (or every 5 minutes if too noisy, but for debug every min is good)
+        // console.log(`[FollowUp] Heartbeat at ${now.toISOString()}`); 
+
+        // 1. Find contacts due for follow-up
+        const pendingContacts = await prisma.contactState.findMany({
+            where: {
+                isActive: true,
+                nextFollowUp: { lte: now }
+            }
+        });
+
+        if (pendingContacts.length > 0) {
+            console.log(`[FollowUp] Found ${pendingContacts.length} contacts due for follow-up at ${now.toISOString()}`);
+            pendingContacts.forEach(c => console.log(` - Contact: ${c.remoteJid}, Next: ${c.nextFollowUp}, Attempt: ${c.attemptIndex}`));
+        } else {
+            // Uncomment to debug if loop is running at all
+            console.log(`[FollowUp] No pending contacts. (Checked at ${now.toISOString()})`);
+        }
+
+        for (const contact of pendingContacts) {
+            try {
+                // 2. Load Config
+                // FIX: Use robust JSON parsing same as Webhook
+                const config = await getCompanyConfig(contact.companyId);
+                let followUpCfg = null;
+                if (config?.followUpConfig) {
+                    try {
+                        if (typeof config.followUpConfig === 'string') {
+                            if (config.followUpConfig.trim().startsWith('{')) {
+                                followUpCfg = JSON.parse(config.followUpConfig);
+                            } else {
+                                console.warn(`[FollowUp] Invalid JSON string for config: ${config.followUpConfig}`);
+                            }
+                        } else if (typeof config.followUpConfig === 'object') {
+                            followUpCfg = config.followUpConfig;
+                        }
+                    } catch (err) {
+                        console.error(`[FollowUp] JSON Parse Error for contact ${contact.id}:`, err);
+                    }
+                }
+
+                // Stop if disabled globally
+                if (!followUpCfg || !followUpCfg.enabled) {
+                    await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
+                    continue;
+                }
+
+                // 3. Check attempts config
+                const attempts = followUpCfg.attempts || [];
+                const currentAttemptIndex = contact.attemptIndex;
+
+                if (currentAttemptIndex >= attempts.length) {
+                    // Exhausted all attempts
+                    await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
+                    continue;
+                }
+
+                const currentAttemptConfig = attempts[currentAttemptIndex];
+                if (!currentAttemptConfig.active) {
+                    // If this specific attempt is disabled, skip to next or stop? 
+                    // Usually we might want to skip. Let's increment index and schedule next immediately (soft skip).
+                    // Or just stop? User said "pause an attempt".
+                    // Let's increment and reschedule for next attempt if exists.
+                    const nextIndex = currentAttemptIndex + 1;
+                    if (nextIndex < attempts.length) {
+                        const nextCfg = attempts[nextIndex];
+                        const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
+                        await prisma.contactState.update({
+                            where: { id: contact.id },
+                            data: { attemptIndex: nextIndex, nextFollowUp: nextDate }
+                        });
+                    } else {
+                        await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
+                    }
+                    continue;
+                }
+
+                // 4. Generate AI Message
+                // FIX: Safe JSON parsing for persona
+                let persona = {};
+                try {
+                    if (config.persona && typeof config.persona === 'string') {
+                        persona = JSON.parse(config.persona);
+                    } else if (typeof config.persona === 'object') {
+                        persona = config.persona;
+                    }
+                } catch (e) {
+                    console.error('[FollowUp] Error parsing persona:', e);
+                }
+                const tone = followUpCfg.tone || 'serious';
+
+                let tonePrompt = "";
+                if (tone === 'animated') tonePrompt = "Estilo: Energético, motivador, use emojis positivos 🚀.";
+                if (tone === 'serious') tonePrompt = "Estilo: Profissional, direto, sem gírias.";
+                if (tone === 'ice_breaker') tonePrompt = "Estilo: Leve, bem-humorado, simpático 😄.";
+
+                const systemInstruction = `
                 Você é ${persona.name || 'Assistente'}, da empresa.
                 O cliente parou de responder.
                 Objetivo: Retomar a conversa de forma natural (Follow-up).
@@ -3089,159 +3090,159 @@ CUMPRA ESTE PROTOCOLO AGORA.
                 Separe cada frase com uma quebra de linha dupla.
                 `;
 
-                    // Fetch recent history for context (Last 3 messages)
-                    const history = await prisma.testMessage.findMany({
-                        where: { companyId: contact.companyId }, // Ideally filter by session/phone which we map to remoteJid?
-                        // Note: Schema links by sessionId. Webhook maps remoteJid to sessionId if possible.
-                        // For now, without robust session mapping, we skip history or use metadata context.
-                        take: 3,
-                        orderBy: { createdAt: 'desc' }
-                    });
+                // Fetch recent history for context (Last 3 messages)
+                const history = await prisma.testMessage.findMany({
+                    where: { companyId: contact.companyId }, // Ideally filter by session/phone which we map to remoteJid?
+                    // Note: Schema links by sessionId. Webhook maps remoteJid to sessionId if possible.
+                    // For now, without robust session mapping, we skip history or use metadata context.
+                    take: 3,
+                    orderBy: { createdAt: 'desc' }
+                });
 
-                    // Reverse to chronological
-                    const recentMsgs = history.reverse().map(m => `${m.sender}: ${m.text}`).join('\n');
+                // Reverse to chronological
+                const recentMsgs = history.reverse().map(m => `${m.sender}: ${m.text}`).join('\n');
 
-                    // Initialize OpenAI Client
-                    let openaiKey = null; // Start null
-                    let source = "NONE";
+                // Initialize OpenAI Client
+                let openaiKey = null; // Start null
+                let source = "NONE";
 
-                    try {
-                        // 1. Try DB Integrations first (Standard)
-                        if (config.integrations) {
-                            let integrations = {};
-                            if (typeof config.integrations === 'string') {
-                                if (config.integrations.trim().startsWith('{')) {
-                                    integrations = JSON.parse(config.integrations);
-                                }
-                            } else if (typeof config.integrations === 'object') {
-                                integrations = config.integrations;
+                try {
+                    // 1. Try DB Integrations first (Standard)
+                    if (config.integrations) {
+                        let integrations = {};
+                        if (typeof config.integrations === 'string') {
+                            if (config.integrations.trim().startsWith('{')) {
+                                integrations = JSON.parse(config.integrations);
                             }
-
-                            if (integrations.openaiKey) {
-                                openaiKey = integrations.openaiKey;
-                                source = "DB_INTEGRATIONS";
-                            }
+                        } else if (typeof config.integrations === 'object') {
+                            integrations = config.integrations;
                         }
-                    } catch (e) {
-                        console.error('[FollowUp] Error parsing integrations for OpenAI Key:', e);
-                    }
 
-                    // 2. Override with Global ENV if available (ADMIN OVERRIDE)
-                    // If user set GLOBAL KEY in VPS, it should win.
-                    if (process.env.OPENAI_API_KEY) {
-                        openaiKey = process.env.OPENAI_API_KEY;
-                        source = "GLOBAL_ENV";
-                    }
-
-                    if (openaiKey) openaiKey = openaiKey.trim();
-
-                    if (openaiKey) {
-                        const masked = openaiKey.length > 10 ? openaiKey.substring(0, 8) + '...' + openaiKey.substring(openaiKey.length - 4) : 'INVALID_LEN';
-                        console.log(`[FollowUp] Using OpenAI Key (${source}): ${masked}`);
-                    }
-
-                    if (!openaiKey) {
-                        console.error('[FollowUp] No OpenAI Key found for company', contact.companyId);
-                        continue;
-                    }
-
-                    const openai = new OpenAI({ apiKey: openaiKey });
-
-                    const completion = await openai.chat.completions.create({
-                        messages: [
-                            { role: "system", content: systemInstruction },
-                            { role: "user", content: `Histórico recente:\n${recentMsgs}\n\nGere uma mensagem de follow-up.` }
-                        ],
-                        model: "gpt-4o-mini",
-                    });
-
-                    const aiMessage = completion.choices[0].message.content;
-                    console.log(`[FollowUp] Generated for ${contact.remoteJid}: "${aiMessage}"`);
-
-                    // 5. Send Message
-                    // Use existing sendPrompMessage
-                    const cleanNumber = contact.remoteJid.replace('@s.whatsapp.net', '');
-                    await sendPrompMessage(config, cleanNumber, aiMessage, null, null, null);
-
-                    // 6. Schedule Next Attempt
-                    const nextIndex = currentAttemptIndex + 1;
-                    if (nextIndex < attempts.length) {
-                        const nextCfg = attempts[nextIndex];
-                        const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
-                        await prisma.contactState.update({
-                            where: { id: contact.id },
-                            data: { attemptIndex: nextIndex, nextFollowUp: nextDate, lastOutbound: now }
-                        });
-                    } else {
-                        // Finished Sequence
-                        await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false, lastOutbound: now } });
-                    }
-
-                    // Log Message
-                    await prisma.testMessage.create({
-                        data: {
-                            companyId: contact.companyId,
-                            sender: 'ai',
-                            text: aiMessage + " [Follow-up Auto]",
-                            sessionId: "followup_auto"
+                        if (integrations.openaiKey) {
+                            openaiKey = integrations.openaiKey;
+                            source = "DB_INTEGRATIONS";
                         }
-                    });
-
-                } catch (err) {
-                    console.error(`[FollowUp] Error processing contact ${contact.id}:`, err);
-                }
-            }
-
-        } catch (e) {
-            console.error('[FollowUp] Scheduler Error:', e);
-        }
-    }, FOLLOW_UP_INTERVAL_MS);
-
-
-    // --- HELPER: Resolve Product Image from Config ---
-    function resolveProductImageFromConfig(targetId, config) {
-        if (!config || !config.products) return { found: false, error: 'Lista de produtos vazia' };
-
-        let cleanId = String(targetId).trim();
-        console.log(`[ImageResolution] Searching for Image. Target: "${cleanId}" in ${config.products.length} products.`);
-
-        // Check Parent (ID exact match)
-        for (const p of config.products) {
-            // Debug each product
-            // console.log(`[ImageResolution] Checking Product: ID=${p.id}, Name=${p.name}`);
-
-            if (String(p.id) === cleanId) {
-                if (p.image) {
-                    console.log(`[ImageResolution] FOUND by ID Match: ${cleanId}`);
-                    return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
-                }
-            }
-
-            // Check Parent (Name loose match - Fallback)
-            if (p.name && p.name.toLowerCase().includes(cleanId.toLowerCase())) {
-                if (p.image) {
-                    console.log(`[ImageResolution] FOUND by Name Match: "${cleanId}" in "${p.name}"`);
-                    // Don't return immediately if exact match is better? No, loop order.
-                    return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
-                }
-            }
-
-            // Check Variations
-            if (p.variantItems) {
-                const variant = p.variantItems.find(v => String(v.id) === cleanId);
-                if (variant) {
-                    if (variant.image || p.image) {
-                        const details = [variant.color, variant.size].filter(Boolean).join(' / ');
-                        console.log(`[ImageResolution] FOUND VARIANT by ID Match: ${cleanId} (Parent: ${p.name})`);
-                        return { found: true, url: variant.image || p.image, caption: `${p.name} - ${details} - R$ ${variant.price || p.price}` };
                     }
+                } catch (e) {
+                    console.error('[FollowUp] Error parsing integrations for OpenAI Key:', e);
                 }
+
+                // 2. Override with Global ENV if available (ADMIN OVERRIDE)
+                // If user set GLOBAL KEY in VPS, it should win.
+                if (process.env.OPENAI_API_KEY) {
+                    openaiKey = process.env.OPENAI_API_KEY;
+                    source = "GLOBAL_ENV";
+                }
+
+                if (openaiKey) openaiKey = openaiKey.trim();
+
+                if (openaiKey) {
+                    const masked = openaiKey.length > 10 ? openaiKey.substring(0, 8) + '...' + openaiKey.substring(openaiKey.length - 4) : 'INVALID_LEN';
+                    console.log(`[FollowUp] Using OpenAI Key (${source}): ${masked}`);
+                }
+
+                if (!openaiKey) {
+                    console.error('[FollowUp] No OpenAI Key found for company', contact.companyId);
+                    continue;
+                }
+
+                const openai = new OpenAI({ apiKey: openaiKey });
+
+                const completion = await openai.chat.completions.create({
+                    messages: [
+                        { role: "system", content: systemInstruction },
+                        { role: "user", content: `Histórico recente:\n${recentMsgs}\n\nGere uma mensagem de follow-up.` }
+                    ],
+                    model: "gpt-4o-mini",
+                });
+
+                const aiMessage = completion.choices[0].message.content;
+                console.log(`[FollowUp] Generated for ${contact.remoteJid}: "${aiMessage}"`);
+
+                // 5. Send Message
+                // Use existing sendPrompMessage
+                const cleanNumber = contact.remoteJid.replace('@s.whatsapp.net', '');
+                await sendPrompMessage(config, cleanNumber, aiMessage, null, null, null);
+
+                // 6. Schedule Next Attempt
+                const nextIndex = currentAttemptIndex + 1;
+                if (nextIndex < attempts.length) {
+                    const nextCfg = attempts[nextIndex];
+                    const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
+                    await prisma.contactState.update({
+                        where: { id: contact.id },
+                        data: { attemptIndex: nextIndex, nextFollowUp: nextDate, lastOutbound: now }
+                    });
+                } else {
+                    // Finished Sequence
+                    await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false, lastOutbound: now } });
+                }
+
+                // Log Message
+                await prisma.testMessage.create({
+                    data: {
+                        companyId: contact.companyId,
+                        sender: 'ai',
+                        text: aiMessage + " [Follow-up Auto]",
+                        sessionId: "followup_auto"
+                    }
+                });
+
+            } catch (err) {
+                console.error(`[FollowUp] Error processing contact ${contact.id}:`, err);
             }
         }
 
-        console.log(`[ImageResolution] NOT FOUND for Target: "${cleanId}"`);
-        return { found: false, error: `Imagem não encontrada para ID: ${cleanId}` };
-    };
+    } catch (e) {
+        console.error('[FollowUp] Scheduler Error:', e);
+    }
+}, FOLLOW_UP_INTERVAL_MS);
+
+
+// --- HELPER: Resolve Product Image from Config ---
+function resolveProductImageFromConfig(targetId, config) {
+    if (!config || !config.products) return { found: false, error: 'Lista de produtos vazia' };
+
+    let cleanId = String(targetId).trim();
+    console.log(`[ImageResolution] Searching for Image. Target: "${cleanId}" in ${config.products.length} products.`);
+
+    // Check Parent (ID exact match)
+    for (const p of config.products) {
+        // Debug each product
+        // console.log(`[ImageResolution] Checking Product: ID=${p.id}, Name=${p.name}`);
+
+        if (String(p.id) === cleanId) {
+            if (p.image) {
+                console.log(`[ImageResolution] FOUND by ID Match: ${cleanId}`);
+                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+            }
+        }
+
+        // Check Parent (Name loose match - Fallback)
+        if (p.name && p.name.toLowerCase().includes(cleanId.toLowerCase())) {
+            if (p.image) {
+                console.log(`[ImageResolution] FOUND by Name Match: "${cleanId}" in "${p.name}"`);
+                // Don't return immediately if exact match is better? No, loop order.
+                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+            }
+        }
+
+        // Check Variations
+        if (p.variantItems) {
+            const variant = p.variantItems.find(v => String(v.id) === cleanId);
+            if (variant) {
+                if (variant.image || p.image) {
+                    const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                    console.log(`[ImageResolution] FOUND VARIANT by ID Match: ${cleanId} (Parent: ${p.name})`);
+                    return { found: true, url: variant.image || p.image, caption: `${p.name} - ${details} - R$ ${variant.price || p.price}` };
+                }
+            }
+        }
+    }
+
+    console.log(`[ImageResolution] NOT FOUND for Target: "${cleanId}"`);
+    return { found: false, error: `Imagem não encontrada para ID: ${cleanId}` };
+};
 
 }; // Close resolveProductImageFromConfig
 
