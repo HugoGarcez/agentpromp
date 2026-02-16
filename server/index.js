@@ -1786,20 +1786,22 @@ SE O USUÁRIO PEDIU UMA FOTO E O PRODUTO TEM IMAGEM (campo [TEM_IMAGEM]):
 2. A TAG OBRIGATÓRIA É: [SHOW_IMAGE: <NUMERO_DO_ID>]
 3. SUBSTITUA <NUMERO_DO_ID> PELO NÚMERO REAL QUE APARECE DEPOIS DE "ID:" NA LISTA DE PRODUTOS.
 
-EXEMPLO DE PENSAMENTO:
-"O produto 'Camisa' tem ID: 50 e tem [TEM_IMAGEM]. O usuário pediu foto. Vou enviar:"
+EXEMPLO DE RACIOCÍNIO CORRETO:
+- Na lista acima, vejo: "ID: 1770087032682 | Nome: Camisa Engenheiro | [TEM_IMAGEM]"
+- O usuário pediu "foto da camisa engenheiro"
+- Vou usar o ID EXATO da lista: 1770087032682
 
-RESPOSTA FINAL OBRIGATÓRIA:
-"Aqui está a foto da Camisa! 👕
-[SHOW_IMAGE: 50]"
+RESPOSTA CORRETA:
+"Aqui está a foto da Camisa Engenheiro! 👕
+[SHOW_IMAGE: 1770087032682]"
 
-ERRO GRAVE - NÃO FAÇA ISSO:
-[SHOW_IMAGE: ID_DO_PRODUTO] <- ERRADO (Não use o texto, use o número!)
-[SHOW_IMAGE: ID_REAL_DA_LISTA] <- ERRADO
-[SHOW_IMAGE: 12345] <- ERRADO (Não invente!)
+❌ ERROS FATAIS - NUNCA FAÇA:
+- [SHOW_IMAGE: ID_DO_PRODUTO] ← Não use texto, use número!
+- [SHOW_IMAGE: 50] ← Não invente IDs!
+- [SHOW_IMAGE: 12345] ← Não use IDs de exemplo!
 
-SE VOCÊ NÃO COLOCAR A TAG COM O NÚMERO CORRETO, A IMAGEM NÃO APARECE.
-USE APENAS OS IDs NUMÉRICOS QUE ESTÃO NA LISTA DE PRODUTOS ACIMA.
+✅ REGRA DE OURO: 
+COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032682", use exatamente "1770087032682".
 `;
         // Append to system prompt just for this execution
         const finalSystemPrompt = systemPrompt + "\n\n" + imageEnforcementFooter;
