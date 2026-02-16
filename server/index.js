@@ -1583,8 +1583,9 @@ const processChatResponse = async (config, message, history, sessionId = null, i
                         productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name} (${v.color || ''} ${v.size || ''}) | R$ ${v.price || p.price} | ${hasImage ? '[TEM_IMAGEM]' : ''}\n`;
                     });
                 } else {
-                    // Simple Item
-                    productList += `  -- [ITEM ÚNICO] ID: ${p.id} | ${p.image ? '[TEM_IMAGEM]' : ''}\n`;
+                    // Simple Item - IMAGEM OBRIGATÓRIA
+                    const imageInstruction = p.image ? '[TEM_IMAGEM] ⚠️ USE: [SHOW_IMAGE: ' + p.id + ']' : '';
+                    productList += `  -- [ITEM ÚNICO] ID: ${p.id} | ${imageInstruction}\n`;
                 }
             });
 
