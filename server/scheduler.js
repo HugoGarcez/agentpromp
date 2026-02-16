@@ -32,7 +32,7 @@ export async function runScheduledExtractions(prisma) {
         console.log(`[Scheduler] Found ${sources.length} sources to process.`);
 
         for (const source of sources) {
-            await processSource(source);
+            await processSource(source, prisma);
         }
 
     } catch (error) {
@@ -40,7 +40,7 @@ export async function runScheduledExtractions(prisma) {
     }
 }
 
-async function processSource(source) {
+async function processSource(source, prisma) {
     try {
         console.log(`[Scheduler] Processing source ${source.id} (${source.url || 'File'})...`);
 

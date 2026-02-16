@@ -70,6 +70,12 @@ const authenticateToken = (req, res, next) => {
 // Initialize Scheduler (Pass Prisma Instance)
 initScheduler(prisma);
 
+// --- HEALTH CHECK ROUTE (NO AUTH - defined BEFORE auth middleware if desired, or after) ---
+// Defined here to be publicly accessible
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', version: '1.0.1', time: new Date().toISOString() });
+});
+
 // ... (Keep existing code)
 
 // --- PRODUCT EXTRACTION ROUTES ---
@@ -3091,11 +3097,6 @@ app.get('*', (req, res) => {
 
 
 
-
-// --- HEALTH CHECK ROUTE (NO AUTH) ---
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
-});
 
 // --- SERVER STARTUP ---
 const startServer = async () => {
