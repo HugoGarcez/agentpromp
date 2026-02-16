@@ -457,7 +457,7 @@ const getCompanyConfig = async (companyId) => {
                 include: {
                     specialists: { where: { active: true } },
                     appointmentTypes: { where: { active: true } },
-                    googleConfig: true
+                    // googleConfig: true // DISABLING TEMPORARILY TO FIX CRASH ON OLD DB
                 }
             }
         }
@@ -476,7 +476,7 @@ const getCompanyConfig = async (companyId) => {
         // Scheduling Data
         specialists: config.company?.specialists || [],
         appointmentTypes: config.company?.appointmentTypes || [],
-        googleConfig: config.company?.googleConfig || null
+        googleConfig: null // config.company?.googleConfig || null
     };
 };
 
