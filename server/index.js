@@ -1024,10 +1024,10 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     const globalConfig = await getGlobalConfig();
 
 
-    const openaiKey = globalConfig?.openaiKey;
+    const openaiKey = globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
 
     if (!openaiKey) {
-        throw new Error('Global OpenAI API Key not configured by Admin.');
+        throw new Error('Global OpenAI API Key not configured by Admin (DB or ENV).');
     }
 
     const openai = new OpenAI({ apiKey: openaiKey });
