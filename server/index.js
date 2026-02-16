@@ -1882,9 +1882,9 @@ CUMPRA ESTE PROTOCOLO AGORA.
         // Removed the (!audioBase64) check so we ALWAYS send text if provided.
         // Audio/Image/PDF will be sent as separate messages following the text.
 
-        // 1. Send Text (Only if NO Audio, per user request to avoid duplication)
-        // If audio exists, the audio message itself acts as the response.
-        if (text && text.trim().length > 0 && !audioBase64) {
+        // 1. Send Text (ALWAYS send text for debug visibility, even if audio exists)
+        if (text && text.trim().length > 0) {
+            console.log(`[Promp] Sending Text to ${number} (Audio Present: ${!!audioBase64}). URL: ${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`);
             try {
                 // Split by DOUBLE Newlines to keep lists grouped in one bubble
                 // Regex: \n\s*\n matches 2 or more newlines with optional whitespace
