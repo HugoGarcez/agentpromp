@@ -2206,696 +2206,697 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                 });
                                 console.log('[Function: list_available_products] toolResult length:', toolResult.length);
                             }
-                        } catch (e) {
-                            toolResult = JSON.stringify({ status: 'error', message: e.message });
                         }
-
-                        messages.push({
-                            role: "tool",
-                            tool_call_id: toolCall.id,
-                            content: toolResult
-                        });
-                    }
-                turns++;
-                } else {
-                    break;
-                }
-            }
-
-            // --- Audio Script Extraction ---
-            let textForAudio = aiResponse;
-            const scriptRegex = /\[SCRIPT_AUDIO\]:([\s\S]*?)$/i;
-
-            const scriptMatch = aiResponse.match(scriptRegex);
-            if (scriptMatch && scriptMatch[1]) {
-                textForAudio = scriptMatch[1].trim();
-                aiResponse = aiResponse.replace(scriptRegex, '').trim();
-                console.log('[Chat] Separate Audio Script detected and extracted.');
-            }
-
-            // --- Image Detection Logic ---
-            let productImageUrl = null;
-            let productCaption = ""; // Initialize caption
-
-            logFlow(`AI Response Raw: ${aiResponse.substring(0, 100)}...`);
-
-            // Robust Regex: Optional quotes (straight or smart), spaces, dots/dashes
-            // (Legacy Logic Part 1 Removed)
-
-            // (Legacy Logic Fully Removed)
-            // Append debug error if any
-            // --- 2. MULTI-IMAGE & TEXT SPLITTING LOGIC ---
-            // (Variables already declared above)
-            productImageUrl = null; // Reset for legacy
-            productCaption = "";
-            let messageChunks = []; // Ensure messageChunks is declared or use existing if any (it's new)
-
-
-            // check if we have image tags
-            const globalImageRegex = /\[SHOW_IMAGE:\s*['"“”]?([^\]]+?)['"“”]?\s*\]/gi;
-            let match;
-            let lastIndex = 0;
-
-            // We need to execute regex in a loop to find all occurrences
-            // and split the text accordingly.
-
-            // First, check if ANY tag exists to avoid overhead
-            if (globalImageRegex.test(aiResponse)) {
-                console.log(`[Multi - Image] DETECTED IMAGE TAGS IN RESPONSE!`);
-                globalImageRegex.lastIndex = 0; // Reset
-
-                while ((match = globalImageRegex.exec(aiResponse)) !== null) {
-                    // Text BEFORE the tag
-                    const textSegment = aiResponse.substring(lastIndex, match.index).trim();
-                    if (textSegment) {
-                        messageChunks.push({ type: 'text', content: textSegment });
-                    }
-
-                    // The Image Tag ID
-                    const targetId = match[1];
-                    const resolved = resolveProductImageFromConfig(targetId, config);
-
-                    if (resolved.found) {
-                        console.log(`[Chat] Found Image for ${targetId}`);
-                        messageChunks.push({
-                            type: 'image',
-                            url: resolved.url,
-                            caption: resolved.caption,
-                            id: targetId
-                        });
-
-                        // Set legacy for first image found (backward compat)
-                        if (!productImageUrl) {
-                            productImageUrl = resolved.url;
-                            productCaption = resolved.caption;
-                        }
-                    } else {
-                        console.log(`[Chat] Image not found for ${targetId}`);
-                        // Append error to the previous text chunk or new text chunk
-                        messageChunks.push({
-                            type: 'text',
-                            content: `(⚠️ Erro: Imagem não encontrada para o ID: ${targetId})`
-                        });
-                    }
-
-                    lastIndex = globalImageRegex.lastIndex;
-                }
-
-                // Text AFTER the last tag
-                const remainingText = aiResponse.substring(lastIndex).trim();
-                if (remainingText) {
-                    messageChunks.push({ type: 'text', content: remainingText });
-                }
-
-
-                // CLEANUP: Remove tags from the main aiResponse used for history/audio?
-                // Actually, for audio, we probably want the text but NOT the tags.
-                // Let's strip tags from aiResponse for the return value
-                aiResponse = aiResponse.replace(globalImageRegex, '').trim();
-
-            } else {
-                // No images, just text
-                messageChunks.push({ type: 'text', content: aiResponse });
-            }
-
-
-
-            // --- PDF Logic (Service Details) ---
-            let pdfBase64 = null;
-            let pdfName = null;
-            const pdfTagRegex = /\[SEND_PDF:\s*['"]?([^\]]+?)['"]?\s*\]/i;
-            const pdfMatch = aiResponse.match(pdfTagRegex);
-
-            if (pdfMatch) {
-                const targetId = pdfMatch[1];
-                let foundPdf = null;
-                let foundName = null;
-
-                // Check Products/Services
-                if (config.products) {
-                    let products = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
-                    const p = products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
-                    if (p && p.pdf) {
-                        foundPdf = p.pdf;
-                        foundName = `${p.name}.pdf`; // Fallback name
-                    }
-                }
-
-                if (foundPdf) {
-                    try {
-                        pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
-                        pdfName = foundName;
-                        console.log(`[Chat] Found PDF for ID ${targetId}.`);
-                        // Remove tag
-                        aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF: \\s * ['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
                     } catch (e) {
-                        console.error(`[Chat] PDF Processing Error:`, e);
+                        toolResult = JSON.stringify({ status: 'error', message: e.message });
                     }
-                } else {
-                    console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
-                    aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
-                }
-            }
 
-            // --- Audio Generation Logic ---
-            let audioBase64 = null;
-            const integrator = config.integrations || {};
-
-            // 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
-            // If disabled in config, we NEVER generate, even if user sent audio.
-            // (User said: "Configuration needs to apply to the received audio format")
-            const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
-
-            // Check for API Key
-            let apiKey = integrator.elevenLabsKey;
-
-            // SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
-            if (apiKey && (apiKey.trim().startsWith('sk-') || apiKey.trim().startsWith('sk_'))) {
-                console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
-                apiKey = null;
-            }
-
-            // Fallback to Global
-            apiKey = apiKey || globalConfig?.elevenLabsKey;
-
-            if (isVoiceEnabled && apiKey) {
-                let shouldGenerate = false;
-
-                // 2. Logic based on Input Type vs Config Trigger
-                if (isAudioInput) {
-                    // Case A: User sent AUDIO
-                    // We always reply in Audio if feature is enabled.
-                    // (Even if set to 'percentage', Audio-for-Audio is the baseline expectation)
-                    shouldGenerate = true;
-                    console.log('[Audio] Audio Input detected -> Forcing Audio Response.');
-                } else {
-                    // Case B: User sent TEXT
-                    if (integrator.responseType === 'audio_only') {
-                        // UI: "Responder em áudio apenas quando o cliente enviar áudio"
-                        // Since this is TEXT input, we do NOT generate.
-                        shouldGenerate = false;
-                        console.log('[Audio] Text Input + AudioOnly Mode -> Skipping Audio.');
-                    } else if (integrator.responseType === 'percentage') {
-                        // UI: "Responder em áudio aleatoriamente (% das mensagens)"
-                        const probability = parseInt(integrator.responsePercentage || 50, 10);
-                        const randomVal = Math.random() * 100;
-
-                        if (randomVal <= probability) {
-                            shouldGenerate = true;
-                            console.log(`[Audio] Probability Hit: ${randomVal.toFixed(0)} <= ${probability} -> Generating.`);
-                        } else {
-                            console.log(`[Audio] Probability Miss: ${randomVal.toFixed(0)} > ${probability} -> Skipping.`);
-                        }
-                    }
-                }
-
-                if (shouldGenerate) {
-                    try {
-                        let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
-
-                        // Fallback for Agent IDs (Now supported via resolution)
-                        let resolvedVoiceId = voiceId;
-                        if (voiceId.startsWith('agent_')) {
-                            const foundId = await resolveVoiceFromAgent(voiceId, apiKey);
-                            if (foundId) {
-                                resolvedVoiceId = foundId;
-                            } else {
-                                console.warn(`Could not resolve Agent ID. Falling back to default.`);
-                                resolvedVoiceId = '21m00Tcm4TlvDq8ikWAM';
-                            }
-                        }
-
-                        console.log(`[Audio Debug] Generating Audio using VoiceID: ${resolvedVoiceId}`);
-
-                        // Use Helper (which handles Preprocessing + Phonetics)
-                        // use textForAudio (Script) if available, otherwise aiResponse
-                        const textToSpeak = textForAudio || aiResponse;
-
-                        audioBase64 = await generateAudio(textToSpeak, apiKey, resolvedVoiceId);
-                    } catch (audioError) {
-                        console.error('Audio Generation Error:', audioError);
-                    }
-                }
-            }
-
-            return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName, messageChunks };
-
-        } catch (error) {
-            console.error('[ProcessChat] Critical Error:', error);
-            return {
-                aiResponse: "Desculpe, ocorreu um erro interno ao processar sua mensagem.",
-                messageChunks: [{ type: 'text', content: "Desculpe, ocorreu um erro interno." }]
-            };
-        }
-    };
-
-    // --- Config History Routes ---
-    app.get('/api/config/history', authenticateToken, async (req, res) => {
-        const companyId = req.user.companyId;
-        try {
-            const config = await prisma.agentConfig.findUnique({ where: { companyId } });
-            if (!config) return res.json([]);
-
-            const history = await prisma.promptHistory.findMany({
-                where: { agentConfigId: config.id },
-                orderBy: { createdAt: 'desc' },
-                take: 20
-            });
-
-            res.json(history);
-        } catch (error) {
-            res.status(500).json({ message: 'Erro ao buscar histórico' });
-        }
-    });
-
-    app.post('/api/config/restore', authenticateToken, async (req, res) => {
-        const { historyId } = req.body;
-        const companyId = req.user.companyId;
-
-        try {
-            const historyItem = await prisma.promptHistory.findUnique({ where: { id: historyId } });
-            if (!historyItem) return res.status(404).json({ message: 'Versão não encontrada' });
-
-            await prisma.agentConfig.update({
-                where: { companyId },
-                data: { systemPrompt: historyItem.systemPrompt }
-            });
-
-            res.json({ success: true, message: 'Prompt restaurado com sucesso' });
-        } catch (error) {
-            res.status(500).json({ message: 'Erro ao restaurar versão' });
-        }
-    });
-
-
-
-
-
-    // --- Chat Endpoint (Protected - Panel Test) ---
-    app.post('/api/chat', authenticateToken, async (req, res) => {
-        const companyId = req.user.companyId;
-        const { message, history, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
-
-        console.log(`[API Chat] Request received from Company: ${companyId}`);
-        if (!message) return res.status(400).json({ error: 'Message required' });
-
-        try {
-            console.log('[API Chat] Fetching config...');
-            const config = await getCompanyConfig(companyId);
-            if (!config) {
-                console.error(`[API Chat] Config not found for company ${companyId}`);
-                return res.status(404).json({ error: 'Company config not found' });
-            }
-            console.log('[API Chat] Config loaded. Calling processChatResponse...');
-
-            // Allow override for Test Panel
-            if (!useConfigPrompt && overridePrompt) {
-                config.systemPrompt = overridePrompt;
-            }
-
-            const { aiResponse, audioBase64, productImageUrl, pdfBase64, pdfName } = await processChatResponse(config, message, history, null);
-
-            // Persist Chat (Test Mode - No Session)
-            try {
-                await prisma.testMessage.create({ data: { companyId, sender: 'user', text: message } });
-                await prisma.testMessage.create({ data: { companyId, sender: 'ai', text: aiResponse } });
-            } catch (dbError) {
-                console.error('Failed to save chat history:', dbError);
-            }
-
-            res.json({ response: aiResponse, audio: audioBase64, image: productImageUrl, pdf: pdfBase64, pdfName });
-
-        } catch (error) {
-            console.error('Chat API Error:', error);
-            res.status(500).json({ error: error.message || 'Error processing chat' });
-        }
-    });
-
-    app.get('/api/chat/history', authenticateToken, async (req, res) => {
-        try {
-            const history = await prisma.testMessage.findMany({
-                where: { companyId: req.user.companyId },
-                orderBy: { createdAt: 'asc' }, // Oldest first
-                take: 50 // Limit to last 50
-            });
-
-            // Map to frontend format
-            const formatted = history.map(h => ({
-                id: h.id, // String UUID
-                sender: h.sender,
-                text: h.text
-            }));
-
-            res.json(formatted);
-        } catch (error) {
-            console.error('Error fetching chat history:', error);
-            res.status(500).json({ message: 'Failed to fetch history' });
-        }
-    });
-
-
-    // --- PROMP API INTEGRATION ---
-
-
-    app.post('/api/promp/connect', authenticateToken, async (req, res) => {
-        // SessionID manual input support
-        const { identity, sessionId, manualUserId } = req.body;
-        const companyId = req.user.companyId;
-
-        if (!PROMP_ADMIN_TOKEN) {
-            return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
-        }
-
-        try {
-            console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
-
-            // 1. List Tenants to get IDs
-            const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
-                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
-            });
-
-            if (!tenantsRes.ok) throw new Error('Failed to list tenants');
-
-            const tenantsData = await tenantsRes.json();
-            const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
-
-            console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
-
-            // 2. Parallel Fetch Details (identity is only in detailed view)
-            const detailPromises = tenantListBasic.map(async (t) => {
-                try {
-                    const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ id: t.id })
+                    messages.push({
+                        role: "tool",
+                        tool_call_id: toolCall.id,
+                        content: toolResult
                     });
-                    if (!res.ok) return null;
-                    const json = await res.json();
-                    const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
-                    return tenantObj || json;
+                }
+                turns++;
+            } else {
+                break;
+            }
+        }
+
+        // --- Audio Script Extraction ---
+        let textForAudio = aiResponse;
+        const scriptRegex = /\[SCRIPT_AUDIO\]:([\s\S]*?)$/i;
+
+        const scriptMatch = aiResponse.match(scriptRegex);
+        if (scriptMatch && scriptMatch[1]) {
+            textForAudio = scriptMatch[1].trim();
+            aiResponse = aiResponse.replace(scriptRegex, '').trim();
+            console.log('[Chat] Separate Audio Script detected and extracted.');
+        }
+
+        // --- Image Detection Logic ---
+        let productImageUrl = null;
+        let productCaption = ""; // Initialize caption
+
+        logFlow(`AI Response Raw: ${aiResponse.substring(0, 100)}...`);
+
+        // Robust Regex: Optional quotes (straight or smart), spaces, dots/dashes
+        // (Legacy Logic Part 1 Removed)
+
+        // (Legacy Logic Fully Removed)
+        // Append debug error if any
+        // --- 2. MULTI-IMAGE & TEXT SPLITTING LOGIC ---
+        // (Variables already declared above)
+        productImageUrl = null; // Reset for legacy
+        productCaption = "";
+        let messageChunks = []; // Ensure messageChunks is declared or use existing if any (it's new)
+
+
+        // check if we have image tags
+        const globalImageRegex = /\[SHOW_IMAGE:\s*['"“”]?([^\]]+?)['"“”]?\s*\]/gi;
+        let match;
+        let lastIndex = 0;
+
+        // We need to execute regex in a loop to find all occurrences
+        // and split the text accordingly.
+
+        // First, check if ANY tag exists to avoid overhead
+        if (globalImageRegex.test(aiResponse)) {
+            console.log(`[Multi - Image] DETECTED IMAGE TAGS IN RESPONSE!`);
+            globalImageRegex.lastIndex = 0; // Reset
+
+            while ((match = globalImageRegex.exec(aiResponse)) !== null) {
+                // Text BEFORE the tag
+                const textSegment = aiResponse.substring(lastIndex, match.index).trim();
+                if (textSegment) {
+                    messageChunks.push({ type: 'text', content: textSegment });
+                }
+
+                // The Image Tag ID
+                const targetId = match[1];
+                const resolved = resolveProductImageFromConfig(targetId, config);
+
+                if (resolved.found) {
+                    console.log(`[Chat] Found Image for ${targetId}`);
+                    messageChunks.push({
+                        type: 'image',
+                        url: resolved.url,
+                        caption: resolved.caption,
+                        id: targetId
+                    });
+
+                    // Set legacy for first image found (backward compat)
+                    if (!productImageUrl) {
+                        productImageUrl = resolved.url;
+                        productCaption = resolved.caption;
+                    }
+                } else {
+                    console.log(`[Chat] Image not found for ${targetId}`);
+                    // Append error to the previous text chunk or new text chunk
+                    messageChunks.push({
+                        type: 'text',
+                        content: `(⚠️ Erro: Imagem não encontrada para o ID: ${targetId})`
+                    });
+                }
+
+                lastIndex = globalImageRegex.lastIndex;
+            }
+
+            // Text AFTER the last tag
+            const remainingText = aiResponse.substring(lastIndex).trim();
+            if (remainingText) {
+                messageChunks.push({ type: 'text', content: remainingText });
+            }
+
+
+            // CLEANUP: Remove tags from the main aiResponse used for history/audio?
+            // Actually, for audio, we probably want the text but NOT the tags.
+            // Let's strip tags from aiResponse for the return value
+            aiResponse = aiResponse.replace(globalImageRegex, '').trim();
+
+        } else {
+            // No images, just text
+            messageChunks.push({ type: 'text', content: aiResponse });
+        }
+
+
+
+        // --- PDF Logic (Service Details) ---
+        let pdfBase64 = null;
+        let pdfName = null;
+        const pdfTagRegex = /\[SEND_PDF:\s*['"]?([^\]]+?)['"]?\s*\]/i;
+        const pdfMatch = aiResponse.match(pdfTagRegex);
+
+        if (pdfMatch) {
+            const targetId = pdfMatch[1];
+            let foundPdf = null;
+            let foundName = null;
+
+            // Check Products/Services
+            if (config.products) {
+                let products = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
+                const p = products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
+                if (p && p.pdf) {
+                    foundPdf = p.pdf;
+                    foundName = `${p.name}.pdf`; // Fallback name
+                }
+            }
+
+            if (foundPdf) {
+                try {
+                    pdfBase64 = foundPdf.replace(/^data:application\/pdf;base64,/, '');
+                    pdfName = foundName;
+                    console.log(`[Chat] Found PDF for ID ${targetId}.`);
+                    // Remove tag
+                    aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF: \\s * ['"]?${targetId}['"]?\\s*\\]`, 'gi'), '').trim();
                 } catch (e) {
-                    return null;
+                    console.error(`[Chat] PDF Processing Error:`, e);
                 }
-            });
-
-            const detailedTenants = await Promise.all(detailPromises);
-
-            // Exact match on identity string (Sanitized)
-            const sanitize = (str) => String(str || '').replace(/\D/g, '');
-            const targetIdentity = sanitize(identity);
-
-            const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
-
-            if (!targetTenant) {
-                console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
-                return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
+            } else {
+                console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
+                aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
             }
+        }
 
-            console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
+        // --- Audio Generation Logic ---
+        let audioBase64 = null;
+        const integrator = config.integrations || {};
 
-            // 3. Create API (Best Effort)
-            const apiName = "Agente IA Auto";
+        // 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
+        // If disabled in config, we NEVER generate, even if user sent audio.
+        // (User said: "Configuration needs to apply to the received audio format")
+        const isVoiceEnabled = integrator.enabled === true || integrator.enabled === 'true';
 
-            // Priority: Manual Session ID > Tenant ID (Fallback)
-            // If manual sessionId is provided, use it blindly.
-            // If not, use tenant.id (which failed before, but is the best guess if no other option).
-            const finalSessionId = sessionId || targetTenant.id;
+        // Check for API Key
+        let apiKey = integrator.elevenLabsKey;
 
-            // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
-            // We must find a valid User ID *inside* this specific tenant.
+        // SAFETY CHECK: If Agent Key looks like OpenAI Key (sk-...), ignore it to prevent error
+        if (apiKey && (apiKey.trim().startsWith('sk-') || apiKey.trim().startsWith('sk_'))) {
+            console.warn(`[Audio] Detected OpenAI Key in ElevenLabs field (${apiKey.substring(0, 5)}...). Ignoring Agent Key.`);
+            apiKey = null;
+        }
 
-            let targetUserId = null;
+        // Fallback to Global
+        apiKey = apiKey || globalConfig?.elevenLabsKey;
 
-            // Strategy 0: Manual User ID (Override - Highest Priority)
-            if (manualUserId) {
-                const manualIdInt = parseInt(manualUserId);
-                if (!isNaN(manualIdInt)) {
-                    console.log(`[Promp] Manual User ID provided: ${manualIdInt}. Validating against Tenant...`);
+        if (isVoiceEnabled && apiKey) {
+            let shouldGenerate = false;
 
-                    let fetchDebug = '';
-                    let tenantUsers = targetTenant.users;
-                    // Fetch if missing
-                    if (!tenantUsers || !Array.isArray(tenantUsers) || tenantUsers.length === 0) {
-                        try {
-                            console.log(`[Promp] Fetching users for Tenant ${targetTenant.id} (manual validation)...`);
-                            const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
-                                method: 'POST',
-                                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ tenantId: targetTenant.id })
-                            });
+            // 2. Logic based on Input Type vs Config Trigger
+            if (isAudioInput) {
+                // Case A: User sent AUDIO
+                // We always reply in Audio if feature is enabled.
+                // (Even if set to 'percentage', Audio-for-Audio is the baseline expectation)
+                shouldGenerate = true;
+                console.log('[Audio] Audio Input detected -> Forcing Audio Response.');
+            } else {
+                // Case B: User sent TEXT
+                if (integrator.responseType === 'audio_only') {
+                    // UI: "Responder em áudio apenas quando o cliente enviar áudio"
+                    // Since this is TEXT input, we do NOT generate.
+                    shouldGenerate = false;
+                    console.log('[Audio] Text Input + AudioOnly Mode -> Skipping Audio.');
+                } else if (integrator.responseType === 'percentage') {
+                    // UI: "Responder em áudio aleatoriamente (% das mensagens)"
+                    const probability = parseInt(integrator.responsePercentage || 50, 10);
+                    const randomVal = Math.random() * 100;
 
-                            if (usersRes.ok) {
-                                const usersData = await usersRes.json();
-                                tenantUsers = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
-                                targetTenant.users = tenantUsers;
-                                console.log(`[Promp] Fetched ${tenantUsers.length} users.`);
-                            } else {
-                                const errText = await usersRes.text();
-                                fetchDebug = `Status: ${usersRes.status}, Resp: ${errText}`;
-                                console.error('[Promp] Fetch User List Failed:', fetchDebug);
-                            }
-                        } catch (e) {
-                            fetchDebug = `Exception: ${e.message}`;
-                            console.error('Error fetching users for manual validation:', e);
-                        }
-                    }
-
-                    if (Array.isArray(tenantUsers)) {
-                        const exists = tenantUsers.find(u => u.id === manualIdInt);
-                        if (exists) {
-                            targetUserId = manualIdInt;
-                            console.log(`[Promp] MANUAL USER ID VALIDATED and SELECTED: ${targetUserId}`);
-                        } else {
-                            console.warn(`[Promp] Manual User ID ${manualIdInt} NOT FOUND in Tenant #${targetTenant.id}.`);
-                            return res.status(400).json({
-                                message: `O ID de usuário informado (${manualIdInt}) não foi encontrado neste Tenant (ID: ${targetTenant.id}). IDs disponíveis: ${tenantUsers.map(u => u.id + ' (' + u.name + ')').join(', ')}`
-                            });
-                        }
+                    if (randomVal <= probability) {
+                        shouldGenerate = true;
+                        console.log(`[Audio] Probability Hit: ${randomVal.toFixed(0)} <= ${probability} -> Generating.`);
                     } else {
-                        // If we can't validate (API failure), TRUST THE USER.
-                        console.warn(`[Promp] Validation skipped (API error: ${fetchDebug || 'Unknown'}). Trusting Manual ID: ${manualIdInt}`);
-                        targetUserId = manualIdInt;
+                        console.log(`[Audio] Probability Miss: ${randomVal.toFixed(0)} > ${probability} -> Skipping.`);
                     }
                 }
             }
 
-            // Strategy 1: Match by Email (Identity Alignment)
-            if (!targetUserId) {
-
-                // Check if the current logged-in Agent user exists in the Target Tenant's user list
-
+            if (shouldGenerate) {
                 try {
-                    const currentUser = await prisma.user.findUnique({
-                        where: { id: req.user.userId }
-                    });
+                    let voiceId = integrator.voiceId || integrator.elevenLabsVoiceId || globalConfig?.elevenLabsVoiceId || '21m00Tcm4TlvDq8ikWAM';
 
-                    if (currentUser && currentUser.email) {
-                        const currentUserEmail = currentUser.email.trim().toLowerCase();
-
-                        if (Array.isArray(targetTenant.users)) {
-                            // Case-insensitive match
-                            const matchedUser = targetTenant.users.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
-
-                            if (matchedUser) {
-                                targetUserId = matchedUser.id;
-                                console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUserEmail} -> User ID: ${targetUserId}`);
-                            } else {
-                                console.log(`[Promp] No match for ${currentUserEmail} in tenant users:`, targetTenant.users.map(u => u.email));
-                            }
+                    // Fallback for Agent IDs (Now supported via resolution)
+                    let resolvedVoiceId = voiceId;
+                    if (voiceId.startsWith('agent_')) {
+                        const foundId = await resolveVoiceFromAgent(voiceId, apiKey);
+                        if (foundId) {
+                            resolvedVoiceId = foundId;
+                        } else {
+                            console.warn(`Could not resolve Agent ID. Falling back to default.`);
+                            resolvedVoiceId = '21m00Tcm4TlvDq8ikWAM';
                         }
                     }
-                } catch (authErr) {
-                    console.error('[Promp] Auth lookup failed (skipping email match):', authErr);
-                }
 
-                // Strategy 2: Admin/Owner Fallback (if no email match)
-                if (!targetUserId) {
-                    targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
-                }
+                    console.log(`[Audio Debug] Generating Audio using VoiceID: ${resolvedVoiceId}`);
 
-                // Inspect 'users' array if available (Fallback to first user)
-                if (!targetUserId && Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
-                    targetUserId = targetTenant.users[0].id;
-                    console.log(`[Promp] Found User ID from 'users' array (First User): ${targetUserId}`);
-                }
+                    // Use Helper (which handles Preprocessing + Phonetics)
+                    // use textForAudio (Script) if available, otherwise aiResponse
+                    const textToSpeak = textForAudio || aiResponse;
 
-                // Inspect 'admin' object if available
-                if (!targetUserId && targetTenant.admin && targetTenant.admin.id) {
-                    targetUserId = targetTenant.admin.id;
-                    console.log(`[Promp] Found User ID from 'admin' object: ${targetUserId}`);
+                    audioBase64 = await generateAudio(textToSpeak, apiKey, resolvedVoiceId);
+                } catch (audioError) {
+                    console.error('Audio Generation Error:', audioError);
                 }
-
-                // Final Fallback (Try 1, but warn)
-                if (!targetUserId) {
-                    console.warn('[Promp] WARNING: No explicit User ID found in Tenant object. Defaulting to 1 (Risk of failure).');
-                    console.log('[Promp] Tenant Keys:', Object.keys(targetTenant).join(', '));
-                    targetUserId = 1;
-                }
-
             }
+        }
 
-            console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
+        return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName, messageChunks };
 
-            const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    name: apiName,
-                    sessionId: finalSessionId,
-                    userId: targetUserId,
-                    authToken: Math.random().toString(36).substring(7),
-                    tenant: targetTenant.id
-                })
-            });
+    } catch (error) {
+        console.error('[ProcessChat] Critical Error:', error);
+        return {
+            aiResponse: "Desculpe, ocorreu um erro interno ao processar sua mensagem.",
+            messageChunks: [{ type: 'text', content: "Desculpe, ocorreu um erro interno." }]
+        };
+    }
+};
 
-            let apiData = await createApiRes.json();
+// --- Config History Routes ---
+app.get('/api/config/history', authenticateToken, async (req, res) => {
+    const companyId = req.user.companyId;
+    try {
+        const config = await prisma.agentConfig.findUnique({ where: { companyId } });
+        if (!config) return res.json([]);
 
-            if (!createApiRes.ok || !apiData.id) {
-                console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
-                // Return ACTUAL error from upstream + Context
-                return res.status(400).json({
-                    message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
+        const history = await prisma.promptHistory.findMany({
+            where: { agentConfigId: config.id },
+            orderBy: { createdAt: 'desc' },
+            take: 20
+        });
+
+        res.json(history);
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao buscar histórico' });
+    }
+});
+
+app.post('/api/config/restore', authenticateToken, async (req, res) => {
+    const { historyId } = req.body;
+    const companyId = req.user.companyId;
+
+    try {
+        const historyItem = await prisma.promptHistory.findUnique({ where: { id: historyId } });
+        if (!historyItem) return res.status(404).json({ message: 'Versão não encontrada' });
+
+        await prisma.agentConfig.update({
+            where: { companyId },
+            data: { systemPrompt: historyItem.systemPrompt }
+        });
+
+        res.json({ success: true, message: 'Prompt restaurado com sucesso' });
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao restaurar versão' });
+    }
+});
+
+
+
+
+
+// --- Chat Endpoint (Protected - Panel Test) ---
+app.post('/api/chat', authenticateToken, async (req, res) => {
+    const companyId = req.user.companyId;
+    const { message, history, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
+
+    console.log(`[API Chat] Request received from Company: ${companyId}`);
+    if (!message) return res.status(400).json({ error: 'Message required' });
+
+    try {
+        console.log('[API Chat] Fetching config...');
+        const config = await getCompanyConfig(companyId);
+        if (!config) {
+            console.error(`[API Chat] Config not found for company ${companyId}`);
+            return res.status(404).json({ error: 'Company config not found' });
+        }
+        console.log('[API Chat] Config loaded. Calling processChatResponse...');
+
+        // Allow override for Test Panel
+        if (!useConfigPrompt && overridePrompt) {
+            config.systemPrompt = overridePrompt;
+        }
+
+        const { aiResponse, audioBase64, productImageUrl, pdfBase64, pdfName } = await processChatResponse(config, message, history, null);
+
+        // Persist Chat (Test Mode - No Session)
+        try {
+            await prisma.testMessage.create({ data: { companyId, sender: 'user', text: message } });
+            await prisma.testMessage.create({ data: { companyId, sender: 'ai', text: aiResponse } });
+        } catch (dbError) {
+            console.error('Failed to save chat history:', dbError);
+        }
+
+        res.json({ response: aiResponse, audio: audioBase64, image: productImageUrl, pdf: pdfBase64, pdfName });
+
+    } catch (error) {
+        console.error('Chat API Error:', error);
+        res.status(500).json({ error: error.message || 'Error processing chat' });
+    }
+});
+
+app.get('/api/chat/history', authenticateToken, async (req, res) => {
+    try {
+        const history = await prisma.testMessage.findMany({
+            where: { companyId: req.user.companyId },
+            orderBy: { createdAt: 'asc' }, // Oldest first
+            take: 50 // Limit to last 50
+        });
+
+        // Map to frontend format
+        const formatted = history.map(h => ({
+            id: h.id, // String UUID
+            sender: h.sender,
+            text: h.text
+        }));
+
+        res.json(formatted);
+    } catch (error) {
+        console.error('Error fetching chat history:', error);
+        res.status(500).json({ message: 'Failed to fetch history' });
+    }
+});
+
+
+// --- PROMP API INTEGRATION ---
+
+
+app.post('/api/promp/connect', authenticateToken, async (req, res) => {
+    // SessionID manual input support
+    const { identity, sessionId, manualUserId } = req.body;
+    const companyId = req.user.companyId;
+
+    if (!PROMP_ADMIN_TOKEN) {
+        return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
+    }
+
+    try {
+        console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
+
+        // 1. List Tenants to get IDs
+        const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
+            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
+        });
+
+        if (!tenantsRes.ok) throw new Error('Failed to list tenants');
+
+        const tenantsData = await tenantsRes.json();
+        const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
+
+        console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
+
+        // 2. Parallel Fetch Details (identity is only in detailed view)
+        const detailPromises = tenantListBasic.map(async (t) => {
+            try {
+                const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ id: t.id })
                 });
+                if (!res.ok) return null;
+                const json = await res.json();
+                const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
+                return tenantObj || json;
+            } catch (e) {
+                return null;
             }
+        });
 
-            // SAVE TO DB (Upsert to create if missing)
-            await prisma.agentConfig.upsert({
-                where: { companyId },
-                update: {
-                    prompIdentity: identity,
-                    prompUuid: apiData.id,
-                    prompToken: apiData.token
-                },
-                create: {
-                    companyId,
-                    prompIdentity: identity,
-                    prompUuid: apiData.id,
-                    prompToken: apiData.token
-                }
-            });
+        const detailedTenants = await Promise.all(detailPromises);
 
-            res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
+        // Exact match on identity string (Sanitized)
+        const sanitize = (str) => String(str || '').replace(/\D/g, '');
+        const targetIdentity = sanitize(identity);
 
-        } catch (error) {
-            console.error('Promp Connect Error:', error);
-            res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+        const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
+
+        if (!targetTenant) {
+            console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
+            return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
         }
-    });
 
+        console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
 
-    // --- Webhook Integration (Public) ---
-    // Generic Webhook Fallback (if companyId missing in URL)
-    app.post('/webhook', async (req, res) => {
-        console.log('[Webhook] Received request on generic /webhook endpoint (No ID).');
+        // 3. Create API (Best Effort)
+        const apiName = "Agente IA Auto";
 
-        // Try to find a default company or extract from payload
-        // This is a Safety Net for misconfigured integrations.
-        const firstCompany = await prisma.company.findFirst();
-        if (firstCompany) {
-            console.log(`[Webhook] Redirecting to Company ${firstCompany.id}`);
-            // Internally forward or redirect? 
-            // Better to just call the handler or duplicate logic?
-            // Let's redirect 307 to the correct URL if possible, or handle it here.
-            // Since this is S2S, redirect might not be followed.
-            // We'll just call the logic via internal redirect if we could, but express doesn't support internal dispatch easily.
-            // We'll just return an error telling them to configure the URL correctly.
-            console.error('[Webhook] ERROR: Integration URL is missing Company ID. Use: /webhook/' + firstCompany.id);
-            return res.status(400).json({
-                error: 'Webhook URL must include Company ID',
-                correctUrl: `/webhook/${firstCompany.id}`,
-                example: `https://seu-dominio.com/webhook/${firstCompany.id}`
-            });
-        }
-        res.status(400).send('Missing Company ID in URL');
-    });
+        // Priority: Manual Session ID > Tenant ID (Fallback)
+        // If manual sessionId is provided, use it blindly.
+        // If not, use tenant.id (which failed before, but is the best guess if no other option).
+        const finalSessionId = sessionId || targetTenant.id;
 
-    // Webhook Handlers (Defined explicitly for compatibility)
+        // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
+        // We must find a valid User ID *inside* this specific tenant.
 
-    // --- HELPER: Resolve Product Image from Config ---
-    function resolveProductImageFromConfig(targetId, config) {
-        if (!config || !config.products) return { found: false, error: 'Lista de produtos vazia' };
+        let targetUserId = null;
 
-        // CRITICAL FIX: Parse products if stringified
-        let products = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
-        if (!Array.isArray(products)) return { found: false, error: 'Formato de produtos inválido' };
+        // Strategy 0: Manual User ID (Override - Highest Priority)
+        if (manualUserId) {
+            const manualIdInt = parseInt(manualUserId);
+            if (!isNaN(manualIdInt)) {
+                console.log(`[Promp] Manual User ID provided: ${manualIdInt}. Validating against Tenant...`);
 
-        let cleanId = String(targetId).trim();
-        console.log(`[ImageResolution] Searching for Image. Target: "${cleanId}" in ${products.length} products.`);
+                let fetchDebug = '';
+                let tenantUsers = targetTenant.users;
+                // Fetch if missing
+                if (!tenantUsers || !Array.isArray(tenantUsers) || tenantUsers.length === 0) {
+                    try {
+                        console.log(`[Promp] Fetching users for Tenant ${targetTenant.id} (manual validation)...`);
+                        const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ tenantId: targetTenant.id })
+                        });
 
-        // Check Parent (ID exact match)
-        for (const p of products) {
-            // Debug each product
-            // console.log(`[ImageResolution] Checking Product: ID=${p.id}, Name=${p.name}`);
-
-            if (String(p.id) === cleanId) {
-                if (p.image) {
-                    console.log(`[ImageResolution] FOUND by ID Match: ${cleanId}`);
-                    return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
-                }
-            }
-
-            // Check Parent (Name loose match - Fallback)
-            if (p.name && p.name.toLowerCase().includes(cleanId.toLowerCase())) {
-                if (p.image) {
-                    console.log(`[ImageResolution] FOUND by Name Match: "${cleanId}" in "${p.name}"`);
-                    // Don't return immediately if exact match is better? No, loop order.
-                    return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
-                }
-            }
-
-            // Check Variations
-            if (p.variantItems) {
-                const variant = p.variantItems.find(v => String(v.id) === cleanId);
-                if (variant) {
-                    if (variant.image || p.image) {
-                        const details = [variant.color, variant.size].filter(Boolean).join(' / ');
-                        console.log(`[ImageResolution] FOUND VARIANT by ID Match: ${cleanId} (Parent: ${p.name})`);
-                        return { found: true, url: variant.image || p.image, caption: `${p.name} - ${details} - R$ ${variant.price || p.price}` };
+                        if (usersRes.ok) {
+                            const usersData = await usersRes.json();
+                            tenantUsers = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
+                            targetTenant.users = tenantUsers;
+                            console.log(`[Promp] Fetched ${tenantUsers.length} users.`);
+                        } else {
+                            const errText = await usersRes.text();
+                            fetchDebug = `Status: ${usersRes.status}, Resp: ${errText}`;
+                            console.error('[Promp] Fetch User List Failed:', fetchDebug);
+                        }
+                    } catch (e) {
+                        fetchDebug = `Exception: ${e.message}`;
+                        console.error('Error fetching users for manual validation:', e);
                     }
                 }
+
+                if (Array.isArray(tenantUsers)) {
+                    const exists = tenantUsers.find(u => u.id === manualIdInt);
+                    if (exists) {
+                        targetUserId = manualIdInt;
+                        console.log(`[Promp] MANUAL USER ID VALIDATED and SELECTED: ${targetUserId}`);
+                    } else {
+                        console.warn(`[Promp] Manual User ID ${manualIdInt} NOT FOUND in Tenant #${targetTenant.id}.`);
+                        return res.status(400).json({
+                            message: `O ID de usuário informado (${manualIdInt}) não foi encontrado neste Tenant (ID: ${targetTenant.id}). IDs disponíveis: ${tenantUsers.map(u => u.id + ' (' + u.name + ')').join(', ')}`
+                        });
+                    }
+                } else {
+                    // If we can't validate (API failure), TRUST THE USER.
+                    console.warn(`[Promp] Validation skipped (API error: ${fetchDebug || 'Unknown'}). Trusting Manual ID: ${manualIdInt}`);
+                    targetUserId = manualIdInt;
+                }
             }
         }
 
-        console.log(`[ImageResolution] NOT FOUND for Target: "${cleanId}"`);
-        return { found: false, error: `Imagem não encontrada para ID: ${cleanId}` };
-    };
+        // Strategy 1: Match by Email (Identity Alignment)
+        if (!targetUserId) {
 
+            // Check if the current logged-in Agent user exists in the Target Tenant's user list
 
+            try {
+                const currentUser = await prisma.user.findUnique({
+                    where: { id: req.user.userId }
+                });
 
-    // Handle React Routing (SPA) - must be the last route
-    app.get('*', (req, res) => {
-        res.sendFile(path.join(__dirname, '../dist/index.html'));
-    });
+                if (currentUser && currentUser.email) {
+                    const currentUserEmail = currentUser.email.trim().toLowerCase();
 
+                    if (Array.isArray(targetTenant.users)) {
+                        // Case-insensitive match
+                        const matchedUser = targetTenant.users.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
 
+                        if (matchedUser) {
+                            targetUserId = matchedUser.id;
+                            console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUserEmail} -> User ID: ${targetUserId}`);
+                        } else {
+                            console.log(`[Promp] No match for ${currentUserEmail} in tenant users:`, targetTenant.users.map(u => u.email));
+                        }
+                    }
+                }
+            } catch (authErr) {
+                console.error('[Promp] Auth lookup failed (skipping email match):', authErr);
+            }
 
+            // Strategy 2: Admin/Owner Fallback (if no email match)
+            if (!targetUserId) {
+                targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
+            }
 
-    // --- SERVER STARTUP ---
-    const startServer = async () => {
-        try {
-            console.log('[Startup] Connecting to Database...');
-            await prisma.$connect();
-            console.log('[Startup] Database Connected.');
+            // Inspect 'users' array if available (Fallback to first user)
+            if (!targetUserId && Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
+                targetUserId = targetTenant.users[0].id;
+                console.log(`[Promp] Found User ID from 'users' array (First User): ${targetUserId}`);
+            }
 
-            app.listen(PORT, () => {
-                console.log(`[Startup] Server running on port ${PORT}`);
-                console.log('[Startup] Health Check available at /api/health');
-            });
-        } catch (e) {
-            console.error('[Startup] FATAL ERROR: Database connection failed.', e);
-            // Do not exit, allow server to run for static file serve or minimal health check
-            // But maybe it's better to crash?
-            process.exit(1);
+            // Inspect 'admin' object if available
+            if (!targetUserId && targetTenant.admin && targetTenant.admin.id) {
+                targetUserId = targetTenant.admin.id;
+                console.log(`[Promp] Found User ID from 'admin' object: ${targetUserId}`);
+            }
+
+            // Final Fallback (Try 1, but warn)
+            if (!targetUserId) {
+                console.warn('[Promp] WARNING: No explicit User ID found in Tenant object. Defaulting to 1 (Risk of failure).');
+                console.log('[Promp] Tenant Keys:', Object.keys(targetTenant).join(', '));
+                targetUserId = 1;
+            }
+
         }
-    };
 
-    startServer();
+        console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
+
+        const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: apiName,
+                sessionId: finalSessionId,
+                userId: targetUserId,
+                authToken: Math.random().toString(36).substring(7),
+                tenant: targetTenant.id
+            })
+        });
+
+        let apiData = await createApiRes.json();
+
+        if (!createApiRes.ok || !apiData.id) {
+            console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
+            // Return ACTUAL error from upstream + Context
+            return res.status(400).json({
+                message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
+            });
+        }
+
+        // SAVE TO DB (Upsert to create if missing)
+        await prisma.agentConfig.upsert({
+            where: { companyId },
+            update: {
+                prompIdentity: identity,
+                prompUuid: apiData.id,
+                prompToken: apiData.token
+            },
+            create: {
+                companyId,
+                prompIdentity: identity,
+                prompUuid: apiData.id,
+                prompToken: apiData.token
+            }
+        });
+
+        res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
+
+    } catch (error) {
+        console.error('Promp Connect Error:', error);
+        res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+    }
+});
+
+
+// --- Webhook Integration (Public) ---
+// Generic Webhook Fallback (if companyId missing in URL)
+app.post('/webhook', async (req, res) => {
+    console.log('[Webhook] Received request on generic /webhook endpoint (No ID).');
+
+    // Try to find a default company or extract from payload
+    // This is a Safety Net for misconfigured integrations.
+    const firstCompany = await prisma.company.findFirst();
+    if (firstCompany) {
+        console.log(`[Webhook] Redirecting to Company ${firstCompany.id}`);
+        // Internally forward or redirect? 
+        // Better to just call the handler or duplicate logic?
+        // Let's redirect 307 to the correct URL if possible, or handle it here.
+        // Since this is S2S, redirect might not be followed.
+        // We'll just call the logic via internal redirect if we could, but express doesn't support internal dispatch easily.
+        // We'll just return an error telling them to configure the URL correctly.
+        console.error('[Webhook] ERROR: Integration URL is missing Company ID. Use: /webhook/' + firstCompany.id);
+        return res.status(400).json({
+            error: 'Webhook URL must include Company ID',
+            correctUrl: `/webhook/${firstCompany.id}`,
+            example: `https://seu-dominio.com/webhook/${firstCompany.id}`
+        });
+    }
+    res.status(400).send('Missing Company ID in URL');
+});
+
+// Webhook Handlers (Defined explicitly for compatibility)
+
+// --- HELPER: Resolve Product Image from Config ---
+function resolveProductImageFromConfig(targetId, config) {
+    if (!config || !config.products) return { found: false, error: 'Lista de produtos vazia' };
+
+    // CRITICAL FIX: Parse products if stringified
+    let products = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
+    if (!Array.isArray(products)) return { found: false, error: 'Formato de produtos inválido' };
+
+    let cleanId = String(targetId).trim();
+    console.log(`[ImageResolution] Searching for Image. Target: "${cleanId}" in ${products.length} products.`);
+
+    // Check Parent (ID exact match)
+    for (const p of products) {
+        // Debug each product
+        // console.log(`[ImageResolution] Checking Product: ID=${p.id}, Name=${p.name}`);
+
+        if (String(p.id) === cleanId) {
+            if (p.image) {
+                console.log(`[ImageResolution] FOUND by ID Match: ${cleanId}`);
+                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+            }
+        }
+
+        // Check Parent (Name loose match - Fallback)
+        if (p.name && p.name.toLowerCase().includes(cleanId.toLowerCase())) {
+            if (p.image) {
+                console.log(`[ImageResolution] FOUND by Name Match: "${cleanId}" in "${p.name}"`);
+                // Don't return immediately if exact match is better? No, loop order.
+                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+            }
+        }
+
+        // Check Variations
+        if (p.variantItems) {
+            const variant = p.variantItems.find(v => String(v.id) === cleanId);
+            if (variant) {
+                if (variant.image || p.image) {
+                    const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                    console.log(`[ImageResolution] FOUND VARIANT by ID Match: ${cleanId} (Parent: ${p.name})`);
+                    return { found: true, url: variant.image || p.image, caption: `${p.name} - ${details} - R$ ${variant.price || p.price}` };
+                }
+            }
+        }
+    }
+
+    console.log(`[ImageResolution] NOT FOUND for Target: "${cleanId}"`);
+    return { found: false, error: `Imagem não encontrada para ID: ${cleanId}` };
+};
+
+
+
+// Handle React Routing (SPA) - must be the last route
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
+
+
+
+
+// --- SERVER STARTUP ---
+const startServer = async () => {
+    try {
+        console.log('[Startup] Connecting to Database...');
+        await prisma.$connect();
+        console.log('[Startup] Database Connected.');
+
+        app.listen(PORT, () => {
+            console.log(`[Startup] Server running on port ${PORT}`);
+            console.log('[Startup] Health Check available at /api/health');
+        });
+    } catch (e) {
+        console.error('[Startup] FATAL ERROR: Database connection failed.', e);
+        // Do not exit, allow server to run for static file serve or minimal health check
+        // But maybe it's better to crash?
+        process.exit(1);
+    }
+};
+
+startServer();
 
 
 // Call the wrapper if needed? But we don't know its name. 
