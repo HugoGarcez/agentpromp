@@ -1686,21 +1686,42 @@ Se você ESCREVER que está enviando a foto/imagem MAS não colocar
 a tag [SHOW_IMAGE: ID], o cliente ficará SEM VER NADA!
 ═══════════════════════════════════════════════════════════════
 
-LISTA DE PRODUTOS/SERVIÇOS DISPONÍVEIS:
-${productList}
+📋 COMO CONSULTAR PRODUTOS/SERVIÇOS:
+═══════════════════════════════════════════════════════════════
+⚠️ CRÍTICO: NUNCA liste produtos de memória ou histórico!
+
+QUANDO o usuário perguntar sobre produtos/serviços disponíveis:
+1️⃣ CHAME a function list_available_products() IMEDIATAMENTE
+2️⃣ Use APENAS os produtos retornados pela function
+3️⃣ NUNCA invente ou cite produtos que não estão na resposta da function
+
+EXEMPLO CORRETO:
+User: "Quais camisas vocês têm?"
+AI: [Chama list_available_products(type: "produto")]
+Function retorna: {total: 2, products: [{name: "Camisa Engenheiro"}, {name: "Camisa do Herói"}]}
+AI: "Temos 2 camisas: Engenheiro e do Herói"
+
+EXEMPLO ERRADO:
+User: "Quais camisas vocês têm?"
+AI: "Temos 3 camisas: Engenheiro, Herói e Aventureiro" ❌ (NÃO CHAMOU A FUNCTION!)
+═══════════════════════════════════════════════════════════════
 
 `;
-            systemPrompt += `
-🚫 REGRA DE CONSISTÊNCIA DE ESTOQUE (CRÍTICO):
-═══════════════════════════════════════════════════════════════
-1. A lista acima é a ÚNICA fonte de verdade sobre o que existe AGORA.
-2. Você DEVE contar quantos produtos estão na lista e informar APENAS esse número.
-3. PROIBIDO inventar produtos que não estão na lista acima.
-4. Se o histórico mencionar produtos que NÃO estão na lista = REMOVIDOS.
-5. Se usuário pedir produto que não existe: "Esse item não está mais disponível."
 
-⚠️ ANTES de listar produtos, CONTE quantos existem na lista acima!
+            systemPrompt += `
+📸 USO DOS RESULTADOS DA FUNCTION:
 ═══════════════════════════════════════════════════════════════
+A function list_available_products retorna cada produto com:
+- id: Use para tags [SHOW_IMAGE: ID] quando hasImage = true
+- hasImage: Se true, o produto tem imagem
+- hasVariations: Se true, produto tem variações de cor/tamanho
+
+EXEMPLO:
+Function retorna: {id: "1770083712009", name: "Camisa Herói", hasImage: true}
+Usuário: "Foto da camisa herói"
+Resposta: "Aqui está a foto! 👕 [SHOW_IMAGE: 1770083712009]"
+═══════════════════════════════════════════════════════════════
+
 `;
 
             systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
@@ -1980,6 +2001,23 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                         required: ["startTime", "customerName", "customerPhone"]
                     }
                 }
+            },
+            {
+                type: "function",
+                function: {
+                    name: "list_available_products",
+                    description: "Lista todos os produtos/serviços disponíveis AGORA. Use SEMPRE que o usuário perguntar sobre produtos disponíveis. NUNCA liste produtos de memória.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            type: {
+                                type: "string",
+                                enum: ["produto", "servico", "todos"],
+                                description: "Filtrar por tipo (padrão: todos)"
+                            }
+                        }
+                    }
+                }
             }
         ];
 
@@ -2070,6 +2108,37 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                 }
                             });
                             toolResult = JSON.stringify({ status: 'success', message: 'Agendamento confirmado!', link: gEvent.htmlLink });
+                        }
+                        else if (fnName === 'list_available_products') {
+                            const requestedType = args.type || 'todos';
+                            const products = config.products || [];
+
+                            const activeProducts = products.filter(p => p.active !== false);
+
+                            let filtered = activeProducts;
+                            if (requestedType === 'produto') {
+                                filtered = activeProducts.filter(p => p.type !== 'service');
+                            } else if (requestedType === 'servico') {
+                                filtered = activeProducts.filter(p => p.type === 'service');
+                            }
+
+                            const result = filtered.map(p => ({
+                                id: p.id,
+                                name: p.name,
+                                type: p.type === 'service' ? 'servico' : 'produto',
+                                price: p.price,
+                                priceHidden: p.priceHidden || false,
+                                hasImage: !!p.image,
+                                hasVariations: (p.variantItems && p.variantItems.length > 0),
+                                variationCount: (p.variantItems && p.variantItems.length) || 0
+                            }));
+
+                            console.log(`[Function: list_available_products] Returning ${result.length} products (type: ${requestedType})`);
+                            toolResult = JSON.stringify({
+                                status: 'success',
+                                total: result.length,
+                                products: result
+                            });
                         }
                     } catch (e) {
                         toolResult = JSON.stringify({ status: 'error', message: e.message });
