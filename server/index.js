@@ -58,11 +58,18 @@ const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    if (!token) return res.status(401).json({ error: 'Unauthorized', message: 'Token não fornecido' });
+    if (!token) {
+        console.log('[Auth] No token provided');
+        return res.status(401).json({ error: 'Unauthorized', message: 'Token não fornecido' });
+    }
 
     jwt.verify(token, JWT_SECRET, (err, user) => {
-        if (err) return res.status(403).json({ error: 'Forbidden', message: 'Token inválido ou expirado' });
+        if (err) {
+            console.log('[Auth] Token invalid/expired');
+            return res.status(403).json({ error: 'Forbidden', message: 'Token inválido ou expirado' });
+        }
         req.user = user;
+        // console.log(`[Auth] User authenticated: ${user.companyId || user.id}`);
         next();
     });
 };
@@ -1780,10 +1787,17 @@ CUMPRA ESTE PROTOCOLO AGORA.
         const companyId = req.user.companyId;
         const { message, history, systemPrompt: overridePrompt, useConfigPrompt = true } = req.body;
 
+        console.log(`[API Chat] Request received from Company: ${companyId}`);
         if (!message) return res.status(400).json({ error: 'Message required' });
 
         try {
+            console.log('[API Chat] Fetching config...');
             const config = await getCompanyConfig(companyId);
+            if (!config) {
+                console.error(`[API Chat] Config not found for company ${companyId}`);
+                return res.status(404).json({ error: 'Company config not found' });
+            }
+            console.log('[API Chat] Config loaded. Calling processChatResponse...');
 
             // Allow override for Test Panel
             if (!useConfigPrompt && overridePrompt) {
