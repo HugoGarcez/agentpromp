@@ -3,23 +3,23 @@ import cron from 'node-cron';
 import { extractFromUrl } from './extractor.js'; // Note the .js extension for imports
 
 // Initialize Scheduler
-export function initScheduler(prisma) {
+export function initScheduler(db) {
     console.log('[Scheduler] Initializing Product Extraction Scheduler...');
 
     // Run every hour
     cron.schedule('0 * * * *', async () => {
         console.log('[Scheduler] Running scheduled extraction task...');
-        await runScheduledExtractions(prisma);
+        await runScheduledExtractions(db);
     });
 }
 
-export async function runScheduledExtractions(prisma) {
+export async function runScheduledExtractions(db) {
     // ... (Logic remains same)
     try {
         const now = new Date();
 
         // Find sources due for update
-        const sources = await prisma.productSource.findMany({
+        const sources = await db.productSource.findMany({
             where: {
                 status: 'active',
                 OR: [
@@ -32,7 +32,7 @@ export async function runScheduledExtractions(prisma) {
         console.log(`[Scheduler] Found ${sources.length} sources to process.`);
 
         for (const source of sources) {
-            await processSource(source, prisma);
+            await processSource(source, db);
         }
 
     } catch (error) {
@@ -40,7 +40,7 @@ export async function runScheduledExtractions(prisma) {
     }
 }
 
-async function processSource(source, prisma) {
+async function processSource(source, db) {
     try {
         console.log(`[Scheduler] Processing source ${source.id} (${source.url || 'File'})...`);
 
@@ -51,7 +51,7 @@ async function processSource(source, prisma) {
         }
 
         if (newProducts.length > 0) {
-            const config = await prisma.agentConfig.findUnique({ where: { companyId: source.companyId } });
+            const config = await db.agentConfig.findUnique({ where: { companyId: source.companyId } });
             if (config) {
                 let currentProducts = config.products ? JSON.parse(config.products) : [];
 
@@ -69,7 +69,7 @@ async function processSource(source, prisma) {
 
                 const updatedProducts = [...currentProducts, ...formattedProducts];
 
-                await prisma.agentConfig.update({
+                await db.agentConfig.update({
                     where: { id: config.id },
                     data: { products: JSON.stringify(updatedProducts) }
                 });
@@ -83,14 +83,14 @@ async function processSource(source, prisma) {
         else if (source.frequency === 'daily') nextRun.setDate(nextRun.getDate() + 1);
         else if (source.frequency === 'weekly') nextRun.setDate(nextRun.getDate() + 7);
         else {
-            await prisma.productSource.update({
+            await db.productSource.update({
                 where: { id: source.id },
                 data: { status: 'completed', lastRun: new Date() }
             });
             return;
         }
 
-        await prisma.productSource.update({
+        await db.productSource.update({
             where: { id: source.id },
             data: {
                 lastRun: new Date(),
@@ -101,7 +101,7 @@ async function processSource(source, prisma) {
 
     } catch (error) {
         console.error(`[Scheduler] Error processing source ${source.id}:`, error);
-        await prisma.productSource.update({
+        await db.productSource.update({
             where: { id: source.id },
             data: { error: error.message, status: 'error' }
         });
