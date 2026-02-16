@@ -31,13 +31,12 @@ async function restore() {
 
         const updates = {
             prompIdentity: 'Agente Promp',
-            // REMOVED INVALID FIELDS: active, status
+            // REMOVED INVALID FIELDS: active, status, model, temperature
             integrations: JSON.stringify({
                 openaiKey: openaiKey,
                 whatsapp: { status: 'connected' }
             }),
             systemPrompt: existingConfig?.systemPrompt || 'Você é um assistente virtual útil.',
-            model: existingConfig?.model || 'gpt-4o-mini',
         };
 
         console.log('🛠 Atualizando configuração (Corrigido)...');
@@ -48,8 +47,7 @@ async function restore() {
             update: updates,
             create: {
                 companyId: company.id,
-                ...updates,
-                temperature: 0.7
+                ...updates
             }
         });
 
