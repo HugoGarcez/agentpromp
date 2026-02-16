@@ -2153,10 +2153,15 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                             }
                         }
                         else if (fnName === 'list_available_products') {
+                            console.log('[Function: list_available_products] CALLED with args:', JSON.stringify(args));
                             const requestedType = args.type || 'todos';
+                            console.log('[Function: list_available_products] Requested type:', requestedType);
+
                             const products = config.products || [];
+                            console.log('[Function: list_available_products] Total products in config:', products.length);
 
                             const activeProducts = products.filter(p => p.active !== false);
+                            console.log('[Function: list_available_products] Active products:', activeProducts.length);
 
                             let filtered = activeProducts;
                             if (requestedType === 'produto') {
@@ -2164,6 +2169,7 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                             } else if (requestedType === 'servico') {
                                 filtered = activeProducts.filter(p => p.type === 'service');
                             }
+                            console.log('[Function: list_available_products] Filtered products:', filtered.length);
 
                             const result = filtered.map(p => ({
                                 id: p.id,
@@ -2177,11 +2183,14 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                             }));
 
                             console.log(`[Function: list_available_products] Returning ${result.length} products (type: ${requestedType})`);
+                            console.log('[Function: list_available_products] Result:', JSON.stringify(result, null, 2));
+
                             toolResult = JSON.stringify({
                                 status: 'success',
                                 total: result.length,
                                 products: result
                             });
+                            console.log('[Function: list_available_products] toolResult length:', toolResult.length);
                         }
                     } catch (e) {
                         toolResult = JSON.stringify({ status: 'error', message: e.message });
