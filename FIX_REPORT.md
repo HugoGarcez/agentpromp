@@ -1,13 +1,17 @@
-# Relatório de Correção - Login e Configuração Global
+# Relatório de Correção - Configuração Global (Atualização)
 
-## Problema Identificado
-O erro ao salvar as configurações globais ("Erro ao salvar as configurações globais") ocorria porque o esquema do banco de dados local não estava sincronizado com os novos campos adicionados (`googleClientId`, etc.) no `GlobalConfig`.
-Além disso, havia uma duplicação no código de inicialização do servidor (`app.listen`), o que poderia causar instabilidade.
+## Problema: URL Fallback e Erro ao Salvar
+O usuário notou que a URL de fallback estava incorreta (`https://seu-dominio.com...`) e que ocorria erro ao salvar as configurações.
 
-## Solução Aplicada
-1.  **Atualização do Banco de Dados:** Executei `npx prisma db push` para aplicar as alterações do `schema.prisma` ao banco de dados SQLite.
-2.  **Limpeza do Servidor:** Removi a chamada duplicada de `app.listen` e rotas redundantes em `server/index.js`, garantindo uma inicialização limpa.
+## Soluções Aplicadas
+1.  **Frontend (AdminConfig.jsx):** Atualizei a URL de fallback para usar dinamicamente o domínio atual (`window.location.origin` + `/api/auth/google/callback`). Isso garante que funcione tanto em localhost quanto em produção (`agente.promp.com.br`).
+2.  **Backup e Database:** Confirmei que o esquema do banco de dados (`schema.prisma`) foi atualizado com `prisma db push`.
 
-## Próximos Passos
-- Tente salvar as configurações globais novamente no Painel Administrativo.
-- O login e o salvamento devem funcionar corretamente agora.
+## AÇÃO NECESSÁRIA (CRÍTICO)
+O erro ao salvar ("Erro ao salvar as configurações globais") continuará acontecendo até que o **SERVIDOR BACKEND SEJA REINICIADO**.
+O processo Node.js que está rodando o servidor ainda não "sabe" sobre os novos campos (`googleClientId`, etc.) e falha ao tentar salvá-los.
+
+**Por favor, execute:**
+1.  Pare o servidor backend (CTRL+C no terminal onde roda `node server/index.js`).
+2.  Execute novamente: `node server/index.js`.
+3.  Tente salvar as configurações novamente no painel.

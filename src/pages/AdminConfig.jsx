@@ -62,7 +62,8 @@ const AdminConfig = () => {
                 setShowToast(true);
                 setTimeout(() => setShowToast(false), 3000);
             } else {
-                alert('Erro ao salvar as configurações globais.');
+                console.error('Failed to save config');
+                alert('Erro ao salvar. Tente reiniciar o servidor backend (node server/index.js) para aplicar as mudanças no banco.');
             }
         } catch (e) {
             alert('Erro de conexão.');
@@ -167,6 +168,7 @@ const AdminConfig = () => {
                         />
                     </div>
 
+
                     <div style={{ marginBottom: '16px' }}>
                         <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Redirect URI (Callback)</label>
                         <input
@@ -174,10 +176,10 @@ const AdminConfig = () => {
                             name="googleRedirectUri"
                             value={config.googleRedirectUri || ''}
                             onChange={handleChange}
-                            placeholder="https://seu-dominio.com/api/auth/google/callback"
+                            placeholder={`${window.location.origin}/api/auth/google/callback`}
                             style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', backgroundColor: '#F3F4F6' }}
                         />
-                        <small style={{ color: '#6B7280' }}>Adicione esta URL no Console do Google Cloud.</small>
+                        <small style={{ color: '#6B7280' }}>Adicione esta URL no Console do Google Cloud. (Deve corresponder EXATAMENTE)</small>
                     </div>
                 </div>
 
