@@ -53,6 +53,15 @@ const prisma = new PrismaClient();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// DEBUG: Log all requests
+app.use((req, res, next) => {
+    // Ignore health check to avoid spam
+    if (req.path !== '/api/health') {
+        console.log(`[Request] ${req.method} ${req.path}`);
+    }
+    next();
+});
+
 // --- AUTH MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -1466,6 +1475,19 @@ CUMPRA ESTE PROTOCOLO AGORA.
         // Check if Google Config exists and has token
         const shouldUseTools = config.googleConfig && config.googleConfig.accessToken;
 
+        // Create OpenAI Client dynamically with the correct key
+        let apiKey = process.env.OPENAI_API_KEY;
+        if (config.integrations && config.integrations.openaiKey) {
+            apiKey = config.integrations.openaiKey;
+        }
+
+        if (!apiKey) {
+            console.error('[AI] No OpenAI Key found in Config or Env!');
+            return { aiResponse: "Erro: Chave de API não configurada." };
+        }
+
+        const client = new OpenAI({ apiKey });
+
         if (!shouldUseTools) {
             console.log('[AI] Running in TEXT-ONLY mode (Calendar not connected or token missing).');
         } else {
@@ -1473,9 +1495,9 @@ CUMPRA ESTE PROTOCOLO AGORA.
         }
 
         while (turns < maxTurns) {
-            const completion = await openai.chat.completions.create({
+            const completion = await client.chat.completions.create({
                 messages: messages,
-                model: "gpt-4o-mini",
+                model: config.model || "gpt-4o-mini", // Use config model or default
                 tools: shouldUseTools ? tools : undefined,
                 tool_choice: shouldUseTools ? "auto" : undefined
             });
@@ -2452,7 +2474,34 @@ CUMPRA ESTE PROTOCOLO AGORA.
         res.status(400).send('Missing Company ID in URL');
     });
 
-    app.post('/webhook/:companyId', async (req, res) => {
+    // Webhook Handlers (Support multiple paths for compatibility)
+    const handleWebhook = async (req, res) => {
+        const { companyId } = req.params;
+        const payload = req.body;
+
+        console.log(`[Webhook] Received for company ${companyId}:`, JSON.stringify(payload, null, 2));
+
+        // ... (existing logic will be here, need to move it to a function)
+        // Check if we can just define the route handler elsewhere or reuse.
+        // Since I am replacing the route definition, I need to refactor the logic into a named function?
+        // Actually, the previous code was an inline async function.
+        // I will keep it inline but assign to a variable to reuse?
+        // Too complex for 'replace'.
+        // Better: Just duplicate the route definition lines.
+    };
+
+    // Define the handler function separately to reuse (Wait, I can't easily refactor entire block with replace tool without reading it all)
+    // I will just add the aliases pointing to the same handlers if I could...
+    // But I can't in this tool comfortably.
+
+    // Alternative: Just add the aliases that call the main route logic?
+    // app.post('/api/webhook/:companyId', (req, res) => app._router.handle({ ...req, url: '/webhook/' + req.params.companyId }, res));
+    // Risky.
+
+    // Let's just Rename the route to use an array of paths? Express supports it!
+    // app.post(['/webhook/:companyId', '/api/webhook/:companyId', '/api/promp/webhook/:companyId'], ...
+
+    app.post(['/webhook/:companyId', '/api/webhook/:companyId', '/api/promp/webhook/:companyId'], async (req, res) => {
         const { companyId } = req.params;
         const payload = req.body; // n8n payload
 
