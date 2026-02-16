@@ -3092,9 +3092,31 @@ app.get('*', (req, res) => {
 
 
 
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// --- HEALTH CHECK ROUTE (NO AUTH) ---
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', time: new Date().toISOString() });
 });
+
+// --- SERVER STARTUP ---
+const startServer = async () => {
+    try {
+        console.log('[Startup] Connecting to Database...');
+        await prisma.$connect();
+        console.log('[Startup] Database Connected.');
+
+        app.listen(PORT, () => {
+            console.log(`[Startup] Server running on port ${PORT}`);
+            console.log('[Startup] Health Check available at /api/health');
+        });
+    } catch (e) {
+        console.error('[Startup] FATAL ERROR: Database connection failed.', e);
+        // Do not exit, allow server to run for static file serve or minimal health check
+        // But maybe it's better to crash?
+        process.exit(1);
+    }
+};
+
+startServer();
 
 
 // Call the wrapper if needed? But we don't know its name. 
