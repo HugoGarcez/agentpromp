@@ -2507,508 +2507,505 @@ CUMPRA ESTE PROTOCOLO AGORA.
         } catch (e) {
             console.error('[Webhook] Failed to load config:', e);
         }
-    }
-} else if (typeof config.followUpConfig === 'object') {
-    followUpCfg = config.followUpConfig;
-}
+
+        // ------------------------------------------------------------------
+        // 0. DEDUPLICATION (Prevent Triple Replies)
+        // ------------------------------------------------------------------
+        const msgId = payload.key?.id || payload.id || payload.data?.id;
+        if (msgId) {
+            if (processedMessages.has(msgId)) {
+                console.log(`[Webhook] Duplicate Message ID ${msgId}. Ignoring.`);
+                return res.json({ status: 'ignored_duplicate' });
             }
-        } catch (e) {
-    console.error('[Webhook] Failed to load config:', e);
-}
-
-// ------------------------------------------------------------------
-// 0. DEDUPLICATION (Prevent Triple Replies)
-// ------------------------------------------------------------------
-const msgId = payload.key?.id || payload.id || payload.data?.id;
-if (msgId) {
-    if (processedMessages.has(msgId)) {
-        console.log(`[Webhook] Duplicate Message ID ${msgId}. Ignoring.`);
-        return res.json({ status: 'ignored_duplicate' });
-    }
-    processedMessages.add(msgId);
-    // Clear from memory after 15 seconds
-    setTimeout(() => processedMessages.delete(msgId), 15000);
-}
-
-// ------------------------------------------------------------------
-// LOOP PROTECTION & SENDER IDENTITY
-// ------------------------------------------------------------------
-
-// 1. Check "wasSentByApi" (Explicit flag from some Providers)
-// If true, it is DEFINITELY the bot/agent.
-if (payload.wasSentByApi || payload.msg?.wasSentByApi || payload.data?.wasSentByApi) {
-    console.log('[Webhook] Loop Protection: Message marked as "wasSentByApi". Ignoring.');
-    return res.json({ status: 'ignored_api_sent' });
-}
-
-// 2. Identify Sender
-const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
-const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
-
-// 3. Identify Protocol Owner (The session/bot number)
-const rawOwner = payload.msg?.owner || payload.owner;
-const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
-
-// 4. Identify Configured Identity (From DB)
-let dbIdentity = null;
-if (config?.prompIdentity) {
-    dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
-}
-
-// IDENTITY CHECK: "Consider ONLY what is sent TO the number that is in the AI"
-// If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
-// (Only if both are known)
-if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
-    console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
-    return res.json({ status: 'ignored_wrong_identity' });
-}
-
-// ------------------------------------------------------------------
-// 5. STRICT FILTERS (Groups, Status, Broadcasts)
-// ------------------------------------------------------------------
-const isGroup = rawSender ? rawSender.includes('@g.us') : false;
-const isBroadcast = rawSender ? (rawSender.includes('broadcast') || rawSender.includes('@lid')) : false;
-// Note: @lid is sometimes used for individual chats in new WhatsApp versions. 
-// If it is 'status@broadcast', ignore. If it is '123...456@lid', it might be a user.
-// SAFE BET: Ignore 'status@broadcast' explicitly.
-// Also ignore empty messages or protocol messages.
-const messageType = payload.messageType || payload.type;
-const isProtocol = messageType === 'protocolMessage' || messageType === 'senderKeyDistributionMessage';
-
-if (rawSender && rawSender.includes('status@broadcast')) {
-    console.log('[Webhook] Ignoring Status Update (status@broadcast).');
-    return res.json({ status: 'ignored_status' });
-}
-
-if (isGroup) {
-    console.log('[Webhook] Ignoring Group Message.');
-    return res.json({ status: 'ignored_group' });
-}
-
-
-
-if (isProtocol) {
-    console.log('[Webhook] Ignoring Protocol Message.');
-    return res.json({ status: 'ignored_protocol' });
-}
-
-let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
-
-// REVERTED: Removed "Smart" Auto-Detection of Identity/Owner to avoid "Double Reply" bugs.
-// Relying Strictly on API 'fromMe' flag.
-
-// ------------------------------------------------------------------
-// FLOW A: AGENT SENT MESSAGE -> START TIMER
-// ------------------------------------------------------------------
-
-if (isFromMe) {
-    console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
-
-    // For OUTBOUND messages, we need to find the RECIPIENT to set the timer for.
-    // Usually in `payload.key.remoteJid` or `payload.to` or `payload.msg.chatid`
-    // CAREFUL: In some webhooks, key.remoteJid is the Chat ID (User).
-    // Let's inspect `remoteJid`. If it's the User, use it.
-
-    let targetJid = payload.key?.remoteJid || payload.to || payload.msg?.chatid;
-    // If remoteJid contains status@broadcast, we already ignored it.
-
-    // Sanity Check: If targetJid IS the agent (unlikely for outbound), we have a problem.
-    // Assuming targetJid is the User.
-
-    if (targetJid) {
-        const cleanTarget = String(targetJid).replace(/\D/g, '');
-
-        // SAFETY CHECK: If Target is myself (Agent), ABORT.
-        if (cleanTarget === cleanOwner || cleanTarget === dbIdentity || cleanTarget === cleanSender) {
-            console.log(`[FollowUp] Timer SKIPPED. Target (${cleanTarget}) is myself/sender. (Owner: ${cleanOwner}, ID: ${dbIdentity})`);
-            return res.json({ status: 'ignored_self_target' });
+            processedMessages.add(msgId);
+            // Clear from memory after 15 seconds
+            setTimeout(() => processedMessages.delete(msgId), 15000);
         }
 
-        // Check if Follow-up is Enabled
-        if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
-            const firstAttempt = followUpCfg.attempts[0];
-            const now = new Date();
-            let nextDate = new Date();
-            if (firstAttempt.delayUnit === 'minutes') nextDate.setMinutes(now.getMinutes() + firstAttempt.delayValue);
-            if (firstAttempt.delayUnit === 'hours') nextDate.setHours(now.getHours() + firstAttempt.delayValue);
-            if (firstAttempt.delayUnit === 'days') nextDate.setDate(now.getDate() + firstAttempt.delayValue);
+        // ------------------------------------------------------------------
+        // LOOP PROTECTION & SENDER IDENTITY
+        // ------------------------------------------------------------------
 
-            // UPSERT STATE for the USER (Target)
-            // Use full JID for DB uniqueness
-            await prisma.contactState.upsert({
-                where: { companyId_remoteJid: { companyId, remoteJid: targetJid } },
-                create: {
-                    companyId,
-                    remoteJid: targetJid,
-                    isActive: true,
-                    attemptIndex: 0,
-                    lastOutbound: now,
-                    nextFollowUp: nextDate
-                },
-                update: {
-                    isActive: true,
-                    attemptIndex: 0,
-                    lastOutbound: now,
-                    nextFollowUp: nextDate
+        // 1. Check "wasSentByApi" (Explicit flag from some Providers)
+        // If true, it is DEFINITELY the bot/agent.
+        if (payload.wasSentByApi || payload.msg?.wasSentByApi || payload.data?.wasSentByApi) {
+            console.log('[Webhook] Loop Protection: Message marked as "wasSentByApi". Ignoring.');
+            return res.json({ status: 'ignored_api_sent' });
+        }
+
+        // 2. Identify Sender
+        const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
+        const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
+
+        // 3. Identify Protocol Owner (The session/bot number)
+        const rawOwner = payload.msg?.owner || payload.owner;
+        const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+
+        // 4. Identify Configured Identity (From DB)
+        let dbIdentity = null;
+        if (config?.prompIdentity) {
+            dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
+        }
+
+        // IDENTITY CHECK: "Consider ONLY what is sent TO the number that is in the AI"
+        // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
+        // (Only if both are known)
+        if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
+            console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
+            return res.json({ status: 'ignored_wrong_identity' });
+        }
+
+        // ------------------------------------------------------------------
+        // 5. STRICT FILTERS (Groups, Status, Broadcasts)
+        // ------------------------------------------------------------------
+        const isGroup = rawSender ? rawSender.includes('@g.us') : false;
+        const isBroadcast = rawSender ? (rawSender.includes('broadcast') || rawSender.includes('@lid')) : false;
+        // Note: @lid is sometimes used for individual chats in new WhatsApp versions. 
+        // If it is 'status@broadcast', ignore. If it is '123...456@lid', it might be a user.
+        // SAFE BET: Ignore 'status@broadcast' explicitly.
+        // Also ignore empty messages or protocol messages.
+        const messageType = payload.messageType || payload.type;
+        const isProtocol = messageType === 'protocolMessage' || messageType === 'senderKeyDistributionMessage';
+
+        if (rawSender && rawSender.includes('status@broadcast')) {
+            console.log('[Webhook] Ignoring Status Update (status@broadcast).');
+            return res.json({ status: 'ignored_status' });
+        }
+
+        if (isGroup) {
+            console.log('[Webhook] Ignoring Group Message.');
+            return res.json({ status: 'ignored_group' });
+        }
+
+
+
+        if (isProtocol) {
+            console.log('[Webhook] Ignoring Protocol Message.');
+            return res.json({ status: 'ignored_protocol' });
+        }
+
+        let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
+
+        // REVERTED: Removed "Smart" Auto-Detection of Identity/Owner to avoid "Double Reply" bugs.
+        // Relying Strictly on API 'fromMe' flag.
+
+        // ------------------------------------------------------------------
+        // FLOW A: AGENT SENT MESSAGE -> START TIMER
+        // ------------------------------------------------------------------
+
+        if (isFromMe) {
+            console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
+
+            // For OUTBOUND messages, we need to find the RECIPIENT to set the timer for.
+            // Usually in `payload.key.remoteJid` or `payload.to` or `payload.msg.chatid`
+            // CAREFUL: In some webhooks, key.remoteJid is the Chat ID (User).
+            // Let's inspect `remoteJid`. If it's the User, use it.
+
+            let targetJid = payload.key?.remoteJid || payload.to || payload.msg?.chatid;
+            // If remoteJid contains status@broadcast, we already ignored it.
+
+            // Sanity Check: If targetJid IS the agent (unlikely for outbound), we have a problem.
+            // Assuming targetJid is the User.
+
+            if (targetJid) {
+                const cleanTarget = String(targetJid).replace(/\D/g, '');
+
+                // SAFETY CHECK: If Target is myself (Agent), ABORT.
+                if (cleanTarget === cleanOwner || cleanTarget === dbIdentity || cleanTarget === cleanSender) {
+                    console.log(`[FollowUp] Timer SKIPPED. Target (${cleanTarget}) is myself/sender. (Owner: ${cleanOwner}, ID: ${dbIdentity})`);
+                    return res.json({ status: 'ignored_self_target' });
                 }
-            });
-            console.log(`[FollowUp] Timer STARTED for ${cleanTarget}. Next: ${nextDate.toISOString()}`);
-        } else {
-            console.log('[FollowUp] Timer IGNORED (Disabled or No Attempts).');
-        }
-    }
 
-    // CRITICAL: STOP HERE. Do not process as user message.
-    return res.json({ status: 'agent_action_processed' });
-}
+                // Check if Follow-up is Enabled
+                if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
+                    const firstAttempt = followUpCfg.attempts[0];
+                    const now = new Date();
+                    let nextDate = new Date();
+                    if (firstAttempt.delayUnit === 'minutes') nextDate.setMinutes(now.getMinutes() + firstAttempt.delayValue);
+                    if (firstAttempt.delayUnit === 'hours') nextDate.setHours(now.getHours() + firstAttempt.delayValue);
+                    if (firstAttempt.delayUnit === 'days') nextDate.setDate(now.getDate() + firstAttempt.delayValue);
 
-// ------------------------------------------------------------------
-// FLOW B: USER SENT MESSAGE -> STOP TIMER & REPLY
-// ------------------------------------------------------------------
-
-console.log(`[Webhook] Processing User Message from ${cleanSender}...`);
-
-// Check if Status Update again (redundant but safe)
-if (payload.type === 'message_status' || payload.status) {
-    return res.json({ status: 'ignored_status_update' });
-}
-
-// Safety Check for Content
-// Wuzapi: payload.data.message.conversation OR payload.content.text
-// User Log Payload: payload.msg.text Or payload.msg.content
-let userMessage = payload.content?.text ||
-    payload.data?.message?.conversation ||
-    payload.data?.message?.extendedTextMessage?.text ||
-    payload.msg?.text ||
-    payload.msg?.body ||
-    payload.msg?.content;
-
-// --- AUDIO HANDLING ---
-// If text is "ptt" (Push To Talk) or "audio" AND we have media, it's an Audio Message.
-let isAudioInput = false;
-const mediaBase64 = payload.content?.media || payload.msg?.media || payload.media; // Try all paths
-
-if ((userMessage === 'ptt' || userMessage === 'audio' || payload.type === 'audio') && mediaBase64) {
-    console.log('[Webhook] Audio Message Detected. Attempting Transcription...');
-
-    // Need Global Key for Whisper
-    const globalConfig = await getGlobalConfig();
-    if (globalConfig?.openaiKey) {
-        const transcription = await transcribeAudio(mediaBase64, globalConfig.openaiKey);
-        if (transcription) {
-            userMessage = `[ÁUDIO TRANSCRITO]: ${transcription}`;
-            isAudioInput = true;
-            console.log(`[Webhook] Audio Transcribed: "${userMessage}"`);
-        } else {
-            userMessage = "[Áudio inaudível]";
-        }
-    } else {
-        console.warn('[Webhook] No Global OpenAI Key. Cannot transcribe audio.');
-        userMessage = "[Áudio recebido, mas sem chave para transcrever]";
-    }
-}
-
-if (!userMessage) {
-    // If it's a media message or something else we don't support yet, ignore gracefully
-    console.log('[Webhook] Payload missing text content. Ignoring.');
-    return res.json({ status: 'ignored_no_text' });
-}
-if (!userMessage) {
-    // If it's a media message or something else we don't support yet, ignore gracefully
-    console.log('[Webhook] Payload missing text content. Ignoring.');
-    return res.json({ status: 'ignored_no_text' });
-}
-
-// Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
-const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
-const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
-
-// Clean Sender Number if it has @s.whatsapp.net
-const cleanNumber = senderNumber ? String(senderNumber).replace(/\D/g, '') : null;
-
-if (!cleanNumber) {
-    console.log('[Webhook] No specific sender number found. Ignoring.');
-    return res.json({ status: 'ignored_no_number' });
-}
-
-// --- STOP FOLLOW-UP TIMER (User Replied) ---
-try {
-    // If user replies, we stop any pending sequence
-    // We use updateMany just in case record doesn't exist (avoid error) or findUnique check
-    // Ideally:
-    const jid = senderNumber.includes('@') ? senderNumber : `${senderNumber}@s.whatsapp.net`;
-
-    await prisma.contactState.updateMany({
-        where: {
-            companyId: companyId,
-            remoteJid: jid // We must match what we saved (likely full JID)
-        },
-        data: { isActive: false }
-    });
-    console.log(`[FollowUp] Timer STOPPED for ${cleanNumber}`);
-} catch (e) {
-    // Ignore error
-}
-
-const metadata = JSON.stringify(payload);
-
-try {
-    const config = await getCompanyConfig(companyId);
-    if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
-
-    const msgLog = userMessage ? String(userMessage).substring(0, 50) : '[No Content]';
-    console.log(`[Webhook] Processing message for ${cleanNumber}: "${msgLog}..."`);
-
-    // Fetch History
-    let history = [];
-
-    // STRATEGY: Try fetching by sessionId. If fails (or sessionId null), try fetching by senderNumber (via metadata or new field... but metadata is lazy).
-    // Let's rely on sessionId first. If sessionId is missing, we MIGHT lose history.
-    // However, if the webhook provides ticket.id (which it seems to), we are good.
-    // Issue: Previous logs show ticket.id changing.
-    // Fallback: Query by metadata contains senderNumber? No, too slow.
-    // Fix: Use sessionId (ticket.id) if available. If ticket.id IS available, trust it.
-    // If ticket.id changes, it might be a new ticket/support case.
-    // BUT, for a persistent AI, we might want to fetch history by 'sender' NOT 'sessionId'.
-    // Let's Try: Find messages where companyId matches and metadata CONTAINS cleanNumber. (Slow regex)
-    // BETTER: Use 'sessionId' field in DB to store 'cleanNumber' as a fallback identifier if ticket ID is unstable?
-    // NO, 'sessionId' is for ticket grouping.
-    // Let's stick to sessionId for now but improve the lookup debugging.
-
-    // --- DATABASE MEMORY FIX (Persistent Session + Chronological Order) ---
-    // 1. Session ID: Use cleanNumber (Phone) if available to ensure persistence across tickets.
-    //    Fallback to ticket.id if needed, but phone is better for long-term memory.
-    const dbSessionId = cleanNumber || sessionId || 'unknown_session';
-
-    if (cleanNumber) {
-        try {
-            // 2. Fetch History: Get 20 *MOST RECENT* messages (descending)
-            const storedMessages = await prisma.testMessage.findMany({
-                where: {
-                    companyId: String(companyId),
-                    sessionId: String(dbSessionId)
-                },
-                orderBy: { createdAt: 'desc' }, // Get newest first
-                take: 20
-            });
-
-            // 3. Reverse to Chronological Order for OpenAI (Oldest -> Newest)
-            history = storedMessages.reverse().map(m => ({
-                role: m.sender === 'user' ? 'user' : 'assistant',
-                content: m.text
-            }));
-
-            console.log(`[Webhook] Fetched ${history.length} msgs of Persistent History for ${dbSessionId}`);
-        } catch (histError) {
-            console.error('[Webhook] History Fetch Error:', histError);
-        }
-    }
-
-    // 3. Process AI Response
-    // Pass isAudioInput flag so AI can decide to reply with audio
-    const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput);
-
-    console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
-    if (messageChunks && messageChunks.length > 0) {
-        console.log(`[Webhook] Multi-message response detected: ${messageChunks.length} chunks.`);
-    }
-
-    // Persist Chat (Using Persistent Session ID)
-    // We persist the FULL AI response for context, even if sent in chunks.
-    try {
-        await prisma.testMessage.create({
-            data: {
-                companyId: String(companyId),
-                sender: 'user',
-                text: userMessage,
-                sessionId: String(dbSessionId),
-                metadata
-            }
-        });
-        await prisma.testMessage.create({
-            data: {
-                companyId: String(companyId),
-                sender: 'ai',
-                text: aiResponse,
-                sessionId: String(dbSessionId)
-            }
-        });
-    } catch (dbError) {
-        console.error('[Webhook] Failed to save chat:', dbError);
-    }
-
-    // --- REPLY STRATEGY ---
-    let sentViaApi = false;
-    if (config.prompUuid && config.prompToken) {
-
-        // MULTI-MESSAGE SENDING LOOP
-        if (messageChunks && messageChunks.length > 0) {
-            console.log(`[Webhook] Sending ${messageChunks.length} chunks via API...`);
-
-            for (const [index, chunk] of messageChunks.entries()) {
-                if (chunk.type === 'image') {
-                    // Send Image
-                    // For the FIRST chunk/image, maybe send audio if allowed? 
-                    // Let's stick to NO audio for images unless it's the *only* thing?
-                    // Actually, audioBase64 is global for the response.
-                    // We should only send Audio ONCE. Let's send it with the LAST chunk? Or First?
-                    // Let's send it with the first TEXT chunk.
-                    const isFirstText = index === 0;
-                    await sendPrompMessage(config, cleanNumber, null, null, chunk.url, chunk.caption);
-                    // small delay
-                    await new Promise(r => setTimeout(r, 600));
-                } else if (chunk.type === 'text') {
-                    // Send Text
-                    // Attach Audio ONLY to the first text chunk (or if it's the only one)
-                    // If we attach audio, sendPrompMessage sends audio separately anyway.
-                    // But we want to avoid sending audio multiple times.
-                    const chunkAudio = (index === 0) ? audioBase64 : null;
-
-                    await sendPrompMessage(config, cleanNumber, chunk.content, chunkAudio, null, null);
-                    await new Promise(r => setTimeout(r, 800)); // Readability delay
-                }
-            }
-            sentViaApi = true;
-
-        } else {
-            // Fallback (Should not happen if processChatResponse always returns chunks)
-            sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
-        }
-
-        console.log(`[Webhook] Sent via API: ${sentViaApi}`);
-    } else {
-        console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
-    }
-
-    if (sentViaApi) {
-        res.json({ status: 'sent_via_api' });
-    } else {
-        res.json({
-            text: aiResponse,
-            audio: audioBase64,
-            image: productImageUrl,
-            sessionId: sessionId
-        });
-    }
-
-} catch (error) {
-    console.error('[Webhook] Error:', error);
-    res.status(500).json({ error: error.message || 'Processing failed' });
-}
-    });
-
-// --- INTELLIGENT FOLLOW-UP SCHEDULER ---
-const FOLLOW_UP_INTERVAL_MS = 60 * 1000; // Check every 60s
-
-// Helper to calculate date
-const calculateNextDate = (value, unit) => {
-    const now = new Date();
-    if (unit === 'minutes') now.setMinutes(now.getMinutes() + value);
-    if (unit === 'hours') now.setHours(now.getHours() + value);
-    if (unit === 'days') now.setDate(now.getDate() + value);
-    return now;
-};
-
-setInterval(async () => {
-    try {
-        const now = new Date();
-        // Log heartbeat every minute (or every 5 minutes if too noisy, but for debug every min is good)
-        // console.log(`[FollowUp] Heartbeat at ${now.toISOString()}`); 
-
-        // 1. Find contacts due for follow-up
-        const pendingContacts = await prisma.contactState.findMany({
-            where: {
-                isActive: true,
-                nextFollowUp: { lte: now }
-            }
-        });
-
-        if (pendingContacts.length > 0) {
-            console.log(`[FollowUp] Found ${pendingContacts.length} contacts due for follow-up at ${now.toISOString()}`);
-            pendingContacts.forEach(c => console.log(` - Contact: ${c.remoteJid}, Next: ${c.nextFollowUp}, Attempt: ${c.attemptIndex}`));
-        } else {
-            // Uncomment to debug if loop is running at all
-            console.log(`[FollowUp] No pending contacts. (Checked at ${now.toISOString()})`);
-        }
-
-        for (const contact of pendingContacts) {
-            try {
-                // 2. Load Config
-                // FIX: Use robust JSON parsing same as Webhook
-                const config = await getCompanyConfig(contact.companyId);
-                let followUpCfg = null;
-                if (config?.followUpConfig) {
-                    try {
-                        if (typeof config.followUpConfig === 'string') {
-                            if (config.followUpConfig.trim().startsWith('{')) {
-                                followUpCfg = JSON.parse(config.followUpConfig);
-                            } else {
-                                console.warn(`[FollowUp] Invalid JSON string for config: ${config.followUpConfig}`);
-                            }
-                        } else if (typeof config.followUpConfig === 'object') {
-                            followUpCfg = config.followUpConfig;
+                    // UPSERT STATE for the USER (Target)
+                    // Use full JID for DB uniqueness
+                    await prisma.contactState.upsert({
+                        where: { companyId_remoteJid: { companyId, remoteJid: targetJid } },
+                        create: {
+                            companyId,
+                            remoteJid: targetJid,
+                            isActive: true,
+                            attemptIndex: 0,
+                            lastOutbound: now,
+                            nextFollowUp: nextDate
+                        },
+                        update: {
+                            isActive: true,
+                            attemptIndex: 0,
+                            lastOutbound: now,
+                            nextFollowUp: nextDate
                         }
-                    } catch (err) {
-                        console.error(`[FollowUp] JSON Parse Error for contact ${contact.id}:`, err);
-                    }
+                    });
+                    console.log(`[FollowUp] Timer STARTED for ${cleanTarget}. Next: ${nextDate.toISOString()}`);
+                } else {
+                    console.log('[FollowUp] Timer IGNORED (Disabled or No Attempts).');
                 }
+            }
 
-                // Stop if disabled globally
-                if (!followUpCfg || !followUpCfg.enabled) {
-                    await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
-                    continue;
+            // CRITICAL: STOP HERE. Do not process as user message.
+            return res.json({ status: 'agent_action_processed' });
+        }
+
+        // ------------------------------------------------------------------
+        // FLOW B: USER SENT MESSAGE -> STOP TIMER & REPLY
+        // ------------------------------------------------------------------
+
+        console.log(`[Webhook] Processing User Message from ${cleanSender}...`);
+
+        // Check if Status Update again (redundant but safe)
+        if (payload.type === 'message_status' || payload.status) {
+            return res.json({ status: 'ignored_status_update' });
+        }
+
+        // Safety Check for Content
+        // Wuzapi: payload.data.message.conversation OR payload.content.text
+        // User Log Payload: payload.msg.text Or payload.msg.content
+        let userMessage = payload.content?.text ||
+            payload.data?.message?.conversation ||
+            payload.data?.message?.extendedTextMessage?.text ||
+            payload.msg?.text ||
+            payload.msg?.body ||
+            payload.msg?.content;
+
+        // --- AUDIO HANDLING ---
+        // If text is "ptt" (Push To Talk) or "audio" AND we have media, it's an Audio Message.
+        let isAudioInput = false;
+        const mediaBase64 = payload.content?.media || payload.msg?.media || payload.media; // Try all paths
+
+        if ((userMessage === 'ptt' || userMessage === 'audio' || payload.type === 'audio') && mediaBase64) {
+            console.log('[Webhook] Audio Message Detected. Attempting Transcription...');
+
+            // Need Global Key for Whisper
+            const globalConfig = await getGlobalConfig();
+            if (globalConfig?.openaiKey) {
+                const transcription = await transcribeAudio(mediaBase64, globalConfig.openaiKey);
+                if (transcription) {
+                    userMessage = `[ÁUDIO TRANSCRITO]: ${transcription}`;
+                    isAudioInput = true;
+                    console.log(`[Webhook] Audio Transcribed: "${userMessage}"`);
+                } else {
+                    userMessage = "[Áudio inaudível]";
                 }
+            } else {
+                console.warn('[Webhook] No Global OpenAI Key. Cannot transcribe audio.');
+                userMessage = "[Áudio recebido, mas sem chave para transcrever]";
+            }
+        }
 
-                // 3. Check attempts config
-                const attempts = followUpCfg.attempts || [];
-                const currentAttemptIndex = contact.attemptIndex;
+        if (!userMessage) {
+            // If it's a media message or something else we don't support yet, ignore gracefully
+            console.log('[Webhook] Payload missing text content. Ignoring.');
+            return res.json({ status: 'ignored_no_text' });
+        }
+        if (!userMessage) {
+            // If it's a media message or something else we don't support yet, ignore gracefully
+            console.log('[Webhook] Payload missing text content. Ignoring.');
+            return res.json({ status: 'ignored_no_text' });
+        }
 
-                if (currentAttemptIndex >= attempts.length) {
-                    // Exhausted all attempts
-                    await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
-                    continue;
-                }
+        // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
+        const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
+        const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
 
-                const currentAttemptConfig = attempts[currentAttemptIndex];
-                if (!currentAttemptConfig.active) {
-                    // If this specific attempt is disabled, skip to next or stop? 
-                    // Usually we might want to skip. Let's increment index and schedule next immediately (soft skip).
-                    // Or just stop? User said "pause an attempt".
-                    // Let's increment and reschedule for next attempt if exists.
-                    const nextIndex = currentAttemptIndex + 1;
-                    if (nextIndex < attempts.length) {
-                        const nextCfg = attempts[nextIndex];
-                        const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
-                        await prisma.contactState.update({
-                            where: { id: contact.id },
-                            data: { attemptIndex: nextIndex, nextFollowUp: nextDate }
-                        });
-                    } else {
-                        await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
-                    }
-                    continue;
-                }
+        // Clean Sender Number if it has @s.whatsapp.net
+        const cleanNumber = senderNumber ? String(senderNumber).replace(/\D/g, '') : null;
 
-                // 4. Generate AI Message
-                // FIX: Safe JSON parsing for persona
-                let persona = {};
+        if (!cleanNumber) {
+            console.log('[Webhook] No specific sender number found. Ignoring.');
+            return res.json({ status: 'ignored_no_number' });
+        }
+
+        // --- STOP FOLLOW-UP TIMER (User Replied) ---
+        try {
+            // If user replies, we stop any pending sequence
+            // We use updateMany just in case record doesn't exist (avoid error) or findUnique check
+            // Ideally:
+            const jid = senderNumber.includes('@') ? senderNumber : `${senderNumber}@s.whatsapp.net`;
+
+            await prisma.contactState.updateMany({
+                where: {
+                    companyId: companyId,
+                    remoteJid: jid // We must match what we saved (likely full JID)
+                },
+                data: { isActive: false }
+            });
+            console.log(`[FollowUp] Timer STOPPED for ${cleanNumber}`);
+        } catch (e) {
+            // Ignore error
+        }
+
+        const metadata = JSON.stringify(payload);
+
+        try {
+            const config = await getCompanyConfig(companyId);
+            if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
+
+            const msgLog = userMessage ? String(userMessage).substring(0, 50) : '[No Content]';
+            console.log(`[Webhook] Processing message for ${cleanNumber}: "${msgLog}..."`);
+
+            // Fetch History
+            let history = [];
+
+            // STRATEGY: Try fetching by sessionId. If fails (or sessionId null), try fetching by senderNumber (via metadata or new field... but metadata is lazy).
+            // Let's rely on sessionId first. If sessionId is missing, we MIGHT lose history.
+            // However, if the webhook provides ticket.id (which it seems to), we are good.
+            // Issue: Previous logs show ticket.id changing.
+            // Fallback: Query by metadata contains senderNumber? No, too slow.
+            // Fix: Use sessionId (ticket.id) if available. If ticket.id IS available, trust it.
+            // If ticket.id changes, it might be a new ticket/support case.
+            // BUT, for a persistent AI, we might want to fetch history by 'sender' NOT 'sessionId'.
+            // Let's Try: Find messages where companyId matches and metadata CONTAINS cleanNumber. (Slow regex)
+            // BETTER: Use 'sessionId' field in DB to store 'cleanNumber' as a fallback identifier if ticket ID is unstable?
+            // NO, 'sessionId' is for ticket grouping.
+            // Let's stick to sessionId for now but improve the lookup debugging.
+
+            // --- DATABASE MEMORY FIX (Persistent Session + Chronological Order) ---
+            // 1. Session ID: Use cleanNumber (Phone) if available to ensure persistence across tickets.
+            //    Fallback to ticket.id if needed, but phone is better for long-term memory.
+            const dbSessionId = cleanNumber || sessionId || 'unknown_session';
+
+            if (cleanNumber) {
                 try {
-                    if (config.persona && typeof config.persona === 'string') {
-                        persona = JSON.parse(config.persona);
-                    } else if (typeof config.persona === 'object') {
-                        persona = config.persona;
-                    }
-                } catch (e) {
-                    console.error('[FollowUp] Error parsing persona:', e);
+                    // 2. Fetch History: Get 20 *MOST RECENT* messages (descending)
+                    const storedMessages = await prisma.testMessage.findMany({
+                        where: {
+                            companyId: String(companyId),
+                            sessionId: String(dbSessionId)
+                        },
+                        orderBy: { createdAt: 'desc' }, // Get newest first
+                        take: 20
+                    });
+
+                    // 3. Reverse to Chronological Order for OpenAI (Oldest -> Newest)
+                    history = storedMessages.reverse().map(m => ({
+                        role: m.sender === 'user' ? 'user' : 'assistant',
+                        content: m.text
+                    }));
+
+                    console.log(`[Webhook] Fetched ${history.length} msgs of Persistent History for ${dbSessionId}`);
+                } catch (histError) {
+                    console.error('[Webhook] History Fetch Error:', histError);
                 }
-                const tone = followUpCfg.tone || 'serious';
+            }
 
-                let tonePrompt = "";
-                if (tone === 'animated') tonePrompt = "Estilo: Energético, motivador, use emojis positivos 🚀.";
-                if (tone === 'serious') tonePrompt = "Estilo: Profissional, direto, sem gírias.";
-                if (tone === 'ice_breaker') tonePrompt = "Estilo: Leve, bem-humorado, simpático 😄.";
+            // 3. Process AI Response
+            // Pass isAudioInput flag so AI can decide to reply with audio
+            const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput);
 
-                const systemInstruction = `
+            console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
+            if (messageChunks && messageChunks.length > 0) {
+                console.log(`[Webhook] Multi-message response detected: ${messageChunks.length} chunks.`);
+            }
+
+            // Persist Chat (Using Persistent Session ID)
+            // We persist the FULL AI response for context, even if sent in chunks.
+            try {
+                await prisma.testMessage.create({
+                    data: {
+                        companyId: String(companyId),
+                        sender: 'user',
+                        text: userMessage,
+                        sessionId: String(dbSessionId),
+                        metadata
+                    }
+                });
+                await prisma.testMessage.create({
+                    data: {
+                        companyId: String(companyId),
+                        sender: 'ai',
+                        text: aiResponse,
+                        sessionId: String(dbSessionId)
+                    }
+                });
+            } catch (dbError) {
+                console.error('[Webhook] Failed to save chat:', dbError);
+            }
+
+            // --- REPLY STRATEGY ---
+            let sentViaApi = false;
+            if (config.prompUuid && config.prompToken) {
+
+                // MULTI-MESSAGE SENDING LOOP
+                if (messageChunks && messageChunks.length > 0) {
+                    console.log(`[Webhook] Sending ${messageChunks.length} chunks via API...`);
+
+                    for (const [index, chunk] of messageChunks.entries()) {
+                        if (chunk.type === 'image') {
+                            // Send Image
+                            // For the FIRST chunk/image, maybe send audio if allowed? 
+                            // Let's stick to NO audio for images unless it's the *only* thing?
+                            // Actually, audioBase64 is global for the response.
+                            // We should only send Audio ONCE. Let's send it with the LAST chunk? Or First?
+                            // Let's send it with the first TEXT chunk.
+                            const isFirstText = index === 0;
+                            await sendPrompMessage(config, cleanNumber, null, null, chunk.url, chunk.caption);
+                            // small delay
+                            await new Promise(r => setTimeout(r, 600));
+                        } else if (chunk.type === 'text') {
+                            // Send Text
+                            // Attach Audio ONLY to the first text chunk (or if it's the only one)
+                            // If we attach audio, sendPrompMessage sends audio separately anyway.
+                            // But we want to avoid sending audio multiple times.
+                            const chunkAudio = (index === 0) ? audioBase64 : null;
+
+                            await sendPrompMessage(config, cleanNumber, chunk.content, chunkAudio, null, null);
+                            await new Promise(r => setTimeout(r, 800)); // Readability delay
+                        }
+                    }
+                    sentViaApi = true;
+
+                } else {
+                    // Fallback (Should not happen if processChatResponse always returns chunks)
+                    sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
+                }
+
+                console.log(`[Webhook] Sent via API: ${sentViaApi}`);
+            } else {
+                console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
+            }
+
+            if (sentViaApi) {
+                res.json({ status: 'sent_via_api' });
+            } else {
+                res.json({
+                    text: aiResponse,
+                    audio: audioBase64,
+                    image: productImageUrl,
+                    sessionId: sessionId
+                });
+            }
+
+        } catch (error) {
+            console.error('[Webhook] Error:', error);
+            res.status(500).json({ error: error.message || 'Processing failed' });
+        }
+    };
+
+    // Register Webhook Routes Explicitly
+    app.post('/webhook/:companyId', handleWebhookRequest);
+    app.post('/api/webhook/:companyId', handleWebhookRequest);
+    app.post('/api/promp/webhook/:companyId', handleWebhookRequest);
+
+    // --- INTELLIGENT FOLLOW-UP SCHEDULER ---
+    const FOLLOW_UP_INTERVAL_MS = 60 * 1000; // Check every 60s
+
+    // Helper to calculate date
+    const calculateNextDate = (value, unit) => {
+        const now = new Date();
+        if (unit === 'minutes') now.setMinutes(now.getMinutes() + value);
+        if (unit === 'hours') now.setHours(now.getHours() + value);
+        if (unit === 'days') now.setDate(now.getDate() + value);
+        return now;
+    };
+
+    setInterval(async () => {
+        try {
+            const now = new Date();
+            // Log heartbeat every minute (or every 5 minutes if too noisy, but for debug every min is good)
+            // console.log(`[FollowUp] Heartbeat at ${now.toISOString()}`); 
+
+            // 1. Find contacts due for follow-up
+            const pendingContacts = await prisma.contactState.findMany({
+                where: {
+                    isActive: true,
+                    nextFollowUp: { lte: now }
+                }
+            });
+
+            if (pendingContacts.length > 0) {
+                console.log(`[FollowUp] Found ${pendingContacts.length} contacts due for follow-up at ${now.toISOString()}`);
+                pendingContacts.forEach(c => console.log(` - Contact: ${c.remoteJid}, Next: ${c.nextFollowUp}, Attempt: ${c.attemptIndex}`));
+            } else {
+                // Uncomment to debug if loop is running at all
+                console.log(`[FollowUp] No pending contacts. (Checked at ${now.toISOString()})`);
+            }
+
+            for (const contact of pendingContacts) {
+                try {
+                    // 2. Load Config
+                    // FIX: Use robust JSON parsing same as Webhook
+                    const config = await getCompanyConfig(contact.companyId);
+                    let followUpCfg = null;
+                    if (config?.followUpConfig) {
+                        try {
+                            if (typeof config.followUpConfig === 'string') {
+                                if (config.followUpConfig.trim().startsWith('{')) {
+                                    followUpCfg = JSON.parse(config.followUpConfig);
+                                } else {
+                                    console.warn(`[FollowUp] Invalid JSON string for config: ${config.followUpConfig}`);
+                                }
+                            } else if (typeof config.followUpConfig === 'object') {
+                                followUpCfg = config.followUpConfig;
+                            }
+                        } catch (err) {
+                            console.error(`[FollowUp] JSON Parse Error for contact ${contact.id}:`, err);
+                        }
+                    }
+
+                    // Stop if disabled globally
+                    if (!followUpCfg || !followUpCfg.enabled) {
+                        await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
+                        continue;
+                    }
+
+                    // 3. Check attempts config
+                    const attempts = followUpCfg.attempts || [];
+                    const currentAttemptIndex = contact.attemptIndex;
+
+                    if (currentAttemptIndex >= attempts.length) {
+                        // Exhausted all attempts
+                        await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
+                        continue;
+                    }
+
+                    const currentAttemptConfig = attempts[currentAttemptIndex];
+                    if (!currentAttemptConfig.active) {
+                        // If this specific attempt is disabled, skip to next or stop? 
+                        // Usually we might want to skip. Let's increment index and schedule next immediately (soft skip).
+                        // Or just stop? User said "pause an attempt".
+                        // Let's increment and reschedule for next attempt if exists.
+                        const nextIndex = currentAttemptIndex + 1;
+                        if (nextIndex < attempts.length) {
+                            const nextCfg = attempts[nextIndex];
+                            const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
+                            await prisma.contactState.update({
+                                where: { id: contact.id },
+                                data: { attemptIndex: nextIndex, nextFollowUp: nextDate }
+                            });
+                        } else {
+                            await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false } });
+                        }
+                        continue;
+                    }
+
+                    // 4. Generate AI Message
+                    // FIX: Safe JSON parsing for persona
+                    let persona = {};
+                    try {
+                        if (config.persona && typeof config.persona === 'string') {
+                            persona = JSON.parse(config.persona);
+                        } else if (typeof config.persona === 'object') {
+                            persona = config.persona;
+                        }
+                    } catch (e) {
+                        console.error('[FollowUp] Error parsing persona:', e);
+                    }
+                    const tone = followUpCfg.tone || 'serious';
+
+                    let tonePrompt = "";
+                    if (tone === 'animated') tonePrompt = "Estilo: Energético, motivador, use emojis positivos 🚀.";
+                    if (tone === 'serious') tonePrompt = "Estilo: Profissional, direto, sem gírias.";
+                    if (tone === 'ice_breaker') tonePrompt = "Estilo: Leve, bem-humorado, simpático 😄.";
+
+                    const systemInstruction = `
                 Você é ${persona.name || 'Assistente'}, da empresa.
                 O cliente parou de responder.
                 Objetivo: Retomar a conversa de forma natural (Follow-up).
@@ -3019,154 +3016,154 @@ setInterval(async () => {
                 Separe cada frase com uma quebra de linha dupla.
                 `;
 
-                // Fetch recent history for context (Last 3 messages)
-                const history = await prisma.testMessage.findMany({
-                    where: { companyId: contact.companyId }, // Ideally filter by session/phone which we map to remoteJid?
-                    // Note: Schema links by sessionId. Webhook maps remoteJid to sessionId if possible.
-                    // For now, without robust session mapping, we skip history or use metadata context.
-                    take: 3,
-                    orderBy: { createdAt: 'desc' }
-                });
-
-                // Reverse to chronological
-                const recentMsgs = history.reverse().map(m => `${m.sender}: ${m.text}`).join('\n');
-
-                // Initialize OpenAI Client
-                let openaiKey = null; // Start null
-                let source = "NONE";
-
-                try {
-                    // 1. Try DB Integrations first (Standard)
-                    if (config.integrations) {
-                        let integrations = {};
-                        if (typeof config.integrations === 'string') {
-                            if (config.integrations.trim().startsWith('{')) {
-                                integrations = JSON.parse(config.integrations);
-                            }
-                        } else if (typeof config.integrations === 'object') {
-                            integrations = config.integrations;
-                        }
-
-                        if (integrations.openaiKey) {
-                            openaiKey = integrations.openaiKey;
-                            source = "DB_INTEGRATIONS";
-                        }
-                    }
-                } catch (e) {
-                    console.error('[FollowUp] Error parsing integrations for OpenAI Key:', e);
-                }
-
-                // 2. Override with Global ENV if available (ADMIN OVERRIDE)
-                // If user set GLOBAL KEY in VPS, it should win.
-                if (process.env.OPENAI_API_KEY) {
-                    openaiKey = process.env.OPENAI_API_KEY;
-                    source = "GLOBAL_ENV";
-                }
-
-                if (openaiKey) openaiKey = openaiKey.trim();
-
-                if (openaiKey) {
-                    const masked = openaiKey.length > 10 ? openaiKey.substring(0, 8) + '...' + openaiKey.substring(openaiKey.length - 4) : 'INVALID_LEN';
-                    console.log(`[FollowUp] Using OpenAI Key (${source}): ${masked}`);
-                }
-
-                if (!openaiKey) {
-                    console.error('[FollowUp] No OpenAI Key found for company', contact.companyId);
-                    continue;
-                }
-
-                const openai = new OpenAI({ apiKey: openaiKey });
-
-                const completion = await openai.chat.completions.create({
-                    messages: [
-                        { role: "system", content: systemInstruction },
-                        { role: "user", content: `Histórico recente:\n${recentMsgs}\n\nGere uma mensagem de follow-up.` }
-                    ],
-                    model: "gpt-4o-mini",
-                });
-
-                const aiMessage = completion.choices[0].message.content;
-                console.log(`[FollowUp] Generated for ${contact.remoteJid}: "${aiMessage}"`);
-
-                // 5. Send Message
-                // Use existing sendPrompMessage
-                const cleanNumber = contact.remoteJid.replace('@s.whatsapp.net', '');
-                await sendPrompMessage(config, cleanNumber, aiMessage, null, null, null);
-
-                // 6. Schedule Next Attempt
-                const nextIndex = currentAttemptIndex + 1;
-                if (nextIndex < attempts.length) {
-                    const nextCfg = attempts[nextIndex];
-                    const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
-                    await prisma.contactState.update({
-                        where: { id: contact.id },
-                        data: { attemptIndex: nextIndex, nextFollowUp: nextDate, lastOutbound: now }
+                    // Fetch recent history for context (Last 3 messages)
+                    const history = await prisma.testMessage.findMany({
+                        where: { companyId: contact.companyId }, // Ideally filter by session/phone which we map to remoteJid?
+                        // Note: Schema links by sessionId. Webhook maps remoteJid to sessionId if possible.
+                        // For now, without robust session mapping, we skip history or use metadata context.
+                        take: 3,
+                        orderBy: { createdAt: 'desc' }
                     });
-                } else {
-                    // Finished Sequence
-                    await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false, lastOutbound: now } });
-                }
 
-                // Log Message
-                await prisma.testMessage.create({
-                    data: {
-                        companyId: contact.companyId,
-                        sender: 'ai',
-                        text: aiMessage + " [Follow-up Auto]",
-                        sessionId: "followup_auto"
+                    // Reverse to chronological
+                    const recentMsgs = history.reverse().map(m => `${m.sender}: ${m.text}`).join('\n');
+
+                    // Initialize OpenAI Client
+                    let openaiKey = null; // Start null
+                    let source = "NONE";
+
+                    try {
+                        // 1. Try DB Integrations first (Standard)
+                        if (config.integrations) {
+                            let integrations = {};
+                            if (typeof config.integrations === 'string') {
+                                if (config.integrations.trim().startsWith('{')) {
+                                    integrations = JSON.parse(config.integrations);
+                                }
+                            } else if (typeof config.integrations === 'object') {
+                                integrations = config.integrations;
+                            }
+
+                            if (integrations.openaiKey) {
+                                openaiKey = integrations.openaiKey;
+                                source = "DB_INTEGRATIONS";
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[FollowUp] Error parsing integrations for OpenAI Key:', e);
                     }
-                });
 
-            } catch (err) {
-                console.error(`[FollowUp] Error processing contact ${contact.id}:`, err);
+                    // 2. Override with Global ENV if available (ADMIN OVERRIDE)
+                    // If user set GLOBAL KEY in VPS, it should win.
+                    if (process.env.OPENAI_API_KEY) {
+                        openaiKey = process.env.OPENAI_API_KEY;
+                        source = "GLOBAL_ENV";
+                    }
+
+                    if (openaiKey) openaiKey = openaiKey.trim();
+
+                    if (openaiKey) {
+                        const masked = openaiKey.length > 10 ? openaiKey.substring(0, 8) + '...' + openaiKey.substring(openaiKey.length - 4) : 'INVALID_LEN';
+                        console.log(`[FollowUp] Using OpenAI Key (${source}): ${masked}`);
+                    }
+
+                    if (!openaiKey) {
+                        console.error('[FollowUp] No OpenAI Key found for company', contact.companyId);
+                        continue;
+                    }
+
+                    const openai = new OpenAI({ apiKey: openaiKey });
+
+                    const completion = await openai.chat.completions.create({
+                        messages: [
+                            { role: "system", content: systemInstruction },
+                            { role: "user", content: `Histórico recente:\n${recentMsgs}\n\nGere uma mensagem de follow-up.` }
+                        ],
+                        model: "gpt-4o-mini",
+                    });
+
+                    const aiMessage = completion.choices[0].message.content;
+                    console.log(`[FollowUp] Generated for ${contact.remoteJid}: "${aiMessage}"`);
+
+                    // 5. Send Message
+                    // Use existing sendPrompMessage
+                    const cleanNumber = contact.remoteJid.replace('@s.whatsapp.net', '');
+                    await sendPrompMessage(config, cleanNumber, aiMessage, null, null, null);
+
+                    // 6. Schedule Next Attempt
+                    const nextIndex = currentAttemptIndex + 1;
+                    if (nextIndex < attempts.length) {
+                        const nextCfg = attempts[nextIndex];
+                        const nextDate = calculateNextDate(nextCfg.delayValue, nextCfg.delayUnit);
+                        await prisma.contactState.update({
+                            where: { id: contact.id },
+                            data: { attemptIndex: nextIndex, nextFollowUp: nextDate, lastOutbound: now }
+                        });
+                    } else {
+                        // Finished Sequence
+                        await prisma.contactState.update({ where: { id: contact.id }, data: { isActive: false, lastOutbound: now } });
+                    }
+
+                    // Log Message
+                    await prisma.testMessage.create({
+                        data: {
+                            companyId: contact.companyId,
+                            sender: 'ai',
+                            text: aiMessage + " [Follow-up Auto]",
+                            sessionId: "followup_auto"
+                        }
+                    });
+
+                } catch (err) {
+                    console.error(`[FollowUp] Error processing contact ${contact.id}:`, err);
+                }
             }
+
+        } catch (e) {
+            console.error('[FollowUp] Scheduler Error:', e);
         }
-
-    } catch (e) {
-        console.error('[FollowUp] Scheduler Error:', e);
-    }
-}, FOLLOW_UP_INTERVAL_MS);
+    }, FOLLOW_UP_INTERVAL_MS);
 
 
-// --- HELPER: Resolve Product Image from Config ---
-function resolveProductImageFromConfig(targetId, config) {
-    if (!config || !config.products) return { found: false, error: 'Lista de produtos vazia' };
+    // --- HELPER: Resolve Product Image from Config ---
+    function resolveProductImageFromConfig(targetId, config) {
+        if (!config || !config.products) return { found: false, error: 'Lista de produtos vazia' };
 
-    let productImageUrl = null;
-    let productCaption = "";
-    let found = false;
-    let cleanId = String(targetId).trim();
+        let productImageUrl = null;
+        let productCaption = "";
+        let found = false;
+        let cleanId = String(targetId).trim();
 
-    // Check Parent (ID exact match)
-    for (const p of config.products) {
-        if (String(p.id) === cleanId) {
-            if (p.image) {
-                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+        // Check Parent (ID exact match)
+        for (const p of config.products) {
+            if (String(p.id) === cleanId) {
+                if (p.image) {
+                    return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+                }
             }
-        }
 
-        // Check Parent (Name loose match - Fallback)
-        if (p.name.toLowerCase().includes(cleanId.toLowerCase())) {
-            if (p.image) {
-                // Don't return immediately if exact match is better? No, loop order.
-                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+            // Check Parent (Name loose match - Fallback)
+            if (p.name.toLowerCase().includes(cleanId.toLowerCase())) {
+                if (p.image) {
+                    // Don't return immediately if exact match is better? No, loop order.
+                    return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+                }
             }
-        }
 
-        // Check Variations
-        if (p.variantItems) {
-            const variant = p.variantItems.find(v => String(v.id) === cleanId);
-            if (variant) {
-                if (variant.image || p.image) {
-                    const details = [variant.color, variant.size].filter(Boolean).join(' / ');
-                    return { found: true, url: variant.image || p.image, caption: `${p.name} - ${details} - R$ ${variant.price || p.price}` };
+            // Check Variations
+            if (p.variantItems) {
+                const variant = p.variantItems.find(v => String(v.id) === cleanId);
+                if (variant) {
+                    if (variant.image || p.image) {
+                        const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                        return { found: true, url: variant.image || p.image, caption: `${p.name} - ${details} - R$ ${variant.price || p.price}` };
+                    }
                 }
             }
         }
-    }
 
-    return { found: false, error: `Imagem não encontrada para ID: ${cleanId}` };
-};
+        return { found: false, error: `Imagem não encontrada para ID: ${cleanId}` };
+    };
 
 }; // Close resolveProductImageFromConfig
 
