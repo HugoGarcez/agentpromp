@@ -1596,32 +1596,46 @@ const processChatResponse = async (config, message, history, sessionId = null, i
 🚨 PROTOCOLO CRÍTICO DE ENVIO DE IMAGENS 🚨
 ═══════════════════════════════════════════════════════════════
 
-REGRA ABSOLUTA (NÃO NEGOCIÁVEL):
-Se o usuário pedir foto/imagem e o produto tem [TEM_IMAGEM]:
+GATILHOS: foto, imagem, ver, mostrar, quero ver, tem foto, mostra
 
-1️⃣ VOCÊ **DEVE** COLOCAR A TAG: [SHOW_IMAGE: <ID_NÚMERO>]
-2️⃣ É **PROIBIDO** DIZER "aqui está a foto" SEM A TAG
-3️⃣ Use o ID NUMÉRICO EXATO da lista abaixo
+REGRA ABSOLUTA (NÃO NEGOCIÁVEL):
+Quando o usuário pedir QUALQUER uma dessas palavras:
+- "foto", "imagem", "ver", "mostrar", "quero ver", "tem foto"
+E o produto tem [TEM_IMAGEM] ou marca ⚠️ USE:
+
+🔴 OBRIGATÓRIO FAZER ISSO:
+1️⃣ COPIE a tag [SHOW_IMAGE: ID] que está marcada com ⚠️
+2️⃣ COLE ela na sua resposta EXATAMENTE como está
+3️⃣ Se não tiver ⚠️, procure o [TEM_IMAGEM] e use o ID que está antes
 
 EXEMPLO CORRETO para "Camisa do Herói" (ID: 1770083712009):
 "Aqui está a foto! 👕
 [SHOW_IMAGE: 1770083712009]"
 
-❌ ERRADO: "Aqui está a foto! 👕" (SEM A TAG)
+❌ JAMAIS FAÇA: "Aqui está a foto! 👕" (SEM A TAG)
+❌ JAMAIS FAÇA: "Vou enviar a imagem..." (SEM A TAG)
 
-ATENÇÃO: Se você dizer que vai enviar foto MAS não colocar a tag,
-o cliente NÃO receberá nada! SEMPRE use [SHOW_IMAGE: ID].
+⚠️ ATENÇÃO CRÍTICA: 
+Se você ESCREVER que está enviando a foto/imagem MAS não colocar
+a tag [SHOW_IMAGE: ID], o cliente ficará SEM VER NADA!
 ═══════════════════════════════════════════════════════════════
 
 LISTA DE PRODUTOS/SERVIÇOS DISPONÍVEIS:
 ${productList}
 
 `;
-            systemPrompt += `REGRA DE CONSISTÊNCIA DE ESTOQUE (CRÍTICO):
-        1. A lista acima é a ÚNICA fonte de verdade sobre o que está disponível AGORA.
-        2. Se o histórico de conversa mencionar um produto que NÃO está na lista acima, ele foi REMOVIDO ou ESGOTADO.
-        3. Se o usuário pedir esse produto "antigo", responda: "Esse item não está mais disponível no momento." e ofereça uma alternativa da lista.
-        4. JAMAIS assuma que um produto existe só porque ele foi citado anteriormente na conversa.`;
+            systemPrompt += `
+🚫 REGRA DE CONSISTÊNCIA DE ESTOQUE (CRÍTICO):
+═══════════════════════════════════════════════════════════════
+1. A lista acima é a ÚNICA fonte de verdade sobre o que existe AGORA.
+2. Você DEVE contar quantos produtos estão na lista e informar APENAS esse número.
+3. PROIBIDO inventar produtos que não estão na lista acima.
+4. Se o histórico mencionar produtos que NÃO estão na lista = REMOVIDOS.
+5. Se usuário pedir produto que não existe: "Esse item não está mais disponível."
+
+⚠️ ANTES de listar produtos, CONTE quantos existem na lista acima!
+═══════════════════════════════════════════════════════════════
+`;
 
             systemPrompt += `DIRETRIZES DE MÍDIA E VENDAS (CRÍTICO):\n`;
             systemPrompt += `1. IMAGENS: Se o cliente pedir qualquer referência visual, use a tag [SHOW_IMAGE: ID]. (Veja regras de interpretação abaixo).\n`;
