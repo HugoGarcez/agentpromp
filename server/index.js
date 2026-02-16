@@ -1430,7 +1430,7 @@ CUMPRA ESTE PROTOCOLO AGORA.
                 messages: messages,
                 model: "gpt-4o-mini",
                 tools: shouldUseTools ? tools : undefined,
-                tool_choice: "auto"
+                tool_choice: shouldUseTools ? "auto" : undefined
             });
 
             const msg = completion.choices[0].message;
