@@ -2,7 +2,7 @@ import cron from 'node-cron';
 // Removed PrismaClient import to use dependency injection
 import { extractFromUrl } from './extractor.js'; // Note the .js extension for imports
 
-// Initialize Scheduler
+// Initialize Scheduler (Fix: Dependency Injection)
 export function initScheduler(db) {
     console.log('[Scheduler] Initializing Product Extraction Scheduler...');
 
