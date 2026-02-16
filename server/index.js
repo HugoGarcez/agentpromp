@@ -544,15 +544,32 @@ app.post('/api/config', authenticateToken, async (req, res) => {
 
         // Merge Voice settings into Integrations
         let combinedIntegrations = {};
+        let currentIntegrations = {};
+
         try {
-            if (newConfig.integrations) {
-                combinedIntegrations = typeof newConfig.integrations === 'string'
-                    ? JSON.parse(newConfig.integrations)
-                    : newConfig.integrations;
+            if (currentConfig && currentConfig.integrations) {
+                currentIntegrations = typeof currentConfig.integrations === 'string'
+                    ? JSON.parse(currentConfig.integrations)
+                    : currentConfig.integrations;
             }
         } catch (e) {
-            console.error('[Config Update] Error parsing integrations:', e);
-            combinedIntegrations = newConfig.integrations || {};
+            console.error('[Config Update] Error parsing current integrations:', e);
+        }
+
+        try {
+            if (newConfig.integrations) {
+                const incoming = typeof newConfig.integrations === 'string'
+                    ? JSON.parse(newConfig.integrations)
+                    : newConfig.integrations;
+                // Merge with existing
+                combinedIntegrations = { ...currentIntegrations, ...incoming };
+            } else {
+                // Keep existing (don't wipe)
+                combinedIntegrations = { ...currentIntegrations };
+            }
+        } catch (e) {
+            console.error('[Config Update] Error parsing new integrations:', e);
+            combinedIntegrations = { ...currentIntegrations };
         }
 
         if (newConfig.voice) {
@@ -565,7 +582,7 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             const masked = k.length > 10 ? k.substring(0, 8) + '...' + k.substring(k.length - 4) : '***';
             console.log(`[Config Update] Saving openaiKey: ${masked}`);
         } else {
-            console.log('[Config Update] No openaiKey in integrations payload.');
+            console.log('[Config Update] No openaiKey in integrations payload (and not in DB).');
         }
 
         // Handle Knowledge Base - SCRAPE LINKS
@@ -601,6 +618,8 @@ app.post('/api/config', authenticateToken, async (req, res) => {
 
         const data = {
             companyId,
+            active: true, // Force Active on update
+            status: 'active', // Force Active status
             systemPrompt: newConfig.systemPrompt,
             persona: newConfig.persona ? (typeof newConfig.persona === 'object' ? JSON.stringify(newConfig.persona) : newConfig.persona) : undefined,
             integrations: JSON.stringify(combinedIntegrations),
