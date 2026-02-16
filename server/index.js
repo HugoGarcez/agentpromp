@@ -2074,7 +2074,8 @@ USE APENAS OS IDs NUMÉRICOS QUE ESTÃO NA LISTA DE PRODUTOS ACIMA.
 
             // Check Products/Services
             if (config.products) {
-                const p = config.products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
+                let products = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
+                const p = products.find(p => String(p.id) === String(targetId)); // loose equality for string/number id mix
                 if (p && p.pdf) {
                     foundPdf = p.pdf;
                     foundName = `${p.name}.pdf`; // Fallback name
@@ -2561,11 +2562,15 @@ app.post('/webhook', async (req, res) => {
 function resolveProductImageFromConfig(targetId, config) {
     if (!config || !config.products) return { found: false, error: 'Lista de produtos vazia' };
 
+    // CRITICAL FIX: Parse products if stringified
+    let products = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
+    if (!Array.isArray(products)) return { found: false, error: 'Formato de produtos inválido' };
+
     let cleanId = String(targetId).trim();
-    console.log(`[ImageResolution] Searching for Image. Target: "${cleanId}" in ${config.products.length} products.`);
+    console.log(`[ImageResolution] Searching for Image. Target: "${cleanId}" in ${products.length} products.`);
 
     // Check Parent (ID exact match)
-    for (const p of config.products) {
+    for (const p of products) {
         // Debug each product
         // console.log(`[ImageResolution] Checking Product: ID=${p.id}, Name=${p.name}`);
 
