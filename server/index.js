@@ -3200,7 +3200,7 @@ CUMPRA ESTE PROTOCOLO AGORA.
             }
 
             // Check Parent (Name loose match - Fallback)
-            if (p.name.toLowerCase().includes(cleanId.toLowerCase())) {
+            if (p.name && p.name.toLowerCase().includes(cleanId.toLowerCase())) {
                 if (p.image) {
                     // Don't return immediately if exact match is better? No, loop order.
                     return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
