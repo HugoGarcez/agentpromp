@@ -1492,6 +1492,22 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     3. Se houver mais de 3 itens, cite os 3 principais e pergunte se o cliente quer ver o resto.
     4. Destaque apenas 2 ou 3 pontos principais (benefícios).
     5. Sempre termine perguntando se o cliente quer saber algo mais específico sobre o item (ex: medidas, cores, detalhes técnicos, formas de pagamentos).
+    
+    ⚠️ REGRAS CRÍTICAS SOBRE VARIAÇÕES:
+    1. **[ITEM ÚNICO]**: Produto SEM variações de tamanho/cor.
+       - PROIBIDO inventar tamanhos (P, M, G, etc.)
+       - Diga apenas: "Produto único/tamanho único"
+       - Se pedirem tamanho, diga que é tamanho único
+    
+    2. **[VARIAÇÃO]**: Produto COM variações listadas.
+       - Liste APENAS as variações da lista
+       - NUNCA invente tamanhos/cores extras
+    
+    3. **FOTOS DE PRODUTOS**:
+       - Se tem [TEM_IMAGEM], SEMPRE envie [SHOW_IMAGE: ID]
+       - Vale para [ITEM ÚNICO] e [VARIAÇÃO]
+       - Se produto simples, use o ID principal
+       - Se variação, use ID da variação (ou principal se não tiver)
     `;
 
         // Inject Products & Services
