@@ -93,6 +93,362 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', version: '1.0.1', time: new Date().toISOString() });
 });
 
+// --- WEBHOOK ROUTES (Moved to TOP for Priority) ---
+const handleWebhookRequest = async (req, res) => {
+    const { companyId } = req.params;
+    const payload = req.body;
+
+    console.log(`[Webhook] HEADERS Content-Type: ${req.get('Content-Type')}`);
+    console.log(`[Webhook] Handler Reached for Company: ${companyId}`);
+
+    if (!payload || Object.keys(payload).length === 0) {
+        console.error('[Webhook] Empty Payload! Check Content-Type.');
+    } else {
+        console.log(`[Webhook] FULL PAYLOAD (${companyId}):`, JSON.stringify(payload, null, 2));
+    }
+
+    // Load Config EARLY (needed for Identity check)
+    let followUpCfg = null;
+    let config = null;
+    try {
+        config = await prisma.agentConfig.findUnique({ where: { companyId } });
+        if (config?.followUpConfig) {
+            // Safe JSON Parsing to avoid SyntaxError
+            if (typeof config.followUpConfig === 'string') {
+                if (config.followUpConfig.trim().startsWith('{')) {
+                    followUpCfg = JSON.parse(config.followUpConfig);
+                }
+            } else if (typeof config.followUpConfig === 'object') {
+                followUpCfg = config.followUpConfig;
+            }
+        }
+    } catch (e) {
+        console.error('[Webhook] Failed to load config:', e);
+    }
+
+    // ------------------------------------------------------------------
+    // 0. DEDUPLICATION (Prevent Triple Replies)
+    // ------------------------------------------------------------------
+    const msgId = payload.key?.id || payload.id || payload.data?.id;
+    if (msgId) {
+        if (processedMessages.has(msgId)) {
+            console.log(`[Webhook] Duplicate Message ID ${msgId}. Ignoring.`);
+            return res.json({ status: 'ignored_duplicate' });
+        }
+        processedMessages.add(msgId);
+        // Clear from memory after 15 seconds
+        setTimeout(() => processedMessages.delete(msgId), 15000);
+    }
+
+    // ------------------------------------------------------------------
+    // LOOP PROTECTION & SENDER IDENTITY
+    // ------------------------------------------------------------------
+
+    // 1. Check "wasSentByApi" (Explicit flag from some Providers)
+    // If true, it is DEFINITELY the bot/agent.
+    if (payload.wasSentByApi || payload.msg?.wasSentByApi || payload.data?.wasSentByApi) {
+        console.log('[Webhook] Loop Protection: Message marked as "wasSentByApi". Ignoring.');
+        return res.json({ status: 'ignored_api_sent' });
+    }
+
+    // 2. Identify Sender
+    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
+    const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
+
+    // 3. Identify Protocol Owner (The session/bot number)
+    const rawOwner = payload.msg?.owner || payload.owner;
+    const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+
+    // 4. Identify Configured Identity (From DB)
+    let dbIdentity = null;
+    if (config?.prompIdentity) {
+        dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
+    }
+
+    // IDENTITY CHECK: "Consider ONLY what is sent TO the number that is in the AI"
+    // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
+    // (Only if both are known)
+    if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
+        console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
+        return res.json({ status: 'ignored_wrong_identity' });
+    }
+
+    // ------------------------------------------------------------------
+    // 5. STRICT FILTERS (Groups, Status, Broadcasts)
+    // ------------------------------------------------------------------
+    const isGroup = rawSender ? rawSender.includes('@g.us') : false;
+    const isBroadcast = rawSender ? (rawSender.includes('broadcast') || rawSender.includes('@lid')) : false;
+
+    // Check if messageType is present
+    const messageType = payload.messageType || payload.type;
+    const isProtocol = messageType === 'protocolMessage' || messageType === 'senderKeyDistributionMessage';
+
+    if (rawSender && rawSender.includes('status@broadcast')) {
+        console.log('[Webhook] Ignoring Status Update (status@broadcast).');
+        return res.json({ status: 'ignored_status' });
+    }
+
+    if (isGroup) {
+        console.log('[Webhook] Ignoring Group Message.');
+        return res.json({ status: 'ignored_group' });
+    }
+
+    if (isProtocol) {
+        console.log('[Webhook] Ignoring Protocol Message.');
+        return res.json({ status: 'ignored_protocol' });
+    }
+
+    let isFromMe = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe;
+
+    // ------------------------------------------------------------------
+    // FLOW A: AGENT SENT MESSAGE -> START TIMER
+    // ------------------------------------------------------------------
+
+    if (isFromMe) {
+        console.log('[Webhook] Message sent by Agent (fromMe). Starting Follow-up Timer.');
+
+        let targetJid = payload.key?.remoteJid || payload.to || payload.msg?.chatid;
+
+        if (targetJid) {
+            const cleanTarget = String(targetJid).replace(/\D/g, '');
+
+            // SAFETY CHECK: If Target is myself (Agent), ABORT.
+            if (cleanTarget === cleanOwner || cleanTarget === dbIdentity || cleanTarget === cleanSender) {
+                console.log(`[FollowUp] Timer SKIPPED. Target (${cleanTarget}) is myself/sender. (Owner: ${cleanOwner}, ID: ${dbIdentity})`);
+                return res.json({ status: 'ignored_self_target' });
+            }
+
+            // Check if Follow-up is Enabled
+            if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
+                const firstAttempt = followUpCfg.attempts[0];
+                const now = new Date();
+                let nextDate = new Date();
+                if (firstAttempt.delayUnit === 'minutes') nextDate.setMinutes(now.getMinutes() + firstAttempt.delayValue);
+                if (firstAttempt.delayUnit === 'hours') nextDate.setHours(now.getHours() + firstAttempt.delayValue);
+                if (firstAttempt.delayUnit === 'days') nextDate.setDate(now.getDate() + firstAttempt.delayValue);
+
+                // UPSERT STATE for the USER (Target)
+                await prisma.contactState.upsert({
+                    where: { companyId_remoteJid: { companyId, remoteJid: targetJid } },
+                    create: {
+                        companyId,
+                        remoteJid: targetJid,
+                        isActive: true,
+                        attemptIndex: 0,
+                        lastOutbound: now,
+                        nextFollowUp: nextDate
+                    },
+                    update: {
+                        isActive: true,
+                        attemptIndex: 0,
+                        lastOutbound: now,
+                        nextFollowUp: nextDate
+                    }
+                });
+                console.log(`[FollowUp] Timer STARTED for ${cleanTarget}. Next: ${nextDate.toISOString()}`);
+            } else {
+                console.log('[FollowUp] Timer IGNORED (Disabled or No Attempts).');
+            }
+        }
+
+        // CRITICAL: STOP HERE. Do not process as user message.
+        return res.json({ status: 'agent_action_processed' });
+    }
+
+    // ------------------------------------------------------------------
+    // FLOW B: USER SENT MESSAGE -> STOP TIMER & REPLY
+    // ------------------------------------------------------------------
+
+    console.log(`[Webhook] Processing User Message from ${cleanSender}...`);
+
+    // Check if Status Update again (redundant but safe)
+    if (payload.type === 'message_status' || payload.status) {
+        return res.json({ status: 'ignored_status_update' });
+    }
+
+    // Safety Check for Content
+    let userMessage = payload.content?.text ||
+        payload.data?.message?.conversation ||
+        payload.data?.message?.extendedTextMessage?.text ||
+        payload.msg?.text ||
+        payload.msg?.body ||
+        payload.msg?.content;
+
+    // --- AUDIO HANDLING ---
+    // If text is "ptt" (Push To Talk) or "audio" AND we have media, it's an Audio Message.
+    let isAudioInput = false;
+    const mediaBase64 = payload.content?.media || payload.msg?.media || payload.media; // Try all paths
+
+    if ((userMessage === 'ptt' || userMessage === 'audio' || payload.type === 'audio') && mediaBase64) {
+        console.log('[Webhook] Audio Message Detected. Attempting Transcription...');
+
+        // Need Global Key for Whisper
+        const globalConfig = await prisma.adminConfig.findFirst();
+        if (globalConfig?.openaiKey) {
+            const transcription = await transcribeAudio(mediaBase64, globalConfig.openaiKey);
+            if (transcription) {
+                userMessage = `[ÁUDIO TRANSCRITO]: ${transcription}`;
+                isAudioInput = true;
+                console.log(`[Webhook] Audio Transcribed: "${userMessage}"`);
+            } else {
+                userMessage = "[Áudio inaudível]";
+            }
+        } else {
+            console.warn('[Webhook] No Global OpenAI Key. Cannot transcribe audio.');
+            userMessage = "[Áudio recebido, mas sem chave para transcrever]";
+        }
+    }
+
+    if (!userMessage) {
+        console.log('[Webhook] Payload missing text content. Ignoring.');
+        return res.json({ status: 'ignored_no_text' });
+    }
+
+    // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
+    const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
+    const senderNumber = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.sender;
+
+    // Clean Sender Number
+    const cleanNumber = senderNumber ? String(senderNumber).replace(/\D/g, '') : null;
+
+    if (!cleanNumber) {
+        console.log('[Webhook] No specific sender number found. Ignoring.');
+        return res.json({ status: 'ignored_no_number' });
+    }
+
+    // --- STOP FOLLOW-UP TIMER (User Replied) ---
+    try {
+        const jid = senderNumber.includes('@') ? senderNumber : `${senderNumber}@s.whatsapp.net`;
+        await prisma.contactState.updateMany({
+            where: {
+                companyId: companyId,
+                remoteJid: jid
+            },
+            data: { isActive: false }
+        });
+        console.log(`[FollowUp] Timer STOPPED for ${cleanNumber}`);
+    } catch (e) {
+        // Ignore error
+    }
+
+    const metadata = JSON.stringify(payload);
+
+    try {
+        if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
+
+        const msgLog = userMessage ? String(userMessage).substring(0, 50) : '[No Content]';
+        console.log(`[Webhook] Processing message for ${cleanNumber}: "${msgLog}..."`);
+
+        // Fetch History
+        let history = [];
+        const dbSessionId = cleanNumber || sessionId || 'unknown_session';
+
+        if (cleanNumber) {
+            try {
+                // 2. Fetch History: Get 20 *MOST RECENT* messages (descending)
+                const storedMessages = await prisma.testMessage.findMany({
+                    where: {
+                        companyId: String(companyId),
+                        sessionId: String(dbSessionId)
+                    },
+                    orderBy: { createdAt: 'desc' }, // Get newest first
+                    take: 20
+                });
+
+                // 3. Reverse to Chronological Order for OpenAI (Oldest -> Newest)
+                history = storedMessages.reverse().map(m => ({
+                    role: m.sender === 'user' ? 'user' : 'assistant',
+                    content: m.text
+                }));
+
+                console.log(`[Webhook] Fetched ${history.length} msgs of Persistent History for ${dbSessionId}`);
+            } catch (histError) {
+                console.error('[Webhook] History Fetch Error:', histError);
+            }
+        }
+
+        // 3. Process AI Response
+        // Pass isAudioInput flag so AI can decide to reply with audio
+        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput);
+
+        console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
+
+        // Persist Chat
+        try {
+            await prisma.testMessage.create({
+                data: {
+                    companyId: String(companyId),
+                    sender: 'user',
+                    text: userMessage,
+                    sessionId: String(dbSessionId),
+                    metadata
+                }
+            });
+            await prisma.testMessage.create({
+                data: {
+                    companyId: String(companyId),
+                    sender: 'ai',
+                    text: aiResponse,
+                    sessionId: String(dbSessionId)
+                }
+            });
+        } catch (dbError) {
+            console.error('[Webhook] Failed to save chat:', dbError);
+        }
+
+        // --- REPLY STRATEGY ---
+        let sentViaApi = false;
+        if (config.prompUuid && config.prompToken) {
+
+            // MULTI-MESSAGE SENDING LOOP
+            if (messageChunks && messageChunks.length > 0) {
+                console.log(`[Webhook] Sending ${messageChunks.length} chunks via API...`);
+
+                for (const [index, chunk] of messageChunks.entries()) {
+                    if (chunk.type === 'image') {
+                        const isFirstText = index === 0;
+                        await sendPrompMessage(config, cleanNumber, null, null, chunk.url, chunk.caption);
+                        await new Promise(r => setTimeout(r, 600));
+                    } else if (chunk.type === 'text') {
+                        const chunkAudio = (index === 0) ? audioBase64 : null;
+                        await sendPrompMessage(config, cleanNumber, chunk.content, chunkAudio, null, null);
+                        await new Promise(r => setTimeout(r, 800));
+                    }
+                }
+                sentViaApi = true;
+
+            } else {
+                sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
+            }
+
+            console.log(`[Webhook] Sent via API: ${sentViaApi}`);
+        } else {
+            console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
+        }
+
+        if (sentViaApi) {
+            res.json({ status: 'sent_via_api' });
+        } else {
+            res.json({
+                text: aiResponse,
+                audio: audioBase64,
+                image: productImageUrl,
+                sessionId: sessionId
+            });
+        }
+
+    } catch (error) {
+        console.error('[Webhook] Error:', error);
+        res.status(500).json({ error: error.message || 'Processing failed' });
+    }
+};
+
+app.post('/webhook/:companyId', handleWebhookRequest);
+app.post('/api/webhook/:companyId', handleWebhookRequest);
+app.post('/api/promp/webhook/:companyId', handleWebhookRequest);
+
+// ... (Rest of index.js continues)
+
 // ... (Keep existing code)
 
 // --- PRODUCT EXTRACTION ROUTES ---
@@ -2889,10 +3245,10 @@ CUMPRA ESTE PROTOCOLO AGORA.
         }
     };
 
-    // Register Webhook Routes Explicitly
-    app.post('/webhook/:companyId', handleWebhookRequest);
-    app.post('/api/webhook/:companyId', handleWebhookRequest);
-    app.post('/api/promp/webhook/:companyId', handleWebhookRequest);
+    // MOVED HANDLER TO TOP OF FILE FOR PRIORITY
+    // app.post('/webhook/:companyId', handleWebhookRequest);
+    // app.post('/api/webhook/:companyId', handleWebhookRequest);
+    // app.post('/api/promp/webhook/:companyId', handleWebhookRequest);
 
     // --- INTELLIGENT FOLLOW-UP SCHEDULER ---
     const FOLLOW_UP_INTERVAL_MS = 60 * 1000; // Check every 60s
