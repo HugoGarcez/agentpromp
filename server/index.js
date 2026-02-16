@@ -1468,6 +1468,32 @@ const processChatResponse = async (config, message, history, sessionId = null, i
 
         let systemPrompt = config.systemPrompt || "Você é um assistente virtual útil.";
 
+        // ⚠️ CRITICAL: Product List Freshness - ALWAYS use current list
+        systemPrompt = `
+🔴 REGRA CRÍTICA #1 - ESTOQUE EM TEMPO REAL:
+═══════════════════════════════════════════════════════════════
+A lista de produtos/serviços que você verá MAIS ABAIXO é atualizada
+a CADA MENSAGEM para refletir o estoque ATUAL em tempo real.
+
+⚠️ NUNCA confie no histórico de conversa para listar produtos!
+⚠️ SEMPRE use a lista que está NESTA mensagem!
+⚠️ Se você mencionou "Camisa X" há 5 minutos mas ela NÃO está na 
+   lista atual = ELA FOI VENDIDA/REMOVIDA. Não mencione mais!
+
+QUANDO LISTAR PRODUTOS:
+1. CONTE quantos tem na lista atual
+2. Liste APENAS os que estão na lista atual
+3. IGNORE completamente produtos mencionados no histórico
+
+EXEMPLO:
+Histórico: "Temos Camisa A, B e C"
+Lista atual: Apenas Camisa A e B
+Resposta correta: "Temos 2 camisas: A e B"
+Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
+═══════════════════════════════════════════════════════════════
+
+` + systemPrompt;
+
         //    // Inject Audio Context if applicable
         if (isAudioInput) {
             systemPrompt += `\n\n[SISTEMA]: O usuário enviou uma mensagem de ÁUDIO que foi transcrita automaticamente para texto.
