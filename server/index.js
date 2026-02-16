@@ -1476,17 +1476,17 @@ CUMPRA ESTE PROTOCOLO AGORA.
         const shouldUseTools = config.googleConfig && config.googleConfig.accessToken;
 
         // Create OpenAI Client dynamically with the correct key
-        let apiKey = process.env.OPENAI_API_KEY;
+        let openaiApiKey = process.env.OPENAI_API_KEY;
         if (config.integrations && config.integrations.openaiKey) {
-            apiKey = config.integrations.openaiKey;
+            openaiApiKey = config.integrations.openaiKey;
         }
 
-        if (!apiKey) {
+        if (!openaiApiKey) {
             console.error('[AI] No OpenAI Key found in Config or Env!');
             return { aiResponse: "Erro: Chave de API não configurada." };
         }
 
-        const client = new OpenAI({ apiKey });
+        const client = new OpenAI({ apiKey: openaiApiKey });
 
         if (!shouldUseTools) {
             console.log('[AI] Running in TEXT-ONLY mode (Calendar not connected or token missing).');
