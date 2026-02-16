@@ -1044,6 +1044,8 @@ app.post('/api/admin/config', authenticateToken, async (req, res) => {
             googleRedirectUri
         } = req.body;
 
+        console.log('[GlobalConfig] Received Payload:', JSON.stringify(req.body, null, 2));
+
         // Upsert Global Config (Single Record logic)
         // We will stick to ID 'global_settings' or just take the first one.
         // Let's use a fixed ID or findFirst.
