@@ -618,8 +618,6 @@ app.post('/api/config', authenticateToken, async (req, res) => {
 
         const data = {
             companyId,
-            active: true, // Force Active on update
-            status: 'active', // Force Active status
             systemPrompt: newConfig.systemPrompt,
             persona: newConfig.persona ? (typeof newConfig.persona === 'object' ? JSON.stringify(newConfig.persona) : newConfig.persona) : undefined,
             integrations: JSON.stringify(combinedIntegrations),
