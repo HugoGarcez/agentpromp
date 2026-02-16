@@ -2026,7 +2026,9 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
         let turns = 0;
         const maxTurns = 3;
         // Check if Google Config exists and has token
-        const shouldUseTools = config.googleConfig && config.googleConfig.accessToken;
+        const hasCalendar = config.googleConfig && config.googleConfig.accessToken;
+        // ALWAYS enable tools (we need list_available_products to work)
+        const shouldUseTools = true;
 
         // Create OpenAI Client dynamically with the correct key
         let openaiApiKey = process.env.OPENAI_API_KEY;
@@ -2070,44 +2072,52 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
 
                     try {
                         if (fnName === 'check_availability') {
-                            const calConfig = await prisma.googleCalendarConfig.findUnique({ where: { companyId: config.companyId } });
-                            const date = args.date;
-                            const timeZone = calConfig?.timezone || 'America/Sao_Paulo';
-                            const startIso = `${date}T00:00:00Z`;
-                            const endIso = `${date}T23:59:59Z`;
-                            const busy = await checkAvailability(config.companyId, startIso, endIso, timeZone);
-                            toolResult = JSON.stringify({ status: 'success', busySlots: busy, officeHours: calConfig?.officeHours });
+                            if (!hasCalendar) {
+                                toolResult = JSON.stringify({ status: 'error', message: 'Agendamento não configurado' });
+                            } else {
+                                const calConfig = await prisma.googleCalendarConfig.findUnique({ where: { companyId: config.companyId } });
+                                const date = args.date;
+                                const timeZone = calConfig?.timezone || 'America/Sao_Paulo';
+                                const startIso = `${date}T00:00:00Z`;
+                                const endIso = `${date}T23:59:59Z`;
+                                const busy = await checkAvailability(config.companyId, startIso, endIso, timeZone);
+                                toolResult = JSON.stringify({ status: 'success', busySlots: busy, officeHours: calConfig?.officeHours });
+                            }
                         }
                         else if (fnName === 'book_appointment') {
-                            const eventDetails = {
-                                summary: `Agendamento - ${args.customerName}`,
-                                description: `Tel: ${args.customerPhone}\nNotas: ${args.notes}`,
-                                startTime: args.startTime,
-                                endTime: new Date(new Date(args.startTime).getTime() + 30 * 60000).toISOString()
-                            };
-                            if (args.typeId && config.appointmentTypes) {
-                                const t = config.appointmentTypes.find(x => x.id === args.typeId);
-                                if (t) {
-                                    eventDetails.summary = `${t.name} - ${args.customerName}`;
-                                    eventDetails.endTime = new Date(new Date(args.startTime).getTime() + t.duration * 60000).toISOString();
+                            if (!hasCalendar) {
+                                toolResult = JSON.stringify({ status: 'error', message: 'Agendamento não configurado' });
+                            } else {
+                                const eventDetails = {
+                                    summary: `Agendamento - ${args.customerName}`,
+                                    description: `Tel: ${args.customerPhone}\nNotas: ${args.notes}`,
+                                    startTime: args.startTime,
+                                    endTime: new Date(new Date(args.startTime).getTime() + 30 * 60000).toISOString()
+                                };
+                                if (args.typeId && config.appointmentTypes) {
+                                    const t = config.appointmentTypes.find(x => x.id === args.typeId);
+                                    if (t) {
+                                        eventDetails.summary = `${t.name} - ${args.customerName}`;
+                                        eventDetails.endTime = new Date(new Date(args.startTime).getTime() + t.duration * 60000).toISOString();
+                                    }
                                 }
+                                const gEvent = await createCalendarEvent(config.companyId, eventDetails);
+                                await prisma.appointment.create({
+                                    data: {
+                                        companyId: config.companyId,
+                                        googleEventId: gEvent.id,
+                                        customerName: args.customerName,
+                                        customerPhone: args.customerPhone,
+                                        startTime: new Date(eventDetails.startTime),
+                                        endTime: new Date(eventDetails.endTime),
+                                        notes: args.notes,
+                                        specialistId: args.specialistId,
+                                        typeId: args.typeId,
+                                        status: 'CONFIRMED'
+                                    }
+                                });
+                                toolResult = JSON.stringify({ status: 'success', message: 'Agendamento confirmado!', link: gEvent.htmlLink });
                             }
-                            const gEvent = await createCalendarEvent(config.companyId, eventDetails);
-                            await prisma.appointment.create({
-                                data: {
-                                    companyId: config.companyId,
-                                    googleEventId: gEvent.id,
-                                    customerName: args.customerName,
-                                    customerPhone: args.customerPhone,
-                                    startTime: new Date(eventDetails.startTime),
-                                    endTime: new Date(eventDetails.endTime),
-                                    notes: args.notes,
-                                    specialistId: args.specialistId,
-                                    typeId: args.typeId,
-                                    status: 'CONFIRMED'
-                                }
-                            });
-                            toolResult = JSON.stringify({ status: 'success', message: 'Agendamento confirmado!', link: gEvent.htmlLink });
                         }
                         else if (fnName === 'list_available_products') {
                             const requestedType = args.type || 'todos';
