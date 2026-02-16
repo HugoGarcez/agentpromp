@@ -1470,7 +1470,7 @@ const processChatResponse = async (config, message, history, sessionId = null, i
     `;
 
     // Inject Products & Services
-    if (config.products && config.products.length > 0) {
+    if (config.products && Array.isArray(config.products) && config.products.length > 0) {
         let productList = "";
         config.products.forEach(p => {
             // FILTER INACTIVE (New Feature)
