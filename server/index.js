@@ -2368,6 +2368,31 @@ CUMPRA ESTE PROTOCOLO AGORA.
 
 
     // --- Webhook Integration (Public) ---
+    // Generic Webhook Fallback (if companyId missing in URL)
+    app.post('/webhook', async (req, res) => {
+        console.log('[Webhook] Received request on generic /webhook endpoint (No ID).');
+
+        // Try to find a default company or extract from payload
+        // This is a Safety Net for misconfigured integrations.
+        const firstCompany = await prisma.company.findFirst();
+        if (firstCompany) {
+            console.log(`[Webhook] Redirecting to Company ${firstCompany.id}`);
+            // Internally forward or redirect? 
+            // Better to just call the handler or duplicate logic?
+            // Let's redirect 307 to the correct URL if possible, or handle it here.
+            // Since this is S2S, redirect might not be followed.
+            // We'll just call the logic via internal redirect if we could, but express doesn't support internal dispatch easily.
+            // We'll just return an error telling them to configure the URL correctly.
+            console.error('[Webhook] ERROR: Integration URL is missing Company ID. Use: /webhook/' + firstCompany.id);
+            return res.status(400).json({
+                error: 'Webhook URL must include Company ID',
+                correctUrl: `/webhook/${firstCompany.id}`,
+                example: `https://seu-dominio.com/webhook/${firstCompany.id}`
+            });
+        }
+        res.status(400).send('Missing Company ID in URL');
+    });
+
     app.post('/webhook/:companyId', async (req, res) => {
         const { companyId } = req.params;
         const payload = req.body; // n8n payload
