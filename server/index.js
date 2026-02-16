@@ -1425,6 +1425,12 @@ CUMPRA ESTE PROTOCOLO AGORA.
         // Check if Google Config exists and has token
         const shouldUseTools = config.googleConfig && config.googleConfig.accessToken;
 
+        if (!shouldUseTools) {
+            console.log('[AI] Running in TEXT-ONLY mode (Calendar not connected or token missing).');
+        } else {
+            console.log('[AI] Running in TOOL-ENABLED mode (Calendar connected).');
+        }
+
         while (turns < maxTurns) {
             const completion = await openai.chat.completions.create({
                 messages: messages,
