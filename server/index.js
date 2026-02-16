@@ -1867,11 +1867,22 @@ CUMPRA ESTE PROTOCOLO AGORA.
 
     const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, caption, pdfBase64 = null) => {
         if (!config.prompUuid || !config.prompToken) {
-            console.log('[Promp] Skipping external API execution (Credentials missing).');
-            return false;
+            // Check legacy integration object (JSON) if columns are missing
+            const integrations = config.integrations || {};
+            const legacyWuzapi = integrations.wuzapi || integrations.evolution;
+
+            if (legacyWuzapi && legacyWuzapi.session && legacyWuzapi.token) {
+                config.prompUuid = legacyWuzapi.session;
+                config.prompToken = legacyWuzapi.token;
+                console.log('[Promp] Using Legacy Credentials from integrations JSON.');
+            } else {
+                console.log('[Promp] Skipping external API execution (Credentials missing).');
+                return false;
+            }
         }
 
-        // Removing '55' prefix if exists (Promp API usually handles it, or check documentation)
+        // Ensure prompUuid is clean (no spaces)
+        config.prompUuid = config.prompUuid.trim();
         // Postman doc example: "5515998566622". Okay, keep it.
 
         // 1. Send Text (ONLY if no audio AND no PDF, to avoid duplication or mixed content issues)
