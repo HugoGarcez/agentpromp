@@ -1590,7 +1590,32 @@ const processChatResponse = async (config, message, history, sessionId = null, i
 
 
 
-            systemPrompt += `\n\nLISTA DE PRODUTOS/SERVIÇOS DISPONÍVEIS:\n${productList}\n\n`;
+            systemPrompt += `
+═══════════════════════════════════════════════════════════════
+🚨 PROTOCOLO CRÍTICO DE ENVIO DE IMAGENS 🚨
+═══════════════════════════════════════════════════════════════
+
+REGRA ABSOLUTA (NÃO NEGOCIÁVEL):
+Se o usuário pedir foto/imagem e o produto tem [TEM_IMAGEM]:
+
+1️⃣ VOCÊ **DEVE** COLOCAR A TAG: [SHOW_IMAGE: <ID_NÚMERO>]
+2️⃣ É **PROIBIDO** DIZER "aqui está a foto" SEM A TAG
+3️⃣ Use o ID NUMÉRICO EXATO da lista abaixo
+
+EXEMPLO CORRETO para "Camisa do Herói" (ID: 1770083712009):
+"Aqui está a foto! 👕
+[SHOW_IMAGE: 1770083712009]"
+
+❌ ERRADO: "Aqui está a foto! 👕" (SEM A TAG)
+
+ATENÇÃO: Se você dizer que vai enviar foto MAS não colocar a tag,
+o cliente NÃO receberá nada! SEMPRE use [SHOW_IMAGE: ID].
+═══════════════════════════════════════════════════════════════
+
+LISTA DE PRODUTOS/SERVIÇOS DISPONÍVEIS:
+${productList}
+
+`;
             systemPrompt += `REGRA DE CONSISTÊNCIA DE ESTOQUE (CRÍTICO):
         1. A lista acima é a ÚNICA fonte de verdade sobre o que está disponível AGORA.
         2. Se o histórico de conversa mencionar um produto que NÃO está na lista acima, ele foi REMOVIDO ou ESGOTADO.
