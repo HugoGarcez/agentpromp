@@ -4,6 +4,7 @@ import MainLayout from './components/Layout/MainLayout';
 import Dashboard from './pages/Dashboard';
 import AIConfig from './pages/AIConfig';
 import ProductConfig from './pages/ProductConfig';
+import SchedulingConfig from './pages/SchedulingConfig';
 import TestAI from './pages/TestAI';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
@@ -59,6 +60,7 @@ function App() {
               <Route path="ai-config" element={<AIConfig />} />
               <Route path="test-ai" element={<TestAI />} />
               <Route path="products" element={<ProductConfig />} />
+              <Route path="scheduling" element={<SchedulingConfig />} />
               <Route path="settings" element={<Settings />} />
 
               <Route path="admin" element={

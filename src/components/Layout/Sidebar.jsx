@@ -61,6 +61,15 @@ const Sidebar = ({ isOpen, onClose }) => {
           <span>Produtos</span>
         </NavLink>
 
+        <NavLink
+          to="/scheduling"
+          onClick={handleItemClick}
+          className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+        >
+          <div style={{ width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📅</div>
+          <span>Agendamento</span>
+        </NavLink>
+
         <a
           href="https://app.promp.com.br/#/chats/"
           target="_blank"

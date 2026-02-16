@@ -14,6 +14,12 @@ model Company {
   updatedAt DateTime @updatedAt
   users     User[]
   config    AgentConfig?
+  
+  // New Relations
+  specialists      Specialist[]
+  appointmentTypes AppointmentType[]
+  appointments     Appointment[]
+  googleConfig     GoogleCalendarConfig?
 }
 
 model User {
@@ -97,6 +103,12 @@ model GlobalConfig {
   geminiKey         String?
   elevenLabsKey     String?
   elevenLabsVoiceId String?
+  
+  // Google Calendar Integration
+  googleClientId     String?
+  googleClientSecret String?
+  googleRedirectUri  String?
+
   updatedAt         DateTime @updatedAt
 }
 
@@ -115,4 +127,90 @@ model ProductSource {
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// --- GOOGLE CALENDAR & SCHEDULING ---
+
+model GoogleCalendarConfig {
+  id            String   @id @default(uuid())
+  companyId     String   @unique
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  // Auth
+  accessToken   String?
+  refreshToken  String?
+  tokenExpiry   DateTime?
+  
+  // Settings
+  primaryCalendarId String?
+  timezone          String   @default("America/Sao_Paulo")
+  officeHours       String?  // JSON: { "0": { start: "09:00", end: "18:00" }, ... }
+  reminderBefore    Int?     // Minutes before to remind
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Specialist {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  name        String
+  phone       String?
+  email       String?
+  calendarId  String?  // If different from primary
+  active      Boolean  @default(true)
+  
+  // Relations
+  appointmentTypes AppointmentType[] // Many-to-Many via implicit or explicit? Let's use implicit for simplicity or explicit if needed. 
+  appointments     Appointment[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AppointmentType {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  name        String
+  description String?
+  duration    Int      @default(30) // Minutes
+  color       String?
+  active      Boolean  @default(true)
+  
+  specialists Specialist[]
+  appointments Appointment[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Appointment {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  googleEventId String?  @unique
+  
+  customerId  String?  // Link to ContactState if possible, but ContactState doesn't have ID exposed well. Storing Phone/Name.
+  customerName String
+  customerPhone String
+  
+  specialistId String?
+  specialist   Specialist? @relation(fields: [specialistId], references: [id])
+  
+  typeId       String?
+  type         AppointmentType? @relation(fields: [typeId], references: [id])
+  
+  startTime    DateTime
+  endTime      DateTime
+  status       String   @default("CONFIRMED") // CONFIRMED, CANCELLED, COMPLETED
+  
+  notes        String?
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

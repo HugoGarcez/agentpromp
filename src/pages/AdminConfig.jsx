@@ -6,7 +6,10 @@ const AdminConfig = () => {
         openaiKey: '',
         geminiKey: '',
         elevenLabsKey: '',
-        elevenLabsVoiceId: ''
+        elevenLabsVoiceId: '',
+        googleClientId: '',
+        googleClientSecret: '',
+        googleRedirectUri: ''
     });
     const [loading, setLoading] = useState(true);
     const [showToast, setShowToast] = useState(false);
@@ -24,7 +27,10 @@ const AdminConfig = () => {
                         openaiKey: data.openaiKey || '',
                         geminiKey: data.geminiKey || '',
                         elevenLabsKey: data.elevenLabsKey || '',
-                        elevenLabsVoiceId: data.elevenLabsVoiceId || ''
+                        elevenLabsVoiceId: data.elevenLabsVoiceId || '',
+                        googleClientId: data.googleClientId || '',
+                        googleClientSecret: data.googleClientSecret || '',
+                        googleRedirectUri: data.googleRedirectUri || ''
                     });
                 }
             } catch (e) {
@@ -128,6 +134,50 @@ const AdminConfig = () => {
                             placeholder="Ex: 21m00Tcm4TlvDq8ikWAM"
                             style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
                         />
+                    </div>
+                </div>
+
+                {/* Google Calendar */}
+                <div style={{ marginBottom: '24px', borderTop: '1px solid #E5E7EB', paddingTop: '24px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        📆 Google Calendar (OAuth 2.0)
+                    </h3>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Google Client ID</label>
+                        <input
+                            type="text"
+                            name="googleClientId"
+                            value={config.googleClientId || ''}
+                            onChange={handleChange}
+                            placeholder="xyz.apps.googleusercontent.com"
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Google Client Secret</label>
+                        <input
+                            type="password"
+                            name="googleClientSecret"
+                            value={config.googleClientSecret || ''}
+                            onChange={handleChange}
+                            placeholder="GOCSPX-..."
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Redirect URI (Callback)</label>
+                        <input
+                            type="text"
+                            name="googleRedirectUri"
+                            value={config.googleRedirectUri || ''}
+                            onChange={handleChange}
+                            placeholder="https://seu-dominio.com/api/auth/google/callback"
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', backgroundColor: '#F3F4F6' }}
+                        />
+                        <small style={{ color: '#6B7280' }}>Adicione esta URL no Console do Google Cloud.</small>
                     </div>
                 </div>
 
