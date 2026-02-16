@@ -1782,18 +1782,24 @@ const processChatResponse = async (config, message, history, sessionId = null, i
         const imageEnforcementFooter = `
 *** ATENÇÃO: PROTOCOLO DE ENVIO DE IMAGEM ***
 SE O USUÁRIO PEDIU UMA FOTO E O PRODUTO TEM IMAGEM (campo [TEM_IMAGEM]):
-1. É PROIBIDO DIZER QUE VAI ENVIAR A IMAGEM SEM COLOCAR A TAG.
-2. A TAG OBRIGATÓRIA É: [SHOW_IMAGE: ID_DO_PRODUTO]
-3. COLOQUE A TAG NO FINAL DA RESPOSTA.
+1. É PROIBIDO DIZER QUE VAI ENVIAR A IMAGEM SEM COLOCAR A TAG DE COMANDO.
+2. A TAG OBRIGATÓRIA É: [SHOW_IMAGE: <NUMERO_DO_ID>]
+3. SUBSTITUA <NUMERO_DO_ID> PELO NÚMERO REAL QUE APARECE DEPOIS DE "ID:" NA LISTA DE PRODUTOS.
 
-EXEMPLO CORRETO:
-"Aqui está a foto do Carrinho! 🚗
-[SHOW_IMAGE: ID_REAL_DA_LISTA]"
+EXEMPLO DE PENSAMENTO:
+"O produto 'Camisa' tem ID: 50 e tem [TEM_IMAGEM]. O usuário pediu foto. Vou enviar:"
 
-SE VOCÊ NÃO COLOCAR A TAG, A IMAGEM NÃO APARECE E O USUÁRIO FICARÁ ZANGADO.
-NÃO INVENTE IDs E NÃO USE "12345". USE APENAS OS IDs QUE ESTÃO NA LISTA DE PRODUTOS.
+RESPOSTA FINAL OBRIGATÓRIA:
+"Aqui está a foto da Camisa! 👕
+[SHOW_IMAGE: 50]"
 
-CUMPRA ESTE PROTOCOLO AGORA.
+ERRO GRAVE - NÃO FAÇA ISSO:
+[SHOW_IMAGE: ID_DO_PRODUTO] <- ERRADO (Não use o texto, use o número!)
+[SHOW_IMAGE: ID_REAL_DA_LISTA] <- ERRADO
+[SHOW_IMAGE: 12345] <- ERRADO (Não invente!)
+
+SE VOCÊ NÃO COLOCAR A TAG COM O NÚMERO CORRETO, A IMAGEM NÃO APARECE.
+USE APENAS OS IDs NUMÉRICOS QUE ESTÃO NA LISTA DE PRODUTOS ACIMA.
 `;
         // Append to system prompt just for this execution
         const finalSystemPrompt = systemPrompt + "\n\n" + imageEnforcementFooter;
