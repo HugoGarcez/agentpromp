@@ -49,13 +49,18 @@ const AdminConfig = () => {
     const handleSave = async () => {
         try {
             const token = localStorage.getItem('token');
+            const payload = { ...config };
+            if (!payload.googleRedirectUri) {
+                payload.googleRedirectUri = `${window.location.origin}/api/auth/google/callback`;
+            }
+
             const res = await fetch('/api/admin/config', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify(config)
+                body: JSON.stringify(payload)
             });
 
             if (res.ok) {
