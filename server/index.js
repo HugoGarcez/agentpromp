@@ -2245,6 +2245,10 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                 type: p.type === 'service' ? 'servico' : 'produto',
                                 price: p.price,
                                 priceHidden: p.priceHidden || false,
+                                // 🔥 PROMPT ENGINEERING: Entregar comando pronto para evitar alucinação de ID
+                                visual_instruction: p.image
+                                    ? `⚠️ PARA MOSTRAR FOTO DESTE PRODUTO, USE EXATAMENTE: [SHOW_IMAGE: ${p.id}]`
+                                    : 'Sem foto disponível',
                                 hasImage: !!p.image,
                                 hasVariations: (p.variantItems && p.variantItems.length > 0),
                                 variationCount: (p.variantItems && p.variantItems.length) || 0
