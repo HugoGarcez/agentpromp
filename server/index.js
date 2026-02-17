@@ -999,12 +999,23 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             }
         }
 
+        // 🔥 MULTI-TENANT FIX: Add companyId to each product
+        // This ensures products are properly isolated per company
+        let productsToSave = newConfig.products;
+        if (productsToSave && Array.isArray(productsToSave)) {
+            productsToSave = productsToSave.map(product => ({
+                ...product,
+                companyId: companyId // Ensure every product has companyId
+            }));
+            console.log(`[Config Update] Added companyId to ${productsToSave.length} products`);
+        }
+
         const data = {
             companyId,
             systemPrompt: newConfig.systemPrompt,
             persona: newConfig.persona ? (typeof newConfig.persona === 'object' ? JSON.stringify(newConfig.persona) : newConfig.persona) : undefined,
             integrations: JSON.stringify(combinedIntegrations),
-            products: newConfig.products ? JSON.stringify(newConfig.products) : undefined,
+            products: productsToSave ? JSON.stringify(productsToSave) : undefined,
             knowledgeBase: finalKB ? JSON.stringify(finalKB) : undefined,
             followUpConfig: newConfig.followUpConfig ? (typeof newConfig.followUpConfig === 'object' ? JSON.stringify(newConfig.followUpConfig) : newConfig.followUpConfig) : undefined
         };
@@ -2171,55 +2182,62 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                             const requestedType = args.type || 'todos';
                             console.log('[Function: list_available_products] Requested type:', requestedType);
 
-                            const products = config.products || [];
-                            console.log('[Function: list_available_products] Total products in config:', products.length);
+                            const allProducts = config.products || [];
+                            console.log('[Function: list_available_products] Total products in config:', allProducts.length);
 
-                            // 🚨 SAFETY LIMIT: Prevent processing > 10k products (data leak protection)
-                            if (products.length > 10000) {
-                                console.error('[Function: list_available_products] 🛑 SAFETY LIMIT TRIGGERED!');
-                                console.error('[Function: list_available_products] Expected: ~6 products');
-                                console.error('[Function: list_available_products] Found:', products.length, 'products');
-                                console.error('[Function: list_available_products] This indicates a DATA LEAK - getting products from ALL tenants!');
-                                console.error('[Function: list_available_products] Sample product IDs:', products.slice(0, 5).map(p => ({ id: p.id, name: p.name, companyId: p.companyId })));
-
-                                toolResult = JSON.stringify({
-                                    status: 'error',
-                                    message: 'Erro interno: lista de produtos corrompida. Entre em contato com o suporte.',
-                                    debug: `Found ${products.length} products instead of expected ~6`
-                                });
-                            } else {
-                                const activeProducts = products.filter(p => p.active !== false);
-                                console.log('[Function: list_available_products] Active products:', activeProducts.length);
-
-                                let filtered = activeProducts;
-                                if (requestedType === 'produto') {
-                                    filtered = activeProducts.filter(p => p.type !== 'service');
-                                } else if (requestedType === 'servico') {
-                                    filtered = activeProducts.filter(p => p.type === 'service');
+                            // 🔥 CRITICAL FIX: Filter by companyId (multi-tenant isolation)
+                            // Products from ALL companies are stored in the same JSON field.
+                            // We MUST filter to show only THIS company's products!
+                            const companyProducts = allProducts.filter(p => {
+                                // If product has companyId, it MUST match
+                                if (p.companyId) {
+                                    return p.companyId === config.companyId;
                                 }
-                                console.log('[Function: list_available_products] Filtered products:', filtered.length);
+                                // Legacy products without companyId: assume they belong to this company
+                                // (This handles old data before multi-tenant fix)
+                                return true;
+                            });
 
-                                const result = filtered.map(p => ({
-                                    id: p.id,
-                                    name: p.name,
-                                    type: p.type === 'service' ? 'servico' : 'produto',
-                                    price: p.price,
-                                    priceHidden: p.priceHidden || false,
-                                    hasImage: !!p.image,
-                                    hasVariations: (p.variantItems && p.variantItems.length > 0),
-                                    variationCount: (p.variantItems && p.variantItems.length) || 0
-                                }));
+                            console.log(`[Function: list_available_products] Filtered by companyId (${config.companyId}): ${companyProducts.length} products`);
+                            console.log('[Function: list_available_products] Company products:', companyProducts.map(p => p.name).join(', '));
 
-                                console.log(`[Function: list_available_products] Returning ${result.length} products (type: ${requestedType})`);
-                                console.log('[Function: list_available_products] Result:', JSON.stringify(result, null, 2));
-
-                                toolResult = JSON.stringify({
-                                    status: 'success',
-                                    total: result.length,
-                                    products: result
-                                });
-                                console.log('[Function: list_available_products] toolResult length:', toolResult.length);
+                            // 🚨 SAFETY CHECK: Warn if suspiciously high number
+                            if (companyProducts.length > 1000) {
+                                console.warn('[Function: list_available_products] ⚠️ WARNING: More than 1000 products for single company!');
+                                console.warn('[Function: list_available_products] This may indicate a filtering issue.');
                             }
+
+                            const activeProducts = companyProducts.filter(p => p.active !== false);
+                            console.log('[Function: list_available_products] Active products:', activeProducts.length);
+
+                            let filtered = activeProducts;
+                            if (requestedType === 'produto') {
+                                filtered = activeProducts.filter(p => p.type !== 'service');
+                            } else if (requestedType === 'servico') {
+                                filtered = activeProducts.filter(p => p.type === 'service');
+                            }
+                            console.log('[Function: list_available_products] Filtered by type:', filtered.length);
+
+                            const result = filtered.map(p => ({
+                                id: p.id,
+                                name: p.name,
+                                type: p.type === 'service' ? 'servico' : 'produto',
+                                price: p.price,
+                                priceHidden: p.priceHidden || false,
+                                hasImage: !!p.image,
+                                hasVariations: (p.variantItems && p.variantItems.length > 0),
+                                variationCount: (p.variantItems && p.variantItems.length) || 0
+                            }));
+
+                            console.log(`[Function: list_available_products] Returning ${result.length} products (type: ${requestedType})`);
+                            console.log('[Function: list_available_products] Result:', JSON.stringify(result, null, 2));
+
+                            toolResult = JSON.stringify({
+                                status: 'success',
+                                total: result.length,
+                                products: result
+                            });
+                            console.log('[Function: list_available_products] toolResult length:', toolResult.length);
                         }
                     } catch (e) {
                         toolResult = JSON.stringify({ status: 'error', message: e.message });

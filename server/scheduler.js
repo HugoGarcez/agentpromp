@@ -64,7 +64,8 @@ async function processSource(source, db) {
                     type: 'product',
                     active: true,
                     unit: 'Unidade',
-                    sourceId: source.id
+                    sourceId: source.id,
+                    companyId: source.companyId // 🔥 MULTI-TENANT: Add companyId to each product
                 }));
 
                 const updatedProducts = [...currentProducts, ...formattedProducts];
