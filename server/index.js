@@ -291,6 +291,15 @@ const handleWebhookRequest = async (req, res) => {
         payload.msg?.body ||
         payload.msg?.content;
 
+    // 🔥 CRITICAL FIX: Ensure userMessage is always a STRING (never object)
+    // Some payloads send payload.msg.content as object (e.g., reaction messages)
+    // This causes OpenAI API error: "Invalid type for 'messages[1].content'"
+    if (typeof userMessage !== 'string') {
+        userMessage = typeof userMessage === 'object' && userMessage !== null
+            ? (userMessage.text || userMessage.body || '')
+            : '';
+    }
+
     // --- AUDIO HANDLING ---
     // If text is "ptt" (Push To Talk) or "audio" AND we have media, it's an Audio Message.
     let isAudioInput = false;
