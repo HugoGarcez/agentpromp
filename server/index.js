@@ -2083,12 +2083,26 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
         }
 
         while (turns < maxTurns) {
+            console.log('[AI Debug] Turn', turns + 1, '- Sending request to OpenAI');
+            console.log('[AI Debug] Model:', config.model || "gpt-4o-mini");
+            console.log('[AI Debug] Tools enabled:', shouldUseTools);
+            console.log('[AI Debug] Number of tools:', tools.length);
+            console.log('[AI Debug] Message count:', messages.length);
+            console.log('[AI Debug] Last user message:', messages[messages.length - 1].content.substring(0, 100));
+
             const completion = await client.chat.completions.create({
                 messages: messages,
                 model: config.model || "gpt-4o-mini", // Use config model or default
                 tools: shouldUseTools ? tools : undefined,
                 tool_choice: shouldUseTools ? "auto" : undefined
             });
+
+            console.log('[AI Debug] Response received');
+            console.log('[AI Debug] Finish reason:', completion.choices[0].finish_reason);
+            console.log('[AI Debug] Has tool calls:', !!completion.choices[0].message.tool_calls);
+            if (completion.choices[0].message.tool_calls) {
+                console.log('[AI Debug] Tool calls:', completion.choices[0].message.tool_calls.map(tc => tc.function.name));
+            }
 
             const msg = completion.choices[0].message;
             aiResponse = msg.content || "";
