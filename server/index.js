@@ -2191,7 +2191,19 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                             const requestedType = args.type || 'todos';
                             console.log('[Function: list_available_products] Requested type:', requestedType);
 
-                            const allProducts = config.products || [];
+                            // 🔥 DEFENSIVE FIX: Parse products if it's a string (backwards compatibility)
+                            let rawProducts = config.products || [];
+                            if (typeof rawProducts === 'string') {
+                                console.warn('[Function: list_available_products] ⚠️ Products came as STRING! Parsing...');
+                                try {
+                                    rawProducts = JSON.parse(rawProducts);
+                                } catch (e) {
+                                    console.error('[Function: list_available_products] ❌ Failed to parse products string:', e);
+                                    rawProducts = [];
+                                }
+                            }
+
+                            const allProducts = Array.isArray(rawProducts) ? rawProducts : [];
                             console.log('[Function: list_available_products] Total products in config:', allProducts.length);
 
                             // 🔥 CRITICAL FIX: Filter by companyId (multi-tenant isolation)
