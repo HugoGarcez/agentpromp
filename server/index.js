@@ -2884,13 +2884,19 @@ function resolveProductImageFromConfig(targetId, config) {
 
     // Check Parent (ID exact match)
     for (const p of products) {
-        // Debug each product
-        // console.log(`[ImageResolution] Checking Product: ID=${p.id}, Name=${p.name}`);
-
         if (String(p.id) === cleanId) {
             if (p.image) {
                 console.log(`[ImageResolution] FOUND by ID Match: ${cleanId}`);
                 return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+            } else {
+                // Produto encontrado mas SEM imagem cadastrada
+                console.log(`[ImageResolution] Product ${cleanId} exists but has NO IMAGE`);
+                return {
+                    found: false,
+                    productExists: true,
+                    productName: p.name,
+                    error: `O produto "${p.name}" não tem imagem cadastrada`
+                };
             }
         }
 
@@ -2898,7 +2904,6 @@ function resolveProductImageFromConfig(targetId, config) {
         if (p.name && p.name.toLowerCase().includes(cleanId.toLowerCase())) {
             if (p.image) {
                 console.log(`[ImageResolution] FOUND by Name Match: "${cleanId}" in "${p.name}"`);
-                // Don't return immediately if exact match is better? No, loop order.
                 return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
             }
         }
@@ -2911,13 +2916,22 @@ function resolveProductImageFromConfig(targetId, config) {
                     const details = [variant.color, variant.size].filter(Boolean).join(' / ');
                     console.log(`[ImageResolution] FOUND VARIANT by ID Match: ${cleanId} (Parent: ${p.name})`);
                     return { found: true, url: variant.image || p.image, caption: `${p.name} - ${details} - R$ ${variant.price || p.price}` };
+                } else {
+                    // Variação encontrada mas sem imagem
+                    console.log(`[ImageResolution] Variant ${cleanId} exists but has NO IMAGE`);
+                    return {
+                        found: false,
+                        productExists: true,
+                        productName: `${p.name} - ${variant.color || ''} ${variant.size || ''}`.trim(),
+                        error: `A variação "${variant.color || ''} ${variant.size || ''}" de "${p.name}" não tem imagem cadastrada`
+                    };
                 }
             }
         }
     }
 
     console.log(`[ImageResolution] NOT FOUND for Target: "${cleanId}"`);
-    return { found: false, error: `Imagem não encontrada para ID: ${cleanId}` };
+    return { found: false, error: `Produto com ID ${cleanId} não encontrado` };
 };
 
 
