@@ -180,6 +180,11 @@ const handleWebhookRequest = async (req, res) => {
         return res.json({ status: 'ignored_wrong_identity' });
     }
 
+    // If we have dbIdentity but NO cleanOwner in payload, we should be cautious.
+    // However, if we don't know the owner, we can't be sure it's WRONG.
+    // But if strict privacy is required, we might want to log this case.
+
+
     // ------------------------------------------------------------------
     // 5. STRICT FILTERS (Groups, Status, Broadcasts)
     // ------------------------------------------------------------------
@@ -372,11 +377,21 @@ const handleWebhookRequest = async (req, res) => {
         if (cleanNumber) {
             try {
                 // 2. Fetch History: Get 20 *MOST RECENT* messages (descending)
+                // SCOPED BY OWNER (Bot Number) if known
+                const whereClause = {
+                    companyId: String(companyId),
+                    sessionId: String(dbSessionId)
+                };
+
+                // If we know the bot identity (either from config or payload), use it to filter history
+                // This prevents AI from seeing messages from other bots on the same account
+                const currentOwner = dbIdentity || cleanOwner;
+                if (currentOwner) {
+                    whereClause.owner = currentOwner;
+                }
+
                 const storedMessages = await prisma.testMessage.findMany({
-                    where: {
-                        companyId: String(companyId),
-                        sessionId: String(dbSessionId)
-                    },
+                    where: whereClause,
                     orderBy: { createdAt: 'desc' }, // Get newest first
                     take: 20
                 });
@@ -400,6 +415,7 @@ const handleWebhookRequest = async (req, res) => {
         console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
 
         // Persist Chat
+        const finalOwner = dbIdentity || cleanOwner;
         try {
             await prisma.testMessage.create({
                 data: {
@@ -407,6 +423,7 @@ const handleWebhookRequest = async (req, res) => {
                     sender: 'user',
                     text: userMessage,
                     sessionId: String(dbSessionId),
+                    owner: finalOwner, // Save owner
                     metadata
                 }
             });
@@ -415,7 +432,8 @@ const handleWebhookRequest = async (req, res) => {
                     companyId: String(companyId),
                     sender: 'ai',
                     text: aiResponse,
-                    sessionId: String(dbSessionId)
+                    sessionId: String(dbSessionId),
+                    owner: finalOwner // Save owner
                 }
             });
         } catch (dbError) {

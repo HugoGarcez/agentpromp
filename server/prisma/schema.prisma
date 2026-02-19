@@ -93,6 +93,7 @@ model TestMessage {
   sender    String   // 'user' | 'ai'
   text      String
   sessionId String?  // Optional: For grouping messages by ticket/session (e.g. from Webhook)
+  owner     String?  // The bot number this message belongs to
   metadata  String?  // Optional: JSON string for extra data (e.g. n8n payload)
   createdAt DateTime @default(now())
 }
