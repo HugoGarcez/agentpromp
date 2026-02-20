@@ -40,6 +40,9 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, '.env') });
 
+const PROMP_ADMIN_TOKEN = process.env.PROMP_ADMIN_TOKEN;
+const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
+
 // GLOBAL DEDUPLICATION SET
 const processedMessages = new Set();
 
@@ -237,7 +240,6 @@ const handleWebhookRequest = async (req, res) => {
         } else {
             // Not in cache, call API to validate
             try {
-                const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
                 const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompToken}/showChannel`;
                 console.log(`[Webhook] Validating channel number ${cleanOwner} via API...`);
 
