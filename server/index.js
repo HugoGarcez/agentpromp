@@ -189,16 +189,18 @@ const handleWebhookRequest = async (req, res) => {
     // 4.1 CONNECTION ID STRICT MATCHING (Primary Isolation Mechanism)
     // Extract incoming connection/session ID from various possible payload structures
     const incomingConnectionIdArr = [
-        payload.whatsappId,               // NEW: High priority path mentioned by user
-        payload.body?.whatsappId,        // NEW: Variant path
-        payload.body?.channel?.id,       // Path for Promp/n8n payload (Example 1)
+        payload.whatsappId,
+        payload.body?.whatsappId,
+        payload.whatsapp?.id,            // NEW: Nested structure seen in logs
+        payload.body?.whatsapp?.id,      // NEW: Common nested structure
+        payload.body?.channel?.id,
         payload.sessionId,
         payload.instanceId,
         payload.channelId,
         payload.wuzapi?.id,
         payload.sessionName,
         payload.session,
-        payload.ticket?.id,              // Lowered priority: confirmed to be different in Example 1
+        payload.ticket?.id,
         (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null)
     ].filter(Boolean); // Remove null/undefined
 
@@ -212,7 +214,8 @@ const handleWebhookRequest = async (req, res) => {
         }
 
         if (incomingConnectionId !== dbConnectionId) {
-            console.log(`[Webhook] CONNECTION ISOLATION: Incoming '${incomingConnectionId}' DOES NOT MATCH configured '${dbConnectionId}'. (Paths tested: ${incomingConnectionIdArr.join(', ')}). Ignoring payload.`);
+            console.log(`[Webhook] CONNECTION ISOLATION: Incoming '${incomingConnectionId}' DOES NOT MATCH configured '${dbConnectionId}'.`);
+            console.log(`[Webhook] DEBUG: Found IDs: ${JSON.stringify(incomingConnectionIdArr)}. Configuration: ${dbConnectionId}`);
             return res.json({ status: 'ignored_wrong_connection' });
         }
 
