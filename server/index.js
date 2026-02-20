@@ -189,14 +189,16 @@ const handleWebhookRequest = async (req, res) => {
     // 4.1 CONNECTION ID STRICT MATCHING (Primary Isolation Mechanism)
     // Extract incoming connection/session ID from various possible payload structures
     const incomingConnectionIdArr = [
+        payload.whatsappId,               // NEW: High priority path mentioned by user
+        payload.body?.whatsappId,        // NEW: Variant path
+        payload.body?.channel?.id,       // Path for Promp/n8n payload (Example 1)
         payload.sessionId,
         payload.instanceId,
         payload.channelId,
-        payload.body?.channel?.id, // Path for Promp/n8n payload
-        payload.ticket?.id,
         payload.wuzapi?.id,
         payload.sessionName,
         payload.session,
+        payload.ticket?.id,              // Lowered priority: confirmed to be different in Example 1
         (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null)
     ].filter(Boolean); // Remove null/undefined
 
@@ -210,11 +212,11 @@ const handleWebhookRequest = async (req, res) => {
         }
 
         if (incomingConnectionId !== dbConnectionId) {
-            console.log(`[Webhook] CONNECTION ISOLATION: Payload Session/Channel '${incomingConnectionId}' DOES NOT MATCH configured '${dbConnectionId}'. Ignoring payload.`);
+            console.log(`[Webhook] CONNECTION ISOLATION: Incoming '${incomingConnectionId}' DOES NOT MATCH configured '${dbConnectionId}'. (Paths tested: ${incomingConnectionIdArr.join(', ')}). Ignoring payload.`);
             return res.json({ status: 'ignored_wrong_connection' });
         }
 
-        console.log(`[Webhook] Connection Match Verified: '${incomingConnectionId}'`);
+        console.log(`[Webhook] CONNECTION MATCH VERIFIED: Incoming '${incomingConnectionId}' matches Agent Config.`);
     }
 
     // IDENTITY CHECK (Secondary/Legacy check: "Consider ONLY what is sent TO the number that is in the AI")
