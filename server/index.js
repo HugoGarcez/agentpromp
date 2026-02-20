@@ -100,10 +100,15 @@ app.get('/api/health', (req, res) => {
 // --- WEBHOOK ROUTES (Moved to TOP for Priority) ---
 const handleWebhookRequest = async (req, res) => {
     const { companyId } = req.params;
-    const payload = req.body;
-
     console.log(`[Webhook] HEADERS Content-Type: ${req.get('Content-Type')}`);
     console.log(`[Webhook] Handler Reached for Company: ${companyId}`);
+
+    // --- PAYLOAD NORMALIZATION ---
+    let payload = req.body;
+    if (Array.isArray(payload)) {
+        console.log(`[Webhook] Payload is an Array. Taking first item.`);
+        payload = payload[0];
+    }
 
     if (!payload || Object.keys(payload).length === 0) {
         console.error('[Webhook] Empty Payload! Check Content-Type.');
@@ -138,6 +143,7 @@ const handleWebhookRequest = async (req, res) => {
         payload.data?.id ||
         payload.msg?.id ||
         payload.content?.messageId ||
+        payload.body?.content?.messageId ||
         payload.ticket?.uniqueId; // Add more candidates
 
     if (msgId) {
@@ -162,7 +168,7 @@ const handleWebhookRequest = async (req, res) => {
     }
 
     // 2. Identify Sender
-    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
+    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
     const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
 
     // 3. Identify Protocol Owner (The session/bot number)
@@ -183,6 +189,7 @@ const handleWebhookRequest = async (req, res) => {
         payload.sessionId,
         payload.instanceId,
         payload.channelId,
+        payload.body?.channel?.id, // Path for Promp/n8n payload
         payload.ticket?.id,
         payload.wuzapi?.id,
         payload.sessionName,
@@ -376,6 +383,7 @@ const handleWebhookRequest = async (req, res) => {
 
     // Safety Check for Content
     let userMessage = payload.content?.text ||
+        payload.body?.content?.text ||
         payload.data?.message?.conversation ||
         payload.data?.message?.extendedTextMessage?.text ||
         payload.msg?.text ||
