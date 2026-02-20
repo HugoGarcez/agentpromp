@@ -502,10 +502,10 @@ DIRETRIZES:
                                         />
                                     </div>
                                     <div style={{ flex: 1 }}>
-                                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>ID da Conexão (Opcional)</label>
+                                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>ID da Conexão (Obrigatório)</label>
                                         <input
                                             type="text"
-                                            placeholder="ID ou Nome da Sessão"
+                                            placeholder="Nome da Sessão no Promp"
                                             id="prompSessionInput"
                                             style={{
                                                 width: '100%', padding: '10px',
@@ -534,7 +534,8 @@ DIRETRIZES:
                                             const identity = document.getElementById('prompIdentityInput').value;
                                             const sessionId = document.getElementById('prompSessionInput').value;
                                             const manualUserId = document.getElementById('prompUserIdInput').value;
-                                            if (!identity) return alert('Digite a identidade');
+                                            if (!identity) return alert('Digite a identidade (CPF/CNPJ).');
+                                            if (!sessionId) return alert('O ID da Conexão é obrigatório para vincular o WhatsApp correto.');
 
                                             try {
                                                 const token = localStorage.getItem('token');

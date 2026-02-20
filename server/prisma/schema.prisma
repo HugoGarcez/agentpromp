@@ -49,6 +49,7 @@ model AgentConfig {
   
   // Promp API Integration
   prompIdentity String?
+  prompConnectionId String? // NEW: Binds AI to a specific Session/Channel ID
   prompUuid     String?
   prompToken    String?
 

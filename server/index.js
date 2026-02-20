@@ -166,13 +166,45 @@ const handleWebhookRequest = async (req, res) => {
     const rawOwner = payload.msg?.owner || payload.owner;
     const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
 
-    // 4. Identify Configured Identity (From DB)
+    // 4. Identify Configured Identity & Connection ID (From DB)
     let dbIdentity = null;
-    if (config?.prompIdentity) {
-        dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
+    let dbConnectionId = null;
+    if (config) {
+        if (config.prompIdentity) dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
+        if (config.prompConnectionId) dbConnectionId = String(config.prompConnectionId).trim(); // Keep alphanumeric for session names
     }
 
-    // IDENTITY CHECK: "Consider ONLY what is sent TO the number that is in the AI"
+    // 4.1 CONNECTION ID STRICT MATCHING (Primary Isolation Mechanism)
+    // Extract incoming connection/session ID from various possible payload structures
+    const incomingConnectionIdArr = [
+        payload.sessionId,
+        payload.instanceId,
+        payload.channelId,
+        payload.ticket?.id,
+        payload.wuzapi?.id,
+        payload.sessionName,
+        payload.session,
+        (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null)
+    ].filter(Boolean); // Remove null/undefined
+
+    // Take the first valid ID found in the payload
+    const incomingConnectionId = incomingConnectionIdArr.length > 0 ? String(incomingConnectionIdArr[0]).trim() : null;
+
+    if (dbConnectionId) {
+        if (!incomingConnectionId) {
+            console.log(`[Webhook] ERROR: No Connection/Session ID found in payload, but Agent expects '${dbConnectionId}'. Ignoring payload for safety.`);
+            return res.json({ status: 'ignored_missing_connection_id' });
+        }
+
+        if (incomingConnectionId !== dbConnectionId) {
+            console.log(`[Webhook] CONNECTION ISOLATION: Payload Session/Channel '${incomingConnectionId}' DOES NOT MATCH configured '${dbConnectionId}'. Ignoring payload.`);
+            return res.json({ status: 'ignored_wrong_connection' });
+        }
+
+        console.log(`[Webhook] Connection Match Verified: '${incomingConnectionId}'`);
+    }
+
+    // IDENTITY CHECK (Secondary/Legacy check: "Consider ONLY what is sent TO the number that is in the AI")
     // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
     // (Only if both are known)
     if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
@@ -2845,12 +2877,14 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             where: { companyId },
             update: {
                 prompIdentity: identity,
+                prompConnectionId: sessionId, // NEW: Bind exactly to this Connection
                 prompUuid: apiData.id,
                 prompToken: apiData.token
             },
             create: {
                 companyId,
                 prompIdentity: identity,
+                prompConnectionId: sessionId, // NEW: Bind exactly to this Connection
                 prompUuid: apiData.id,
                 prompToken: apiData.token
             }
