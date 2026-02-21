@@ -916,24 +916,45 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
 
 app.get('/api/admin/notifications', authenticateAdmin, async (req, res) => {
     try {
-        const notifications = await prisma.notification.findMany({
+        let notifications = await prisma.notification.findMany({
             orderBy: { createdAt: 'desc' }
         });
+
+        // Auto-seed if empty (Requested by user)
+        if (notifications.length === 0) {
+            const seed = await prisma.notification.create({
+                data: {
+                    title: "Novas Métricas de Desempenho no Dashboard",
+                    content: "Adicionamos uma nova seção de métricas ao seu Painel! Agora você pode acompanhar os produtos mais desejados, mais vendidos, clientes mais ativos e o tempo total poupado pela sua IA. Confira o resumo no topo da sua página inicial.",
+                    type: "NEWS",
+                    status: "DRAFT"
+                }
+            });
+            notifications = [seed];
+        }
+
         res.json(notifications);
     } catch (error) {
+        console.error('Erro ao buscar notificações:', error);
         res.status(500).json({ message: 'Erro ao buscar notificações' });
     }
 });
 
 app.post('/api/admin/notifications', authenticateAdmin, async (req, res) => {
-    const { title, content, type } = req.body;
+    const { title, content, type, status } = req.body;
     try {
         const notification = await prisma.notification.create({
-            data: { title, content, type: type || 'INFO', status: 'DRAFT' }
+            data: {
+                title,
+                content,
+                type: type || 'INFO',
+                status: status || 'DRAFT'
+            }
         });
         res.json(notification);
     } catch (error) {
-        res.status(500).json({ message: 'Erro ao criar notificação' });
+        console.error('Erro ao criar notificação:', error);
+        res.status(500).json({ message: 'Erro ao criar notificação', error: error.message });
     }
 });
 

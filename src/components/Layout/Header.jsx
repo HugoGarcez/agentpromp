@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, User, LogOut, Key, ChevronDown, Menu } from 'lucide-react';
+import { Bell, User, LogOut, Key, ChevronDown, Menu, Info, ShieldAlert, Sparkles, MessageSquare } from 'lucide-react';
 import styles from './Header.module.css';
 import { useAuth } from '../../contexts/AuthContext';
 import Modal from '../Modal';
@@ -16,6 +16,30 @@ const Header = ({ title, onMenuClick }) => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [message, setMessage] = useState({ type: '', text: '' });
     const [loading, setLoading] = useState(false);
+    const [notifications, setNotifications] = useState([]);
+    const [isNotifOpen, setIsNotifOpen] = useState(false);
+    const [selectedNotif, setSelectedNotif] = useState(null);
+
+    // Fetch notifications
+    useEffect(() => {
+        const fetchNotifications = async () => {
+            const token = localStorage.getItem('token');
+            if (!token) return;
+            try {
+                const res = await fetch('/api/notifications', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) setNotifications(await res.json());
+            } catch (error) {
+                console.error("Error fetching notifications:", error);
+            }
+        };
+
+        fetchNotifications();
+        // Refresh every 5 minutes
+        const interval = setInterval(fetchNotifications, 5 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -83,9 +107,28 @@ const Header = ({ title, onMenuClick }) => {
             </div>
 
             <div className={styles.actions}>
-                <button title="Notificações">
-                    <Bell size={20} color="var(--text-medium)" />
-                </button>
+                <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setIsNotifOpen(true)}>
+                    <button title="Notificações" style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                        <Bell size={20} color="var(--text-medium)" />
+                    </button>
+                    {notifications.length > 0 && (
+                        <span style={{
+                            position: 'absolute',
+                            top: '-5px',
+                            right: '-5px',
+                            background: '#DC2626',
+                            color: 'white',
+                            fontSize: '10px',
+                            fontWeight: 'bold',
+                            padding: '1px 5px',
+                            borderRadius: '10px',
+                            border: '2px solid white',
+                            pointerEvents: 'none'
+                        }}>
+                            {notifications.length}
+                        </span>
+                    )}
+                </div>
 
                 <div className={styles.userProfile} ref={dropdownRef} onClick={() => setIsDropdownOpen(!isDropdownOpen)} style={{ cursor: 'pointer', position: 'relative' }}>
                     <div className={styles.avatar}>
@@ -270,6 +313,88 @@ const Header = ({ title, onMenuClick }) => {
                         </button>
                     </div>
                 </form>
+            </Modal>
+
+            {/* Notifications List Modal */}
+            <Modal isOpen={isNotifOpen} onClose={() => setIsNotifOpen(false)} title="Notificações e Atualizações">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '60vh', overflowY: 'auto', paddingRight: '4px' }}>
+                    {notifications.length === 0 ? (
+                        <p style={{ textAlign: 'center', color: '#6B7280', padding: '24px' }}>Nenhuma notificação por enquanto.</p>
+                    ) : (
+                        notifications.map(notif => (
+                            <div
+                                key={notif.id}
+                                onClick={() => { setSelectedNotif(notif); setIsNotifOpen(false); }}
+                                style={{
+                                    padding: '16px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #E5E7EB',
+                                    cursor: 'pointer',
+                                    transition: 'background 0.2s'
+                                }}
+                                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
+                                onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                            >
+                                <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                                    <div style={{
+                                        padding: '8px',
+                                        borderRadius: '8px',
+                                        backgroundColor: notif.type === 'FIX' ? '#FEE2E2' : notif.type === 'IMPROVEMENT' ? '#DCFCE7' : notif.type === 'NEWS' ? '#FEF3C7' : '#E0F2FE',
+                                        color: notif.type === 'FIX' ? '#DC2626' : notif.type === 'IMPROVEMENT' ? '#16A34A' : notif.type === 'NEWS' ? '#D97706' : '#0284C7'
+                                    }}>
+                                        {notif.type === 'FIX' ? <ShieldAlert size={20} /> : notif.type === 'IMPROVEMENT' ? <Sparkles size={20} /> : notif.type === 'NEWS' ? <Info size={20} /> : <MessageSquare size={20} />}
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                            <h4 style={{ fontSize: '15px', fontWeight: 'bold', color: '#111827' }}>{notif.title}</h4>
+                                            <span style={{ fontSize: '11px', color: '#9CA3AF' }}>{new Date(notif.createdAt).toLocaleDateString()}</span>
+                                        </div>
+                                        <p style={{ fontSize: '13px', color: '#4B5563', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                            {notif.content}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </Modal>
+
+            {/* Notification Detail Modal */}
+            <Modal isOpen={!!selectedNotif} onClose={() => setSelectedNotif(null)} title={selectedNotif?.title || "Notificação"}>
+                {selectedNotif && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                            <span style={{
+                                padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '600',
+                                backgroundColor: selectedNotif.type === 'FIX' ? '#FEE2E2' : selectedNotif.type === 'IMPROVEMENT' ? '#DCFCE7' : selectedNotif.type === 'NEWS' ? '#FEF3C7' : '#E0F2FE',
+                                color: selectedNotif.type === 'FIX' ? '#DC2626' : selectedNotif.type === 'IMPROVEMENT' ? '#16A34A' : selectedNotif.type === 'NEWS' ? '#D97706' : '#0284C7'
+                            }}>
+                                {selectedNotif.type === 'FIX' ? 'Correção' : selectedNotif.type === 'IMPROVEMENT' ? 'Melhoria' : selectedNotif.type === 'NEWS' ? 'Novidade' : 'Informativo'}
+                            </span>
+                            <span style={{ fontSize: '12px', color: '#6B7280' }}>Publicado em {new Date(selectedNotif.createdAt).toLocaleDateString()}</span>
+                        </div>
+                        <div style={{ fontSize: '15px', color: '#1F2937', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+                            {selectedNotif.content}
+                        </div>
+                        <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                            <button
+                                onClick={() => setSelectedNotif(null)}
+                                style={{
+                                    backgroundColor: 'var(--primary-blue)',
+                                    color: 'white',
+                                    padding: '8px 20px',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    fontWeight: '500'
+                                }}
+                            >
+                                Entendi
+                            </button>
+                        </div>
+                    </div>
+                )}
             </Modal>
         </header>
     );
