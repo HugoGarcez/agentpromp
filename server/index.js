@@ -1710,21 +1710,23 @@ Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
     4. Destaque apenas 2 ou 3 pontos principais (benefícios).
     5. Sempre termine perguntando se o cliente quer saber algo mais específico sobre o item (ex: medidas, cores, detalhes técnicos, formas de pagamentos).
     
-    ⚠️ REGRAS CRÍTICAS SOBRE VARIAÇÕES:
-    1. **[ITEM ÚNICO]**: Produto SEM variações de tamanho/cor.
-       - PROIBIDO inventar tamanhos (P, M, G, etc.)
-       - Diga apenas: "Produto único/tamanho único"
-       - Se pedirem tamanho, diga que é tamanho único
+    ⚠️ REGRAS CRÍTICAS SOBRE VARIAÇÕES E DETALHES:
+    1. **[VARIAÇÕES]**: Se o item tem variações listadas em "variantItems":
+       - Use APENAS as cores e tamanhos informados ali.
+       - Identifique claramente: "Disponível na cor [COR] no tamanho [TAMANHO]".
+       - Se os preços variarem, informe o preço específico daquela variação.
     
-    2. **[VARIAÇÃO]**: Produto COM variações listadas.
-       - Liste APENAS as variações da lista
-       - NUNCA invente tamanhos/cores extras
-    
-    3. **FOTOS DE PRODUTOS**:
+    2. **[ITEM ÚNICO]**: Se o item NÃO tem variações (ou é marcado como ITEM ÚNICO):
+       - Diga que é "Tamanho único" ou "Modelo padrão".
+       - PROIBIDO inventar tamanhos P, M, G se não estiverem na lista.
+
+    3. **PAGAMENTOS E CONDIÇÕES**:
+       - Informe as formas de pagamento disponíveis (Pix, Cartão, etc) e seus respectivos preços se houver desconto.
+       - Cite as "paymentConditions" (ex: "parcelamento em 3x") se presentes.
+
+    4. **FOTOS DE PRODUTOS**:
        - Se tem [TEM_IMAGEM], SEMPRE envie [SHOW_IMAGE: ID]
-       - Vale para [ITEM ÚNICO] e [VARIAÇÃO]
-       - Se produto simples, use o ID principal
-       - Se variação, use ID da variação (ou principal se não tiver)
+       - Use o ID do produto principal ou da variação se disponível.
     `;
 
         // Inject Products & Services
@@ -2381,15 +2383,21 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                 id: p.id,
                                 name: p.name,
                                 type: p.type === 'service' ? 'servico' : 'produto',
+                                description: p.description || '',
                                 price: p.price,
                                 priceHidden: p.priceHidden || false,
-                                // 🔥 PROMPT ENGINEERING: Entregar comando pronto para evitar alucinação de ID
+                                unit: p.unit || 'Unidade',
+                                customUnit: p.customUnit || '',
+                                paymentConditions: p.paymentConditions || '',
+                                paymentLink: p.paymentLink || '',
+                                hasPaymentLink: !!p.hasPaymentLink,
+                                paymentPrices: p.paymentPrices || [], // Returns list of {label, price, active}
+                                variantItems: p.variantItems || [],   // Returns list of {id, name, color, size, price, image}
                                 visual_instruction: p.image
                                     ? `⚠️ PARA MOSTRAR FOTO DESTE PRODUTO, USE EXATAMENTE: [SHOW_IMAGE: ${p.id}]`
                                     : 'Sem foto disponível',
                                 hasImage: !!p.image,
-                                hasVariations: (p.variantItems && p.variantItems.length > 0),
-                                variationCount: (p.variantItems && p.variantItems.length) || 0
+                                hasVariations: (p.variantItems && p.variantItems.length > 0)
                             }));
 
                             console.log(`[Function: list_available_products] Returning ${result.length} products (type: ${requestedType})`);
