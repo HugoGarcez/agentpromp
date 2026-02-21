@@ -186,40 +186,50 @@ const handleWebhookRequest = async (req, res) => {
         if (config.prompConnectionId) dbConnectionId = String(config.prompConnectionId).trim(); // Keep alphanumeric for session names
     }
 
-    // 4.1 CONNECTION ID STRICT MATCHING (V5 - FINAL - ONLY WHATSAPP)
-    // We only care about WhatsApp ID. Ignore sessions, tickets, etc.
-    const idSources = {
-        'payload.whatsappId': payload.whatsappId,
-        'payload.body.whatsappId': payload.body?.whatsappId,
-        'payload.whatsapp.id': payload.whatsapp?.id,
-        'payload.body.whatsapp.id': payload.body?.whatsapp?.id,
-        'payload.data.whatsapp.id': payload.data?.whatsapp?.id
+    // --- V6 REAL-TIME DIAGNOSTIC RECURSIVE ID FINDER ---
+    console.log(`[Webhook-V6-ENV] PID: ${process.pid} | CWD: ${process.cwd()} | File: ${__filename}`);
+
+    const foundIds = new Set();
+    const findIdsRecursively = (obj, currentPath = 'payload') => {
+        if (!obj || typeof obj !== 'object') return;
+
+        // Check for common keys
+        for (const key of Object.keys(obj)) {
+            const val = obj[key];
+            const newPath = `${currentPath}.${key}`;
+
+            if (key === 'whatsappId' || (key === 'id' && currentPath.endsWith('.whatsapp'))) {
+                if (val !== null && val !== undefined) {
+                    const strVal = String(val).trim();
+                    console.log(`[Webhook-V6-DIAG] Found candidate ID '${strVal}' at: ${newPath}`);
+                    foundIds.add(strVal);
+                }
+            }
+
+            // Recurse
+            if (val && typeof val === 'object') {
+                findIdsRecursively(val, newPath);
+            }
+        }
     };
 
-    const incomingConnectionIdArr = [];
-    for (const [path, val] of Object.entries(idSources)) {
-        if (val !== null && val !== undefined) {
-            const strVal = String(val).trim();
-            console.log(`[Webhook-V5-DIAG] Found ID '${strVal}' at path: ${path}`);
-            incomingConnectionIdArr.push(strVal);
-        }
-    }
+    findIdsRecursively(payload);
+    const incomingConnectionIdArr = Array.from(foundIds);
 
     if (dbConnectionId) {
         if (incomingConnectionIdArr.length === 0) {
-            console.log(`[Webhook-V5] ERROR: No WhatsApp ID found in payload. Expected: '${dbConnectionId}'. Ignoring payload.`);
+            console.log(`[Webhook-V6] ERROR: No WhatsApp ID found in payload (Recursive Search). Expected: '${dbConnectionId}'. Ignoring.`);
             return res.json({ status: 'ignored_missing_whatsapp_id' });
         }
 
-        // Check if our specific DB ID is present in any of the extracted WhatsApp IDs
         const hasMatch = incomingConnectionIdArr.includes(dbConnectionId);
 
         if (!hasMatch) {
-            console.log(`[Webhook-V5] CONNECTION ISOLATION: Expected ID '${dbConnectionId}' NOT FOUND. Candidate IDs found: ${JSON.stringify(incomingConnectionIdArr)}. Ignoring.`);
+            console.log(`[Webhook-V6] CONNECTION ISOLATION: Expected ID '${dbConnectionId}' NOT FOUND. Candidates: ${JSON.stringify(incomingConnectionIdArr)}. Ignoring.`);
             return res.json({ status: 'ignored_wrong_whatsapp_id' });
         }
 
-        console.log(`[Webhook-V5] CONNECTION MATCH VERIFIED: ID '${dbConnectionId}' matches Agent Config.`);
+        console.log(`[Webhook-V6] CONNECTION MATCH VERIFIED: ID '${dbConnectionId}' found recursively.`);
     }
 
     // IDENTITY CHECK (Secondary/Legacy check: "Consider ONLY what is sent TO the number that is in the AI")
