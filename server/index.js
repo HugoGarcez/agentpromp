@@ -246,55 +246,60 @@ const handleWebhookRequest = async (req, res) => {
 
     // --- PROMP SHOWCHANNEL API VALIDATION (Root Isolation) ---
     // Definitively check if the receiving number (cleanOwner) actually belongs to the configured Channel
+    // --- V8: BYPASS IF CONNECTION MATCHED ---
     if (cleanOwner && config && config.prompToken && config.prompConnectionId) {
-        const cacheKey = `${config.prompToken}_${cleanOwner}`;
-
-        // Read from Memory Cache
-        if (validNumbersCache.has(cacheKey)) {
-            const isValid = validNumbersCache.get(cacheKey);
-            if (!isValid) {
-                console.log(`[Webhook] CACHE: Number ${cleanOwner} is known to be INVALID for connection ${config.prompConnectionId}. Ignoring.`);
-                return res.json({ status: 'ignored_invalid_channel_cache' });
-            }
+        if (incomingConnectionIdArr.includes(dbConnectionId)) {
+            console.log(`[Webhook-V8] Skipping showChannel validation because Connection ID ${dbConnectionId} already matched.`);
         } else {
-            // Not in cache, call API to validate
-            try {
-                const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompToken}/showChannel`;
-                console.log(`[Webhook] Validating channel number ${cleanOwner} via API...`);
+            const cacheKey = `${config.prompToken}_${cleanOwner}`;
 
-                const resApi = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ number: cleanOwner })
-                });
-
-                if (resApi.ok) {
-                    const data = await resApi.json();
-
-                    // The API returns information about the channel with this number.
-                    // We MUST ensure the returned channel matches our configured prompConnectionId.
-                    const isMatch = (data.id && String(data.id).trim() === dbConnectionId) ||
-                        (data.name && String(data.name).trim() === dbConnectionId) ||
-                        (data.sessionName && String(data.sessionName).trim() === dbConnectionId) ||
-                        (data.sessionId && String(data.sessionId).trim() === dbConnectionId);
-
-                    if (isMatch) {
-                        console.log(`[Webhook] API VALIDATION SUCCESS: Number ${cleanOwner} belongs to connection ${dbConnectionId}`);
-                        validNumbersCache.set(cacheKey, true);
-                    } else {
-                        console.log(`[Webhook] API VALIDATION FAILED: Number ${cleanOwner} info (${data.id}/${data.name}) DOES NOT match Connection ID ${dbConnectionId}. Ignoring.`);
-                        validNumbersCache.set(cacheKey, false);
-                        return res.json({ status: 'ignored_invalid_channel_mismatch' });
-                    }
-                } else {
-                    console.log(`[Webhook] API VALIDATION FAILED: Number ${cleanOwner} not found in this tenant or error (Status: ${resApi.status}). Ignoring.`);
-                    validNumbersCache.set(cacheKey, false);
-                    return res.json({ status: 'ignored_invalid_channel_api' });
+            // Read from Memory Cache
+            if (validNumbersCache.has(cacheKey)) {
+                const isValid = validNumbersCache.get(cacheKey);
+                if (!isValid) {
+                    console.log(`[Webhook] CACHE: Number ${cleanOwner} is known to be INVALID for connection ${config.prompConnectionId}. Ignoring.`);
+                    return res.json({ status: 'ignored_invalid_channel_cache' });
                 }
-            } catch (e) {
-                console.error(`[Webhook] API VALIDATION ERROR for ${cleanOwner}:`, e.message);
-                // On request error, drop message for safety but don't cache as permanently invalid.
-                return res.json({ status: 'ignored_validation_error' });
+            } else {
+                // Not in cache, call API to validate
+                try {
+                    const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompToken}/showChannel`;
+                    console.log(`[Webhook] Validating channel number ${cleanOwner} via API...`);
+
+                    const resApi = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ number: cleanOwner })
+                    });
+
+                    if (resApi.ok) {
+                        const data = await resApi.json();
+
+                        // The API returns information about the channel with this number.
+                        // We MUST ensure the returned channel matches our configured prompConnectionId.
+                        const isMatch = (data.id && String(data.id).trim() === dbConnectionId) ||
+                            (data.name && String(data.name).trim() === dbConnectionId) ||
+                            (data.sessionName && String(data.sessionName).trim() === dbConnectionId) ||
+                            (data.sessionId && String(data.sessionId).trim() === dbConnectionId);
+
+                        if (isMatch) {
+                            console.log(`[Webhook] API VALIDATION SUCCESS: Number ${cleanOwner} belongs to connection ${dbConnectionId}`);
+                            validNumbersCache.set(cacheKey, true);
+                        } else {
+                            console.log(`[Webhook] API VALIDATION FAILED: Number ${cleanOwner} info (${data.id}/${data.name}) DOES NOT match Connection ID ${dbConnectionId}. Ignoring.`);
+                            validNumbersCache.set(cacheKey, false);
+                            return res.json({ status: 'ignored_invalid_channel_mismatch' });
+                        }
+                    } else {
+                        console.log(`[Webhook] API VALIDATION FAILED: Number ${cleanOwner} not found in this tenant or error (Status: ${resApi.status}). Ignoring.`);
+                        validNumbersCache.set(cacheKey, false);
+                        return res.json({ status: 'ignored_invalid_channel_api' });
+                    }
+                } catch (e) {
+                    console.error(`[Webhook] API VALIDATION ERROR for ${cleanOwner}:`, e.message);
+                    // On request error, drop message for safety but don't cache as permanently invalid.
+                    return res.json({ status: 'ignored_validation_error' });
+                }
             }
         }
     }
@@ -3103,14 +3108,3 @@ const startServer = async () => {
 };
 
 startServer();
-
-
-// Call the wrapper if needed? But we don't know its name. 
-// If it was an IIFE, we just close it.
-// If it was a function declaration, we need to call it.
-// Let's assume it was an async function called 'main' or similar.
-// But we don't see it.
-// Let's trying closing with just `})();` if it was IIFE?
-// Or assume the brace I added closed it.
-// I will just add app.listen inside. And keep the closing brace.
-
