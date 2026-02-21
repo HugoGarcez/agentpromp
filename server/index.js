@@ -912,6 +912,55 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
     }
 });
 
+// --- Notification Routes (Admin) ---
+
+app.get('/api/admin/notifications', authenticateAdmin, async (req, res) => {
+    try {
+        const notifications = await prisma.notification.findMany({
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json(notifications);
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao buscar notificações' });
+    }
+});
+
+app.post('/api/admin/notifications', authenticateAdmin, async (req, res) => {
+    const { title, content, type } = req.body;
+    try {
+        const notification = await prisma.notification.create({
+            data: { title, content, type: type || 'INFO', status: 'DRAFT' }
+        });
+        res.json(notification);
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao criar notificação' });
+    }
+});
+
+app.put('/api/admin/notifications/:id', authenticateAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { title, content, type, status } = req.body;
+    try {
+        const notification = await prisma.notification.update({
+            where: { id },
+            data: { title, content, type, status }
+        });
+        res.json(notification);
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao atualizar notificação' });
+    }
+});
+
+app.delete('/api/admin/notifications/:id', authenticateAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await prisma.notification.delete({ where: { id } });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao excluir notificação' });
+    }
+});
+
 // --- User Stats Route (Dashboard) ---
 app.get('/api/stats', authenticateToken, async (req, res) => {
     const { companyId } = req.user;
@@ -1045,6 +1094,19 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('[Stats API] Error:', error);
         res.status(500).json({ error: 'Erro ao processar estatísticas' });
+    }
+});
+
+// --- Notification Routes (User) ---
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    try {
+        const notifications = await prisma.notification.findMany({
+            where: { status: 'APPROVED' },
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json(notifications);
+    } catch (error) {
+        res.status(500).json({ message: 'Erro ao buscar notificações' });
     }
 });
 
