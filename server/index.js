@@ -932,9 +932,10 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
         });
 
         // Metrics containers
-        const desiredProducts = {}; // { id: count }
+        const desiredProducts = {}; // { id: { count: number, guessedName: string } }
         const soldProducts = {};    // { name: count } (using link as proxy)
         const activeCustomers = {}; // { sessionId: count }
+        const customerNames = {};   // { sessionId: name }
         let aiMessagesCount = 0;
 
         messages.forEach(msg => {
@@ -942,11 +943,30 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
                 aiMessagesCount++;
 
                 // Detect Desired Products ([SHOW_IMAGE: ID])
-                const imageMatches = msg.text.match(/\[SHOW_IMAGE:\s*(\d+)\]/g);
+                const imageMatches = msg.text.match(/\[SHOW_IMAGE:\s*(\w+)\]/g);
                 if (imageMatches) {
                     imageMatches.forEach(match => {
-                        const id = match.match(/\d+/)[0];
-                        desiredProducts[id] = (desiredProducts[id] || 0) + 1;
+                        const id = match.match(/\[SHOW_IMAGE:\s*(\w+)\]/)[1];
+                        if (!desiredProducts[id]) desiredProducts[id] = { count: 0, guessedName: null };
+                        desiredProducts[id].count++;
+
+                        // Try to guess name from preceding context if not known
+                        if (!desiredProducts[id].guessedName) {
+                            // Look for product names or patterns before the tag
+                            const beforeTag = msg.text.split(match)[0].trim();
+                            // Simple heuristic: get the last few words or lines
+                            const lines = beforeTag.split('\n');
+                            const lastLine = lines[lines.length - 1].trim();
+                            // Clean common prefixes like "Aqui está o ", "Veja este ", etc.
+                            const cleaned = lastLine
+                                .replace(/.*(Aqui está o|Veja este|Olha o|sobre o|um)\s+/i, '')
+                                .replace(/[:\-\*]/g, '')
+                                .trim();
+
+                            if (cleaned && cleaned.length > 2 && cleaned.length < 50) {
+                                desiredProducts[id].guessedName = cleaned;
+                            }
+                        }
                     });
                 }
 
@@ -954,9 +974,9 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
                 const linkMatches = msg.text.match(/\[LINK:\s*([^\]]+)\]/g);
                 if (linkMatches) {
                     linkMatches.forEach(match => {
-                        const url = match.match(/\[LINK:\s*([^\]]+)\]/)[1];
+                        const urlParsed = match.match(/\[LINK:\s*([^\]]+)\]/)[1].trim();
                         // Try to find product by link
-                        const product = products.find(p => p.paymentLink === url);
+                        const product = products.find(p => p.paymentLink === urlParsed);
                         if (product) {
                             soldProducts[product.name] = (soldProducts[product.name] || 0) + 1;
                         }
@@ -966,14 +986,31 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
                 // Sender is user/customer
                 const sessionKey = msg.sessionId || 'Desconhecido';
                 activeCustomers[sessionKey] = (activeCustomers[sessionKey] || 0) + 1;
+
+                // Try to extract name from metadata
+                if (!customerNames[sessionKey] && msg.metadata) {
+                    try {
+                        const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : msg.metadata;
+                        // Extremely flexible name search in JSON
+                        const name = meta.pushName ||
+                            meta.contact?.name ||
+                            meta.body?.contact?.name ||
+                            meta.msg?.pushname ||
+                            meta.metadata?.pushName ||
+                            meta.data?.pushName ||
+                            meta.name;
+                        if (name) customerNames[sessionKey] = name;
+                    } catch (e) { }
+                }
             }
         });
 
         // Format and sort results
         const sortedDesired = Object.entries(desiredProducts)
-            .map(([id, count]) => {
-                const product = products.find(p => String(p.id) === id);
-                return { name: product ? product.name : `Produto #${id}`, count };
+            .map(([id, data]) => {
+                const product = products.find(p => String(p.id) === String(id));
+                const name = product ? product.name : (data.guessedName || `Produto #${id}`);
+                return { name, count: data.count };
             })
             .sort((a, b) => b.count - a.count)
             .slice(0, 5);
@@ -984,7 +1021,10 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
             .slice(0, 5);
 
         const sortedCustomers = Object.entries(activeCustomers)
-            .map(([session, count]) => ({ session, count }))
+            .map(([session, count]) => {
+                const name = customerNames[session] || session;
+                return { session: name, count };
+            })
             .sort((a, b) => b.count - a.count)
             .slice(0, 5);
 
