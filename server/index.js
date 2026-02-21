@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import axios from 'axios';
 import sharp from 'sharp'; // Start using sharp
 import FormData from 'form-data';
+import multer from 'multer'; // Multer para File Uploads
 import { transcribeAudio, generateAudio, resolveVoiceFromAgent } from './audioActions.js';
 import fsCommon from 'fs'; // For synchronous appendFileSync
 
@@ -734,6 +735,45 @@ if (process.env.OPENAI_API_KEY) {
 
 // Serve Static Frontend (Vite Build)
 app.use(express.static(path.join(__dirname, '../dist')));
+
+// Serve Uploaded Media (Public HTTP Path /uploads -> server/public/uploads dir)
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
+
+// --- MEDIA UPLOAD CONFIGURATION ---
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const uploadDir = path.join(__dirname, 'public', 'uploads');
+        // Ensure dir exists
+        fsCommon.mkdirSync(uploadDir, { recursive: true });
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname) || '.jpg';
+        cb(null, 'img-' + uniqueSuffix + ext);
+    }
+});
+const upload = multer({ storage: storage, limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
+
+app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'Nenhuma imagem recebida pela API.' });
+        }
+
+        // Em ambientes de nuvem atrás do Cloudflare/Nginx, preferir req.headers['x-forwarded-proto']
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+        const baseUrl = `${protocol}://${req.get('host')}`;
+        const finalUrl = `${baseUrl}/uploads/${req.file.filename}`;
+
+        console.log(`[Upload API] Arquivo recebido e salvo em public/uploads. URL: ${finalUrl}`);
+
+        res.json({ success: true, url: finalUrl });
+    } catch (e) {
+        console.error('[Upload API] Falha inexperada no Uploader:', e);
+        res.status(500).json({ message: 'Erro interno ao salvar arquivo' });
+    }
+});
 
 
 // --- Auth Routes ---
@@ -2736,29 +2776,42 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                             }
                             console.log('[Function: list_available_products] Filtered by type:', filtered.length);
 
-                            const result = filtered.map(p => ({
-                                id: p.id,
-                                name: p.name,
-                                type: p.type === 'service' ? 'servico' : 'produto',
-                                description: p.description || '',
-                                price: p.price,
-                                priceHidden: p.priceHidden || false,
-                                unit: p.unit || 'Unidade',
-                                customUnit: p.customUnit || '',
-                                paymentConditions: p.paymentConditions || '',
-                                paymentLink: p.paymentLink || '',
-                                hasPaymentLink: !!p.hasPaymentLink,
-                                paymentPrices: p.paymentPrices || [], // Returns list of {label, price, active}
-                                variantItems: p.variantItems || [],   // Returns list of {id, name, color, size, price, image}
-                                visual_instruction: p.image
-                                    ? `⚠️ PARA MOSTRAR FOTO DESTE PRODUTO, USE EXATAMENTE: [SHOW_IMAGE: ${p.id}]`
-                                    : 'Sem foto disponível',
-                                hasImage: !!p.image,
-                                hasVariations: (p.variantItems && p.variantItems.length > 0)
-                            }));
+                            const result = filtered.map(p => {
+                                // TRUNCATE EXTREMELY LARGE DATA (LIKE BASE64 IMAGES) TO NOT EXCEED TOKEN LIMITS!
+                                const safeVariants = (p.variantItems || []).map(v => ({
+                                    id: String(v.id), // Stringify numbers to be safe
+                                    name: v.name,
+                                    color: v.color,
+                                    size: v.size,
+                                    price: Number(v.price),
+                                    hasImage: !!v.image // Tell AI it has an image, but do NOT send the base64 string
+                                }));
+
+                                return {
+                                    id: String(p.id),
+                                    name: p.name,
+                                    type: p.type === 'service' ? 'servico' : 'produto',
+                                    description: String(p.description || '').substring(0, 500),
+                                    price: Number(p.price),
+                                    priceHidden: p.priceHidden || false,
+                                    unit: p.unit || 'Unidade',
+                                    customUnit: p.customUnit || '',
+                                    paymentConditions: p.paymentConditions || '',
+                                    paymentLink: p.paymentLink || '',
+                                    hasPaymentLink: !!p.hasPaymentLink,
+                                    paymentPrices: p.paymentPrices || [], // Returns list of {label, price, active}
+                                    variantItems: safeVariants,
+                                    visual_instruction: p.image
+                                        ? `⚠️ PARA MOSTRAR FOTO DESTE PRODUTO, USE EXATAMENTE: [SHOW_IMAGE: ${p.id}]`
+                                        : 'Sem foto disponível',
+                                    hasImage: !!p.image,
+                                    hasVariations: safeVariants.length > 0
+                                };
+                            });
 
                             console.log(`[Function: list_available_products] Returning ${result.length} products (type: ${requestedType})`);
-                            console.log('[Function: list_available_products] Result:', JSON.stringify(result, null, 2));
+                            // DO NOT console.log the full result if it might be huge, but without images it should be safe now
+                            console.log('[Function: list_available_products] Result preview:', JSON.stringify(result).substring(0, 200) + '...');
 
                             toolResult = JSON.stringify({
                                 status: 'success',

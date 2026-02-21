@@ -214,24 +214,54 @@ const ProductConfig = () => {
         setFormData(prev => ({ ...prev, variantItems: prev.variantItems.filter(v => v.id !== id) }));
     };
 
-    const handleVariantImageChange = (id, e) => {
+    const uploadImageFile = async (file) => {
+        if (!token) return null;
+        const formData = new FormData();
+        formData.append('image', file);
+        try {
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            });
+            if (response.ok) {
+                const data = await response.json();
+                return data.url;
+            } else {
+                const err = await response.json();
+                throw new Error(err.message || 'Erro de autorização/upload.');
+            }
+        } catch (e) {
+            console.error("Upload Error:", e);
+            alert(e.message || "Falha no upload da imagem na API.");
+            return null;
+        }
+    };
+
+    const handleVariantImageChange = async (id, e) => {
         const file = e.target.files[0];
         if (file) {
-            if (file.size > 300 * 1024) { alert('Imagem muito grande (Max 300KB)'); return; }
-            const reader = new FileReader();
-            reader.onloadend = () => updateVariation(id, 'image', reader.result);
-            reader.readAsDataURL(file);
+            if (file.size > 5 * 1024 * 1024) { alert('Imagem muito grande (Max 5MB)'); return; }
+            setSaving(true); // Optional Feedback
+            const url = await uploadImageFile(file);
+            if (url) {
+                updateVariation(id, 'image', url);
+            }
+            setSaving(false);
         }
     };
 
     // --- FILE I/O ---
-    const handleImageChange = (e) => {
+    const handleImageChange = async (e) => {
         const file = e.target.files[0];
         if (file) {
-            if (file.size > 500 * 1024) { alert('Imagem muito grande (Max 500KB)'); return; }
-            const reader = new FileReader();
-            reader.onloadend = () => setFormData(prev => ({ ...prev, image: reader.result }));
-            reader.readAsDataURL(file);
+            if (file.size > 5 * 1024 * 1024) { alert('Imagem muito grande (Max 5MB)'); return; }
+            setSaving(true); // Feedback visual
+            const url = await uploadImageFile(file);
+            if (url) {
+                setFormData(prev => ({ ...prev, image: url }));
+            }
+            setSaving(false);
         }
     };
 
