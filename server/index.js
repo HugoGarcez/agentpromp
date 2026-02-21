@@ -912,6 +912,102 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
     }
 });
 
+// --- User Stats Route (Dashboard) ---
+app.get('/api/stats', authenticateToken, async (req, res) => {
+    const { companyId } = req.user;
+
+    try {
+        // 1. Fetch Config to get product definitions
+        const config = await prisma.agentConfig.findUnique({
+            where: { companyId },
+            select: { products: true }
+        });
+
+        const products = config?.products ? (typeof config.products === 'string' ? JSON.parse(config.products) : config.products) : [];
+
+        // 2. Fetch all messages for this company
+        const messages = await prisma.testMessage.findMany({
+            where: { companyId },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        // Metrics containers
+        const desiredProducts = {}; // { id: count }
+        const soldProducts = {};    // { name: count } (using link as proxy)
+        const activeCustomers = {}; // { sessionId: count }
+        let aiMessagesCount = 0;
+
+        messages.forEach(msg => {
+            if (msg.sender === 'ai') {
+                aiMessagesCount++;
+
+                // Detect Desired Products ([SHOW_IMAGE: ID])
+                const imageMatches = msg.text.match(/\[SHOW_IMAGE:\s*(\d+)\]/g);
+                if (imageMatches) {
+                    imageMatches.forEach(match => {
+                        const id = match.match(/\d+/)[0];
+                        desiredProducts[id] = (desiredProducts[id] || 0) + 1;
+                    });
+                }
+
+                // Detect Sold Products ([LINK: URL])
+                const linkMatches = msg.text.match(/\[LINK:\s*([^\]]+)\]/g);
+                if (linkMatches) {
+                    linkMatches.forEach(match => {
+                        const url = match.match(/\[LINK:\s*([^\]]+)\]/)[1];
+                        // Try to find product by link
+                        const product = products.find(p => p.paymentLink === url);
+                        if (product) {
+                            soldProducts[product.name] = (soldProducts[product.name] || 0) + 1;
+                        }
+                    });
+                }
+            } else {
+                // Sender is user/customer
+                const sessionKey = msg.sessionId || 'Desconhecido';
+                activeCustomers[sessionKey] = (activeCustomers[sessionKey] || 0) + 1;
+            }
+        });
+
+        // Format and sort results
+        const sortedDesired = Object.entries(desiredProducts)
+            .map(([id, count]) => {
+                const product = products.find(p => String(p.id) === id);
+                return { name: product ? product.name : `Produto #${id}`, count };
+            })
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+
+        const sortedSold = Object.entries(soldProducts)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+
+        const sortedCustomers = Object.entries(activeCustomers)
+            .map(([session, count]) => ({ session, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+
+        // Time Saved: Each AI message = 2 minutes saved (estimation)
+        const totalMinutesSaved = aiMessagesCount * 2;
+        const hours = Math.floor(totalMinutesSaved / 60);
+        const minutes = totalMinutesSaved % 60;
+        const timeSavedFormatted = `${hours}h ${minutes}min`;
+
+        res.json({
+            desiredProducts: sortedDesired,
+            soldProducts: sortedSold,
+            activeCustomers: sortedCustomers,
+            timeSaved: timeSavedFormatted,
+            totalAiMessages: aiMessagesCount
+        });
+
+    } catch (error) {
+        console.error('[Stats API] Error:', error);
+        res.status(500).json({ error: 'Erro ao processar estatísticas' });
+    }
+});
+
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
     try {
         const users = await prisma.user.findMany({
