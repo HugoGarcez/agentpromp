@@ -1009,18 +1009,35 @@ app.get('/api/admin/notifications', authenticateAdmin, async (req, res) => {
             orderBy: { createdAt: 'desc' }
         });
 
-        // Auto-seed if empty (Requested by user)
-        if (notifications.length === 0) {
-            const seed = await prisma.notification.create({
-                data: {
-                    title: "Novas Métricas de Desempenho no Dashboard",
-                    content: "Adicionamos uma nova seção de métricas ao seu Painel! Agora você pode acompanhar os produtos mais desejados, mais vendidos, clientes mais ativos e o tempo total poupado pela sua IA. Confira o resumo no topo da sua página inicial.",
-                    type: "NEWS",
-                    status: "DRAFT"
-                }
-            });
-            notifications = [seed];
+        // Define known system updates that should have notifications generated
+        const systemUpdates = [
+            {
+                title: "* Novas Métricas de Desempenho no Dashboard",
+                content: "Adicionamos uma nova seção de métricas ao seu Painel! Agora você pode acompanhar os produtos mais desejados, mais vendidos, clientes mais ativos e o tempo total poupado pela sua IA. Confira o resumo no topo da sua página inicial.",
+                type: "NEWS",
+                status: "DRAFT"
+            },
+            {
+                title: "* Novo Recurso: Automação de Etiquetas da IA",
+                content: "Sua IA agora pode classificar os tickets automaticamente baseada nas conversas! Acesse a aba 'Etiquetas IA' no menu lateral para criar gatilhos que aplicam as etiquetas do Promp direto no atendimento.",
+                type: "IMPROVEMENT",
+                status: "DRAFT"
+            }
+        ];
+
+        // Auto-seed missing updates
+        for (const update of systemUpdates) {
+            const exists = notifications.some(n => n.title === update.title);
+            if (!exists) {
+                const newSeed = await prisma.notification.create({
+                    data: update
+                });
+                notifications.push(newSeed);
+            }
         }
+
+        // Resorteia depois da injeção
+        notifications.sort((a, b) => b.createdAt - a.createdAt);
 
         res.json(notifications);
     } catch (error) {
