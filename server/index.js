@@ -234,10 +234,14 @@ const handleWebhookRequest = async (req, res) => {
 
     // IDENTITY CHECK (Secondary/Legacy check: "Consider ONLY what is sent TO the number that is in the AI")
     // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
-    // (Only if both are known)
+    // --- V7: BYPASS IF CONNECTION MATCHED ---
     if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
-        console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
-        return res.json({ status: 'ignored_wrong_identity' });
+        if (incomingConnectionIdArr.includes(dbConnectionId)) {
+            console.log(`[Webhook-V7] Identity Mismatch (Owner: ${cleanOwner}, Config: ${dbIdentity}), but BYPASSING because Connection ID ${dbConnectionId} matched.`);
+        } else {
+            console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
+            return res.json({ status: 'ignored_wrong_identity' });
+        }
     }
 
     // --- PROMP SHOWCHANNEL API VALIDATION (Root Isolation) ---
