@@ -32,7 +32,7 @@ import {
     checkAvailability,
     createCalendarEvent
 } from './googleCalendar.js';
-import { sendPrompMessage } from './prompUtils.js';
+import { sendPrompMessage, getPrompTags, applyPrompTag } from './prompUtils.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -528,9 +528,22 @@ const handleWebhookRequest = async (req, res) => {
             }
         }
 
+        // Fetch Tag Triggers for Autotagging
+        let tagTriggers = [];
+        try {
+            tagTriggers = await prisma.tagTrigger.findMany({
+                where: { companyId: String(companyId), isActive: true }
+            });
+        } catch (err) {
+            console.error('[Webhook] Failed to fetch tag triggers:', err);
+        }
+
+        const currentTicketId = payload.ticket?.id || null;
+
         // 3. Process AI Response
         // Pass isAudioInput flag so AI can decide to reply with audio
-        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput);
+        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput, currentTicketId, tagTriggers);
+
 
         console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
 
@@ -884,6 +897,82 @@ app.post('/api/auth/reset-password', async (req, res) => {
     } catch (error) {
         console.error('Reset Password Error:', error);
         res.status(500).json({ message: 'Erro ao redefinir senha' });
+    }
+});
+
+// --- TAGS (Autotagging) Routes ---
+
+// List tags directly from Promp API
+app.get('/api/tags/promp', authenticateToken, async (req, res) => {
+    try {
+        const config = await prisma.agentConfig.findUnique({
+            where: { companyId: req.user.companyId }
+        });
+
+        if (!config || !config.prompUuid || !config.prompToken) {
+            return res.status(400).json({ message: 'Integração com Promp não configurada.' });
+        }
+
+        const tags = await getPrompTags(config);
+        res.json(tags);
+    } catch (error) {
+        console.error('Error fetching Promp tags:', error);
+        res.status(500).json({ message: 'Erro ao buscar tags no Promp.' });
+    }
+});
+
+// List configured TagTriggers from Database
+app.get('/api/tags/triggers', authenticateToken, async (req, res) => {
+    try {
+        const triggers = await prisma.tagTrigger.findMany({
+            where: { companyId: req.user.companyId },
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json(triggers);
+    } catch (error) {
+        console.error('Error fetching TagTriggers:', error);
+        res.status(500).json({ message: 'Erro ao buscar gatilhos de tags.' });
+    }
+});
+
+// Create new TagTrigger
+app.post('/api/tags/triggers', authenticateToken, async (req, res) => {
+    const { tagId, tagName, triggerCondition } = req.body;
+
+    if (!tagId || !tagName || !triggerCondition) {
+        return res.status(400).json({ message: 'Dados incompletos.' });
+    }
+
+    try {
+        const newTrigger = await prisma.tagTrigger.create({
+            data: {
+                companyId: req.user.companyId,
+                tagId: Number(tagId),
+                tagName,
+                triggerCondition
+            }
+        });
+        res.json(newTrigger);
+    } catch (error) {
+        console.error('Error creating TagTrigger:', error);
+        res.status(500).json({ message: 'Erro ao criar gatilho.' });
+    }
+});
+
+// Delete TagTrigger
+app.delete('/api/tags/triggers/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await prisma.tagTrigger.delete({
+            where: {
+                id,
+                companyId: req.user.companyId // Security check
+            }
+        });
+        res.json({ message: 'Gatilho removido com sucesso.' });
+    } catch (error) {
+        console.error('Error deleting TagTrigger:', error);
+        res.status(500).json({ message: 'Erro ao remover gatilho.' });
     }
 });
 
@@ -1822,7 +1911,7 @@ app.post('/api/appointments/book', authenticateToken, async (req, res) => {
 
 
 // --- REUSABLE CHAT LOGIC ---
-const processChatResponse = async (config, message, history, sessionId = null, isAudioInput = false) => {
+const processChatResponse = async (config, message, history, sessionId = null, isAudioInput = false, ticketId = null, tagTriggers = []) => {
     let aiResponse = "";
     let audioBase64 = null;
     let productImageUrl = null;
@@ -2358,6 +2447,15 @@ RESPOSTA CORRETA:
 ✅ REGRA DE OURO: 
 COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032682", use exatamente "1770087032682".
 `;
+        // --- AUTOTAGGING RULES INJECTION ---
+        if (tagTriggers && tagTriggers.length > 0) {
+            systemPrompt += `\n\n🔴 REGRAS DE ETIQUETAGEM AUTOMÁTICA (TAGTRIGGERS):\nVocê pode aplicar etiquetas ao ticket atual invocando a function \`apply_tag(tagId)\`.\nAvalie a conversa e, se alguma das condições abaixo for atendida, CHAME a function com o ID numérico correspondente:\n`;
+            tagTriggers.forEach(t => {
+                systemPrompt += `- Se o cliente falar sobre: "${t.triggerCondition}" -> APLIQUE A TAG ID: ${t.tagId} (${t.tagName})\n`;
+            });
+            systemPrompt += `OBS: Aplique a tag silenciosamente invocando a function correta. Não avise o usuário sobre a etiqueta.\n`;
+        }
+
         // Append to system prompt just for this execution
         const finalSystemPrompt = systemPrompt + "\n\n" + imageEnforcementFooter;
 
@@ -2428,6 +2526,20 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                 description: "Filtrar por tipo (padrão: todos)"
                             }
                         }
+                    }
+                }
+            },
+            {
+                type: "function",
+                function: {
+                    name: "apply_tag",
+                    description: "Aplica uma etiqueta (tag) de classificação no atendimento atual baseado nas regras. Deve ser chamado com o ID numérico correto.",
+                    parameters: {
+                        type: "object",
+                        properties: {
+                            tagId: { type: "number", description: "O ID numérico da tag a ser aplicada" }
+                        },
+                        required: ["tagId"]
                     }
                 }
             }
@@ -2508,6 +2620,15 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                 const endIso = `${date}T23:59:59Z`;
                                 const busy = await checkAvailability(config.companyId, startIso, endIso, timeZone);
                                 toolResult = JSON.stringify({ status: 'success', busySlots: busy, officeHours: calConfig?.officeHours });
+                            }
+                        }
+                        else if (fnName === 'apply_tag') {
+                            if (!ticketId) {
+                                toolResult = JSON.stringify({ status: 'error', message: 'Ticket ID not available in this context' });
+                                console.warn('[AI Tool] apply_tag called but no ticketId provided.');
+                            } else {
+                                const success = await applyPrompTag(config, ticketId, args.tagId);
+                                toolResult = JSON.stringify({ status: success ? 'success' : 'error', message: success ? `Tag ${args.tagId} aplicada.` : 'Falha na API' });
                             }
                         }
                         else if (fnName === 'book_appointment') {

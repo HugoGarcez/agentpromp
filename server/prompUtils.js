@@ -271,3 +271,50 @@ export const sendPrompMessage = async (config, number, text, audioBase64, imageU
 
     return true;
 };
+
+// --- TAGS MANAGEMENT (IA Autotagging) ---
+
+export const getPrompTags = async (config) => {
+    if (!config.prompUuid || !config.prompToken) return [];
+
+    try {
+        const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/listTags?isActive=true`;
+        const response = await axios.get(url, {
+            headers: { 'Authorization': `Bearer ${config.prompToken}` }
+        });
+
+        // A API retorna um objeto que contém o array 'tags'
+        return response.data?.tags || [];
+    } catch (error) {
+        console.error('[Promp] Failed to List Tags:', error.response?.data || error.message);
+        return [];
+    }
+};
+
+export const applyPrompTag = async (config, ticketId, tagId) => {
+    if (!config.prompUuid || !config.prompToken || !ticketId || !tagId) return false;
+
+    try {
+        // Usar endpoint /addTag para somar tag ao ticket existente
+        const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/addTag`;
+        const payload = {
+            ticketId: Number(ticketId),
+            tagId: Number(tagId)
+        };
+
+        console.log(`[Promp] Applying Tag ${tagId} to Ticket ${ticketId}...`);
+
+        const response = await axios.post(url, payload, {
+            headers: {
+                'Authorization': `Bearer ${config.prompToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        console.log('[Promp] Tag Applied Successfully:', response.data);
+        return true;
+    } catch (error) {
+        console.error('[Promp] Failed to Apply Tag:', error.response?.data || error.message);
+        return false;
+    }
+};

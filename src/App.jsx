@@ -12,6 +12,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminConfig from './pages/AdminConfig';
+import TagAutomation from './pages/TagAutomation';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -60,6 +61,7 @@ function App() {
               <Route path="ai-config" element={<AIConfig />} />
               <Route path="test-ai" element={<TestAI />} />
               <Route path="products" element={<ProductConfig />} />
+              <Route path="automation" element={<TagAutomation />} />
               <Route path="scheduling" element={<SchedulingConfig />} />
               <Route path="settings" element={<Settings />} />
 

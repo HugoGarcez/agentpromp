@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Settings, Moon, Sun, Shield, Lock } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Settings, Moon, Sun, Shield, Lock, Tag } from 'lucide-react';
 import styles from './Sidebar.module.css';
 import logo from '../../assets/logo.png';
 import logoDark from '../../assets/logo-dark.png';
@@ -59,6 +59,15 @@ const Sidebar = ({ isOpen, onClose }) => {
         >
           <ShoppingBag size={20} className={styles.navIcon} />
           <span>Produtos</span>
+        </NavLink>
+
+        <NavLink
+          to="/automation"
+          onClick={handleItemClick}
+          className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+        >
+          <Tag size={20} className={styles.navIcon} />
+          <span>Etiquetas IA</span>
         </NavLink>
 
         <NavLink
