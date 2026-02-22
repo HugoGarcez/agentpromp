@@ -33,7 +33,7 @@ import {
     checkAvailability,
     createCalendarEvent
 } from './googleCalendar.js';
-import { sendPrompMessage, getPrompTags, applyPrompTag } from './prompUtils.js';
+import { sendPrompMessage, getPrompTags, applyPrompTag, sendPrompPresence } from './prompUtils.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -612,6 +612,19 @@ const handleWebhookRequest = async (req, res) => {
                         await new Promise(r => setTimeout(r, 600));
                     } else if (chunk.type === 'text') {
                         const chunkAudio = (index === 0) ? audioBase64 : null;
+
+                        // PRESENCE SIMULATION (Typing/Recording)
+                        if (currentTicketId) {
+                            const state = chunkAudio ? 'recording' : 'typing';
+                            const charCount = chunk.content ? chunk.content.length : 0;
+                            // Calculate delay based on length: 30ms per char for typing, min 1s, max 4.5s
+                            const baseDelay = chunkAudio ? 3500 : Math.min(Math.max(charCount * 30, 1000), 4500);
+
+                            await sendPrompPresence(config, currentTicketId, state);
+                            await new Promise(r => setTimeout(r, baseDelay));
+                            await sendPrompPresence(config, currentTicketId, 'paused');
+                        }
+
                         await sendPrompMessage(config, cleanNumber, chunk.content, chunkAudio, null, null);
                         await new Promise(r => setTimeout(r, 800));
                     }
@@ -619,6 +632,17 @@ const handleWebhookRequest = async (req, res) => {
                 sentViaApi = true;
 
             } else {
+                // FALLBACK FOR SINGLE MESSAGE CALL
+                if (currentTicketId && (aiResponse || audioBase64)) {
+                    const state = audioBase64 ? 'recording' : 'typing';
+                    const charCount = aiResponse ? aiResponse.length : 0;
+                    const baseDelay = audioBase64 ? 3500 : Math.min(Math.max(charCount * 30, 1000), 4500);
+
+                    await sendPrompPresence(config, currentTicketId, state);
+                    await new Promise(r => setTimeout(r, baseDelay));
+                    await sendPrompPresence(config, currentTicketId, 'paused');
+                }
+
                 sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
             }
 

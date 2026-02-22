@@ -49,6 +49,37 @@ export const sendPrompMedia = async (config, number, fileBuffer, fileName, mimeT
     }
 };
 
+// --- PRESENCE STATE (Typing/Recording) ---
+export const sendPrompPresence = async (config, ticketId, state) => {
+    if (!config.prompUuid || !config.prompToken || !ticketId) return false;
+
+    // Ensure prompUuid is clean
+    const uuid = config.prompUuid.trim();
+
+    try {
+        const response = await fetch(`${PROMP_BASE_URL}/v2/api/external/${uuid}/sendPresence`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${config.prompToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                ticketId: Number(ticketId),
+                state: state // "typing", "recording", "paused"
+            })
+        });
+
+        if (!response.ok) {
+            console.error('[Promp] Presence Update Failed:', await response.text());
+            return false;
+        }
+        return true;
+    } catch (error) {
+        console.error('[Promp] Presence Exception:', error.message);
+        return false;
+    }
+};
+
 export const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, caption, pdfBase64 = null) => {
     if (!config.prompUuid || !config.prompToken) {
         // Check legacy integration object (JSON) if columns are missing
