@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import readline from 'readline';
 import { execSync } from 'child_process';
 
 const TARGET_NUMBER = process.argv[2];
@@ -20,84 +21,94 @@ console.log(`\n🔍 INICIANDO BUSCA DE LOGS PARA O NÚMERO: ${cleanNumber}\n`);
 
 // Determina o diretório padrão de logs do PM2
 const pm2LogDir = path.join(os.homedir(), '.pm2', 'logs');
-let pm2LogsExist = false;
-let allLogs = '';
 
-try {
-    if (fs.existsSync(pm2LogDir)) {
-        pm2LogsExist = true;
-        console.log(`📂 Pasta de logs PM2 detectada em: ${pm2LogDir}`);
+async function processLogs() {
+    let matchesCount = 0;
+    const results = [];
 
-        // Pega os arquivos de output mais recentes do PM2 (promp-ia-out.log)
-        const files = fs.readdirSync(pm2LogDir)
-            .filter(f => f.includes('out.log') || f.includes('error.log'));
+    let pm2LogsExist = false;
+    let foundFiles = [];
 
-        for (const file of files) {
-            const filePath = path.join(pm2LogDir, file);
-            console.log(`   Lendo arquivo: ${file}...`);
-            const content = fs.readFileSync(filePath, 'utf8');
-            allLogs += content + '\n';
-        }
-    }
-} catch (e) {
-    console.warn(`⚠️ Aviso: Falha ao ler logs diretamente do disco ~/.pm2/logs. (${e.message})`);
-}
-
-// Se não conseguiu ler o disco, tenta pescar usando o comando tail do PM2
-if (!pm2LogsExist) {
-    console.log(`🔄 Tentando capturar logs via comando [pm2 logs] - últimos 2000...`);
     try {
-        allLogs = execSync('pm2 logs --lines 2000 --raw --nostream', { encoding: 'utf8' });
+        if (fs.existsSync(pm2LogDir)) {
+            pm2LogsExist = true;
+            console.log(`📂 Pasta de logs PM2 detectada em: ${pm2LogDir}`);
+            foundFiles = fs.readdirSync(pm2LogDir).filter(f => f.includes('out.log') || f.includes('error.log'));
+        }
     } catch (e) {
-        console.error('❌ Não foi possível extrair logs via PM2.');
+        console.warn(`⚠️ Aviso: Falha ao ler diretorio ~/.pm2/logs. (${e.message})`);
     }
-}
 
-if (!allLogs) {
-    console.error('❌ ERRO CRÍTICO: Nenhum log pôde ser encontrado no sistema.');
-    process.exit(1);
-}
+    if (pm2LogsExist && foundFiles.length > 0) {
+        for (const file of foundFiles) {
+            const filePath = path.join(pm2LogDir, file);
+            console.log(`   Lendo arquivo em stream: ${file}...`);
 
-// Separar em linhas
-const lines = allLogs.split('\n');
+            // LER USANDO STREAM PARA NÃO ESTOURAR A MEMÓRIA DA VPS
+            const fileStream = fs.createReadStream(filePath);
+            const rl = readline.createInterface({
+                input: fileStream,
+                crlfDelay: Infinity
+            });
 
-console.log(`\n=============================================================`);
-console.log(`📊 RESULTADO DA AUDITORIA (Exibindo menções do cliente)`);
-console.log(`=============================================================\n`);
+            let lineNum = 0;
+            for await (const line of rl) {
+                lineNum++;
+                if (
+                    line.includes(cleanNumber) ||
+                    line.includes(shortNumber) ||
+                    (line.includes(last8) && line.includes('Webhook'))
+                ) {
+                    matchesCount++;
+                    results.push(`[ARQUIVO: ${file} | LINHA: ${lineNum}] -> ${line.trim()}`);
 
-let matchesCount = 0;
-const results = [];
+                    if (line.toLowerCase().includes('ignoring') || line.toLowerCase().includes('failed') || line.toLowerCase().includes('error')) {
+                        results.push(`      🔴 [ALERTA DE BLOQUEIO ENCONTRADO NESSA ETAPA] 🔴`);
+                    }
+                }
+            }
+        }
+    } else {
+        console.log(`🔄 Tentando capturar via pm2 logs (Isso pode custar memoria)...`);
+        try {
+            const output = execSync('pm2 logs --lines 5000 --raw --nostream', { encoding: 'utf8', maxBuffer: 1024 * 1024 * 50 });
+            const lines = output.split('\n');
+            let lineNum = 0;
+            for (const line of lines) {
+                lineNum++;
+                if (
+                    line.includes(cleanNumber) ||
+                    line.includes(shortNumber) ||
+                    (line.includes(last8) && line.includes('Webhook'))
+                ) {
+                    matchesCount++;
+                    results.push(`[PM2 CONSOLE | LINHA: ${lineNum}] -> ${line.trim()}`);
 
-// Pesquisa
-for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Filtro Flexível (Procura pelo numero exato, pelo numero sem +55 ou apenas os ultimos digitos com espacos)
-    if (
-        line.includes(cleanNumber) ||
-        line.includes(shortNumber) ||
-        (line.includes(last8) && line.includes('Webhook'))
-    ) {
-        matchesCount++;
-
-        // Captura a linha e talvez 1 ou 2 blocos seguintes se estiverem relacionados ao array
-        results.push(`[LINHA ${i + 1}] -> ${line.trim()}`);
-
-        // Se a linha tiver "Ignoring", destacar
-        if (line.toLowerCase().includes('ignoring') || line.toLowerCase().includes('failed') || line.toLowerCase().includes('error')) {
-            results.push(`      🔴 [ALERTA DE BLOQUEIO ENCONTRADO NESSA ETAPA] 🔴`);
+                    if (line.toLowerCase().includes('ignoring') || line.toLowerCase().includes('failed') || line.toLowerCase().includes('error')) {
+                        results.push(`      🔴 [ALERTA DE BLOQUEIO ENCONTRADO NESSA ETAPA] 🔴`);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('❌ Não foi possível extrair logs.');
         }
     }
+
+    console.log(`\n=============================================================`);
+    console.log(`📊 RESULTADO DA AUDITORIA (Exibindo menções do cliente)`);
+    console.log(`=============================================================\n`);
+
+    if (matchesCount === 0) {
+        console.log(`⚠️ Nenhuma menção ao número ${cleanNumber} foi encontrada nos logs.`);
+        console.log(`   Isso significa que a sua aplicação VPS PROVAVELMENTE NEM RECEBEU o Webhook do mensageiro.`);
+        console.log(`   Verifique:`);
+        console.log(`   1) O celular do admin/bot não está desconectado.`);
+        console.log(`   2) O Webhook lá na Promp está configurado corretamente.`);
+    } else {
+        results.forEach(r => console.log(r));
+        console.log(`\n✅ O número foi mencionado ${matchesCount} vezes nos logs. Analise as etapas '🔴 ALERTA' acima.`);
+    }
+    console.log('\n');
 }
 
-if (matchesCount === 0) {
-    console.log(`⚠️ Nenhuma menção ao número ${cleanNumber} foi encontrada nos logs mais recentes.`);
-    console.log(`   Isso significa que a sua aplicação VPS PROVAVELMENTE NEM RECEBEU o Webhook do mensageiro (Promp/Wuzapi).`);
-    console.log(`   Verifique:`);
-    console.log(`   1) O celular do admin/bot não está desconectado.`);
-    console.log(`   2) O Webhook lá na Promp/Wuzapi/Evolution está configurado corretamente.`);
-} else {
-    results.forEach(r => console.log(r));
-    console.log(`\n✅ O número foi mencionado ${matchesCount} vezes nos logs. Analise as etapas '🔴 ALERTA' acima para ver se o código internamente dropou forçadamente a mensagem.`);
-}
-console.log('\n');
+processLogs();
