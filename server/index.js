@@ -410,9 +410,16 @@ const handleWebhookRequest = async (req, res) => {
 
     // Safety Check for Content
     let userMessage = payload.content?.text ||
+        payload.text ||
+        (typeof payload.body === 'string' ? payload.body : null) ||
+        payload.body?.text ||
         payload.body?.content?.text ||
         payload.data?.message?.conversation ||
         payload.data?.message?.extendedTextMessage?.text ||
+        payload.data?.text ||
+        payload.message?.conversation ||
+        payload.message?.extendedTextMessage?.text ||
+        payload.message?.text ||
         payload.msg?.text ||
         payload.msg?.body ||
         payload.msg?.content;
@@ -422,7 +429,7 @@ const handleWebhookRequest = async (req, res) => {
     // This causes OpenAI API error: "Invalid type for 'messages[1].content'"
     if (typeof userMessage !== 'string') {
         userMessage = typeof userMessage === 'object' && userMessage !== null
-            ? (userMessage.text || userMessage.body || '')
+            ? (userMessage.text || userMessage.body || userMessage.conversation || '')
             : '';
     }
 
@@ -452,7 +459,7 @@ const handleWebhookRequest = async (req, res) => {
     }
 
     if (!userMessage) {
-        console.log('[Webhook] Payload missing text content. Ignoring.');
+        console.log(`[Webhook] Payload from ${cleanSender} missing text content. Ignoring.`);
         return res.json({ status: 'ignored_no_text' });
     }
 
