@@ -620,9 +620,9 @@ const handleWebhookRequest = async (req, res) => {
                             // Calculate delay based on length: 30ms per char for typing, min 1s, max 4.5s
                             const baseDelay = chunkAudio ? 3500 : Math.min(Math.max(charCount * 30, 1000), 4500);
 
-                            await sendPrompPresence(config, cleanNumber, state);
+                            await sendPrompPresence(config, cleanNumber, currentTicketId, state);
                             await new Promise(r => setTimeout(r, baseDelay));
-                            await sendPrompPresence(config, cleanNumber, 'paused');
+                            await sendPrompPresence(config, cleanNumber, currentTicketId, 'paused');
                         }
 
                         await sendPrompMessage(config, cleanNumber, chunk.content, chunkAudio, null, null);
@@ -638,9 +638,9 @@ const handleWebhookRequest = async (req, res) => {
                     const charCount = aiResponse ? aiResponse.length : 0;
                     const baseDelay = audioBase64 ? 3500 : Math.min(Math.max(charCount * 30, 1000), 4500);
 
-                    await sendPrompPresence(config, cleanNumber, state);
+                    await sendPrompPresence(config, cleanNumber, currentTicketId, state);
                     await new Promise(r => setTimeout(r, baseDelay));
-                    await sendPrompPresence(config, cleanNumber, 'paused');
+                    await sendPrompPresence(config, cleanNumber, currentTicketId, 'paused');
                 }
 
                 sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);

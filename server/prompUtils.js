@@ -50,7 +50,7 @@ export const sendPrompMedia = async (config, number, fileBuffer, fileName, mimeT
 };
 
 // --- PRESENCE STATE (Typing/Recording) ---
-export const sendPrompPresence = async (config, number, state) => {
+export const sendPrompPresence = async (config, number, ticketId, state) => {
     // Uazapi maps: 'typing' -> 'composing', 'recording' -> 'recording', 'paused' -> 'paused'
     let uazapiState = state;
     if (state === 'typing') uazapiState = 'composing';
@@ -105,7 +105,7 @@ export const sendPrompPresence = async (config, number, state) => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                number: number,
+                ticketId: Number(ticketId),
                 state: state // "typing", "recording", "paused"
             })
         });
