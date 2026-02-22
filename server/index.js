@@ -398,13 +398,14 @@ const handleWebhookRequest = async (req, res) => {
     console.log(`[Webhook] Processing User Message from ${cleanSender}...`);
 
     // Check if Status Update again (redundant but safe)
-    if (payload.type === 'message_status' || payload.status) {
+    if (payload.type === 'message_status' || (payload.status && typeof payload.status === 'string' && ['READ', 'ERROR', 'DELIVERY_ACK', 'SERVER_ACK', 'PLAYED'].includes(payload.status.toUpperCase()))) {
+        console.log(`[Webhook] Ignoring Message Status Update from ${cleanSender}.`);
         return res.json({ status: 'ignored_status_update' });
     }
 
     // Ignore ACKs (Delivery/Read Receipts)
     if (payload.msg?.ack && payload.msg.ack > 1) {
-        console.log(`[Webhook] Ignoring Message ACK (${payload.msg.ack}).`);
+        console.log(`[Webhook] Ignoring Message ACK (${payload.msg.ack}) from ${cleanSender}.`);
         return res.json({ status: 'ignored_ack' });
     }
 
@@ -471,7 +472,7 @@ const handleWebhookRequest = async (req, res) => {
     const cleanNumber = senderNumber ? String(senderNumber).replace(/\D/g, '') : null;
 
     if (!cleanNumber) {
-        console.log('[Webhook] No specific sender number found. Ignoring.');
+        console.log(`[Webhook] No specific sender number found for ${cleanSender}. Ignoring.`);
         return res.json({ status: 'ignored_no_number' });
     }
 
@@ -490,10 +491,18 @@ const handleWebhookRequest = async (req, res) => {
         // Ignore error
     }
 
-    const metadata = JSON.stringify(payload);
+    let metadata = "{}";
+    try {
+        metadata = JSON.stringify(payload);
+    } catch (e) {
+        console.warn(`[Webhook] Warning: payload circular structure prevented stringification for ${cleanNumber}. Using empty metadata.`);
+    }
 
     try {
-        if (!config) return res.status(404).json({ error: 'Company config not found. Check ID.' });
+        if (!config) {
+            console.log(`[Webhook] Company config not found for ID: ${companyId}`);
+            return res.status(404).json({ error: 'Company config not found. Check ID.' });
+        }
 
         const msgLog = userMessage ? String(userMessage).substring(0, 50) : '[No Content]';
         console.log(`[Webhook] Processing message for ${cleanNumber}: "${msgLog}..."`);
