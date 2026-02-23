@@ -57,7 +57,7 @@ export const sendPrompPresence = async (config, number, ticketId, state) => {
 
     // 1. Check if we have native Wuzapi/Uazapi credentials to bypass Promp API
     const integrations = config.integrations || {};
-    const legacyWuzapi = integrations.wuzapi || integrations.evolution;
+    const legacyWuzapi = integrations.uazapi || integrations.wuzapi || integrations.evolution;
 
     if (legacyWuzapi && legacyWuzapi.url && legacyWuzapi.session && legacyWuzapi.token) {
         try {
@@ -92,6 +92,7 @@ export const sendPrompPresence = async (config, number, ticketId, state) => {
     }
 
     // 2. Fallback to Standard Promp API (If supported in future)
+    console.log(`[Promp] Native Uazapi config not found or incomplete. Falling back to Promp API Presence...`);
     if (!config.prompUuid || !config.prompToken) return false;
 
     // Ensure prompUuid is clean
