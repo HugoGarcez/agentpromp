@@ -397,6 +397,12 @@ const handleWebhookRequest = async (req, res) => {
 
     console.log(`[Webhook] Processing User Message from ${cleanSender}...`);
 
+    // Check if Ticket is Open (Human Attendance)
+    if (payload.ticket && payload.ticket.status === 'open') {
+        console.log(`[Webhook] Ignoring Message from ${cleanSender}. Ticket is 'open' (Human Attendance).`);
+        return res.json({ status: 'ignored_ticket_open' });
+    }
+
     // Check if Status Update again (redundant but safe)
     if (payload.type === 'message_status' || (payload.status && typeof payload.status === 'string' && ['READ', 'ERROR', 'DELIVERY_ACK', 'SERVER_ACK', 'PLAYED'].includes(payload.status.toUpperCase()))) {
         console.log(`[Webhook] Ignoring Message Status Update from ${cleanSender}.`);
