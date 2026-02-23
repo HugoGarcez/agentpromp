@@ -50,50 +50,11 @@ export const sendPrompMedia = async (config, number, fileBuffer, fileName, mimeT
 };
 
 // --- PRESENCE STATE (Typing/Recording) ---
-export const sendPrompPresence = async (config, number, ticketId, state) => {
-    // Uazapi maps: 'typing' -> 'composing', 'recording' -> 'recording', 'paused' -> 'paused'
-    let uazapiState = state;
-    if (state === 'typing') uazapiState = 'composing';
-
-    // 1. Check if we have native Wuzapi/Uazapi credentials to bypass Promp API
-    const integrations = config.integrations || {};
-    const legacyWuzapi = integrations.uazapi || integrations.wuzapi || integrations.evolution;
-
-    if (legacyWuzapi && legacyWuzapi.url && legacyWuzapi.session && legacyWuzapi.token) {
-        try {
-            // Trim trailing slashes from URL
-            const cleanUrl = legacyWuzapi.url.replace(/\/+$/, '');
-            console.log(`[Promp] Sending Native Uazapi Presence (${uazapiState}) to ${number}`);
-
-            const response = await fetch(`${cleanUrl}/message/presence`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${legacyWuzapi.token}`,
-                    'apikey': legacyWuzapi.token, // Support both formats
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    number: number,
-                    session: legacyWuzapi.session,
-                    delay: 1000,
-                    presence: uazapiState
-                })
-            });
-
-            if (!response.ok) {
-                console.error('[Promp] Native Uazapi Presence Failed:', await response.text());
-                return false;
-            }
-            return true;
-        } catch (error) {
-            console.error('[Promp] Native Uazapi Presence Exception:', error.message);
-            return false;
-        }
+export const sendPrompPresence = async (config, ticketId, state) => {
+    if (!config.prompUuid || !config.prompToken || !ticketId) {
+        console.log(`[Promp] Skipping Presence: Missing prompUuid, Token or ticketId.`);
+        return false;
     }
-
-    // 2. Fallback to Standard Promp API (If supported in future)
-    console.log(`[Promp] Native Uazapi config not found or incomplete. Falling back to Promp API Presence...`);
-    if (!config.prompUuid || !config.prompToken) return false;
 
     // Ensure prompUuid is clean
     const uuid = config.prompUuid.trim();
@@ -106,21 +67,18 @@ export const sendPrompPresence = async (config, number, ticketId, state) => {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                ticketId: Number(ticketId),
+                ticketId: parseInt(ticketId, 10), // Garantindo formato Integer como no Postman
                 state: state // "typing", "recording", "paused"
             })
         });
 
         if (!response.ok) {
             const errorText = await response.text();
-            // Silence the unsuported capability log to prevent spam on PM2
-            if (errorText.includes('uazapi') || errorText.includes('não suportado')) {
-                // Silenced
-            } else {
-                console.error('[Promp] Promp API Presence Update Failed:', errorText);
-            }
+            console.error('[Promp] Promp API Presence Update Failed:', errorText);
             return false;
         }
+
+        console.log(`[Promp] Presence (${state}) sent for Ticket ${ticketId}`);
         return true;
     } catch (error) {
         console.error('[Promp] Promp API Presence Exception:', error.message);
