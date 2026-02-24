@@ -455,7 +455,7 @@ const handleWebhookRequest = async (req, res) => {
         console.log('[Webhook] Audio Message Detected. Attempting Transcription...');
 
         // Need Global Key for Whisper
-        const globalConfig = await prisma.adminConfig.findFirst();
+        const globalConfig = await prisma.globalConfig.findFirst();
         if (globalConfig?.openaiKey) {
             const transcription = await transcribeAudio(mediaBase64, globalConfig.openaiKey);
             if (transcription) {
