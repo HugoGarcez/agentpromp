@@ -33,7 +33,7 @@ import {
     checkAvailability,
     createCalendarEvent
 } from './googleCalendar.js';
-import { sendPrompMessage, getPrompTags, applyPrompTag, sendPrompPresence } from './prompUtils.js';
+import { sendPrompMessage, getPrompTags, applyPrompTag, sendPrompPresence, downloadAndDecryptWhatsAppMedia } from './prompUtils.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -443,9 +443,15 @@ const handleWebhookRequest = async (req, res) => {
     // --- AUDIO HANDLING ---
     // If text is "ptt" (Push To Talk) or "audio" AND we have media, it's an Audio Message.
     let isAudioInput = false;
-    const mediaBase64 = payload.content?.media || payload.msg?.media || payload.media; // Try all paths
+    let mediaBase64 = payload.content?.media || payload.msg?.media || payload.media; // Try all paths
 
-    if ((userMessage === 'ptt' || userMessage === 'audio' || payload.type === 'audio') && mediaBase64) {
+    // Fix for PROMP/Uazapi payloads that send direct URL and mediaKey instead of base64
+    if (!mediaBase64 && payload.msg?.messageType === 'AudioMessage' && payload.msg?.content?.URL && payload.msg?.content?.mediaKey) {
+        console.log('[Webhook] Encrypted Audio Message Detected. Downloading and Decrypting...');
+        mediaBase64 = await downloadAndDecryptWhatsAppMedia(payload.msg.content.URL, payload.msg.content.mediaKey, 'audio');
+    }
+
+    if ((userMessage === 'ptt' || userMessage === 'audio' || payload.type === 'audio' || payload.msg?.messageType === 'AudioMessage') && mediaBase64) {
         console.log('[Webhook] Audio Message Detected. Attempting Transcription...');
 
         // Need Global Key for Whisper

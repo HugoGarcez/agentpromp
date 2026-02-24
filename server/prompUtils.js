@@ -4,6 +4,7 @@ import path from 'path';
 import sharp from 'sharp';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 // Helper for file logging (Local to this module)
 const logFlow = (msg) => {
@@ -353,5 +354,54 @@ export const applyPrompTag = async (config, ticketId, tagId) => {
     } catch (error) {
         console.error('[Promp] Failed to Apply Tag:', error.response?.data || error.message);
         return false;
+    }
+};
+
+// --- WHATSAPP MEDIA DECRYPTION ---
+export const downloadAndDecryptWhatsAppMedia = async (url, mediaKeyBase64, mediaType = 'audio') => {
+    try {
+        let appInfo;
+        switch (mediaType) {
+            case 'image': appInfo = 'WhatsApp Image Keys'; break;
+            case 'video': appInfo = 'WhatsApp Video Keys'; break;
+            case 'audio': appInfo = 'WhatsApp Audio Keys'; break;
+            case 'document': appInfo = 'WhatsApp Document Keys'; break;
+            default: appInfo = 'WhatsApp Audio Keys';
+        }
+
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        const data = Buffer.from(response.data);
+
+        const mediaKey = Buffer.from(mediaKeyBase64, 'base64');
+        const info = Buffer.from(appInfo);
+
+        // HKDF expansion
+        const keyStream = crypto.createHmac('sha256', Buffer.alloc(32)).update(mediaKey).digest();
+
+        let addition = Buffer.alloc(0);
+        let result = Buffer.alloc(0);
+        let i = 1;
+        while (result.length < 112) {
+            addition = crypto.createHmac('sha256', keyStream)
+                .update(addition)
+                .update(info)
+                .update(Buffer.from([i++]))
+                .digest();
+            result = Buffer.concat([result, addition]);
+        }
+        const expandedKey = result.slice(0, 112);
+
+        const iv = expandedKey.slice(0, 16);
+        const cipherKey = expandedKey.slice(16, 48);
+
+        const file = data.slice(0, -10); // Remove 10-byte MAC validation
+
+        const decipher = crypto.createDecipheriv('aes-256-cbc', cipherKey, iv);
+        const decrypted = Buffer.concat([decipher.update(file), decipher.final()]);
+
+        return decrypted.toString('base64');
+    } catch (e) {
+        console.error('[PrompUtils] WhatsApp Media Decryption Error:', e.message);
+        return null;
     }
 };
