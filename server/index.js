@@ -3032,7 +3032,16 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
 
         // --- Audio Generation Logic ---
         let audioBase64 = null;
-        const integrator = config.integrations || {};
+        let integrator = {};
+        if (config.integrations) {
+            try {
+                integrator = typeof config.integrations === 'string'
+                    ? JSON.parse(config.integrations)
+                    : config.integrations;
+            } catch (e) {
+                console.error('[ProcessChat] Error parsing integrations JSON:', e);
+            }
+        }
 
         // 1. Master Switch (Checkbox: "Habilitar Respostas em Áudio")
         // If disabled in config, we NEVER generate, even if user sent audio.
