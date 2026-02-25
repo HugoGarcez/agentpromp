@@ -637,7 +637,9 @@ const handleWebhookRequest = async (req, res) => {
                             await sendPrompPresence(config, currentTicketId, 'paused');
                         }
 
-                        await sendPrompMessage(config, cleanNumber, chunk.content, chunkAudio, null, null);
+                        // Se tiver áudio gerado, enviamos APENAS o áudio para evitar texto duplicado
+                        const textToSend = chunkAudio ? null : chunk.content;
+                        await sendPrompMessage(config, cleanNumber, textToSend, chunkAudio, null, null);
                         await new Promise(r => setTimeout(r, 800));
                     }
                 }
@@ -655,7 +657,9 @@ const handleWebhookRequest = async (req, res) => {
                     await sendPrompPresence(config, currentTicketId, 'paused');
                 }
 
-                sentViaApi = await sendPrompMessage(config, cleanNumber, aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64);
+                // Se tiver áudio gerado, enviamos APENAS o áudio para evitar texto duplicado
+                const textToSend = audioBase64 ? null : aiResponse;
+                sentViaApi = await sendPrompMessage(config, cleanNumber, textToSend, audioBase64, productImageUrl, productCaption, pdfBase64);
             }
 
             console.log(`[Webhook] Sent via API: ${sentViaApi}`);
@@ -2109,12 +2113,14 @@ Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
 
 ` + systemPrompt;
 
-        //    // Inject Audio Context if applicable
+        // Inject Audio Context if applicable
         if (isAudioInput) {
             systemPrompt += `\n\n[SISTEMA]: O usuário enviou uma mensagem de ÁUDIO que foi transcrita automaticamente para texto.
         - O texto começa com "[ÁUDIO TRANSCRITO]:".
         - AJA NATURALMENTE. Não diga "não entendo áudio". Você JÁ recebeu o conteúdo do áudio em texto.
-        - Responda como se estivesse ouvindo o cliente.`;
+        - Responda de forma HMMMUMANIZADA e CONVERSACIONAL, como uma pessoa real gravando um áudio do WhatsApp.
+        - PROIBIDO usar listas, bullet points, asteriscos ou formatações textuais (pois o cliente vai OUVIR sua resposta).
+        - Fale de forma fluida, em um único parágrafo coloquial.`;
         }
 
         // ENFORCE BREVITY & FORMATTING
