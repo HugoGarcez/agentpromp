@@ -799,8 +799,8 @@ if (process.env.OPENAI_API_KEY) {
 // Serve Static Frontend (Vite Build)
 app.use(express.static(path.join(__dirname, '../dist')));
 
-// Serve Uploaded Media (Public HTTP Path /uploads -> server/public/uploads dir)
-app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
+// Serve Uploaded Media (Public HTTP Path /api/uploads -> server/public/uploads dir)
+app.use('/api/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 // --- MEDIA UPLOAD CONFIGURATION ---
 const storage = multer.diskStorage({
@@ -827,7 +827,7 @@ app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) =>
         // Em ambientes de nuvem atrás do Cloudflare/Nginx, preferir req.headers['x-forwarded-proto']
         const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
         const baseUrl = `${protocol}://${req.get('host')}`;
-        const finalUrl = `${baseUrl}/uploads/${req.file.filename}`;
+        const finalUrl = `${baseUrl}/api/uploads/${req.file.filename}`;
 
         console.log(`[Upload API] Arquivo recebido e salvo em public/uploads. URL: ${finalUrl}`);
 
