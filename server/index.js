@@ -850,19 +850,22 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
         });
 
         rawProducts.forEach(wp => {
-            const productName = wp.nome || 'Produto Wbuy';
+            const productName = wp.produto || 'Produto Wbuy';
             const wbuyId = String(wp.id);
-            const wbuyUrl = wp.url || '';
+            const wbuyUrl = wp.url_relative || '';
             const existing = productsMap.get(productName.trim().toLowerCase());
 
             // Check details
-            const hasVariations = Array.isArray(wp.variacoes) && wp.variacoes.length > 0;
-            const stock = parseFloat(wp.estoque) || 0;
-            const price = parseFloat(wp.preco_venda || wp.preco) || 0;
+            const hasVariations = Array.isArray(wp.estoque) && wp.estoque.length > 0;
+            const stock = parseFloat(wp.quantidade_total_em_estoque) || 0;
+
+            // O preço base na Wbuy fica atrelado à variação primária se houver, ou buscamos do primeiro item de estoque
+            let price = 0;
+            if (hasVariations && wp.estoque[0].valores && wp.estoque[0].valores.length > 0) {
+                price = parseFloat(wp.estoque[0].valores[0].valor) || 0;
+            }
 
             // Generate standard PaymentLink
-            // Often wbuy checkouts are "https://DOMINIO/checkout/cart/add/produto/ID"
-            // For now, if there's a url, we use the product URL
             const paymentLink = wbuyUrl;
 
             let internalProduct = {
@@ -871,8 +874,8 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
                 name: productName,
                 price: price.toFixed(2),
                 description: wp.descricao || '',
-                image: (wp.imagens && wp.imagens.length > 0) ? wp.imagens[0].url : (existing ? existing.image : null),
-                active: wp.ativo !== "0",
+                image: (wp.fotos && wp.fotos.length > 0) ? wp.fotos[0].foto : (existing ? existing.image : null),
+                active: wp.ativo === "1" || wp.ativo === 1,
                 unit: 'Unidade',
                 stock: stock,
                 hasPaymentLink: !!paymentLink,
@@ -882,17 +885,27 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
 
             // Process Variations if present
             if (hasVariations) {
-                // Wipe and import again or merge? Safest to wipe and import from source of truth
-                internalProduct.variantItems = wp.variacoes.map(v => {
-                    const vNameInfo = v.nome || '';
+                internalProduct.variantItems = wp.estoque.map(v => {
+                    // Wbuy armazena variação em escopos 'cor' e 'variacao'.
+                    let vNameInfo = [];
+                    if (v.cor && v.cor.nome) vNameInfo.push(v.cor.nome);
+                    if (v.variacao && v.variacao.valor) vNameInfo.push(v.variacao.valor);
+
+                    let varPrice = 0;
+                    if (v.valores && v.valores.length > 0) {
+                        varPrice = parseFloat(v.valores[0].valor) || price; // fallback pro base
+                    }
+
+                    let skuInfo = v.sku || String(v.id);
+
                     return {
                         id: `var_${wbuyId}_${v.id}_${Date.now()}`,
-                        color: '',
-                        size: vNameInfo, // Mapeando as variações da wbuy pro campo size genericamente
-                        price: (parseFloat(v.preco_venda || v.preco) || 0).toFixed(2),
-                        stock: parseFloat(v.estoque) || 0,
-                        image: null,
-                        sku: String(v.id)
+                        color: v.cor?.nome || '',
+                        size: vNameInfo.join(' '),
+                        price: varPrice.toFixed(2),
+                        stock: parseFloat(v.quantidade_em_estoque) || 0,
+                        image: v.cor?.img || null,
+                        sku: skuInfo
                     };
                 });
             }
