@@ -27,8 +27,11 @@ const Integrations = () => {
 
                     if (data.integrations) {
                         try {
-                            const parsedIntegrations = JSON.parse(data.integrations);
-                            if (parsedIntegrations.wbuy) {
+                            const parsedIntegrations = typeof data.integrations === 'string'
+                                ? JSON.parse(data.integrations)
+                                : data.integrations;
+
+                            if (parsedIntegrations && parsedIntegrations.wbuy) {
                                 setWbuyConfig(parsedIntegrations.wbuy);
                             }
                         } catch (e) {
@@ -57,7 +60,9 @@ const Integrations = () => {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const currentIntegrations = config?.integrations ? JSON.parse(config.integrations) : {};
+            const currentIntegrations = config?.integrations
+                ? (typeof config.integrations === 'string' ? JSON.parse(config.integrations) : config.integrations)
+                : {};
             const payload = {
                 ...config,
                 integrations: JSON.stringify({
