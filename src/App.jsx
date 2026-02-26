@@ -13,6 +13,7 @@ import ResetPassword from './pages/ResetPassword';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminConfig from './pages/AdminConfig';
 import TagAutomation from './pages/TagAutomation';
+import Integrations from './pages/Integrations';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -64,6 +65,7 @@ function App() {
               <Route path="automation" element={<TagAutomation />} />
               <Route path="scheduling" element={<SchedulingConfig />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="integrations" element={<Integrations />} />
 
               <Route path="admin" element={
                 <AdminRoute>

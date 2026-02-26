@@ -789,6 +789,133 @@ app.delete('/api/products/sources/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// --- INTEGRATIONS: WBUY ---
+app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
+    try {
+        const companyId = req.user.companyId;
+
+        // 1. Fetch current config
+        const config = await prisma.agentConfig.findUnique({
+            where: { companyId }
+        });
+
+        if (!config || !config.integrations) {
+            return res.status(400).json({ success: false, message: 'Nenhuma integração configurada.' });
+        }
+
+        const integrations = JSON.parse(config.integrations);
+        const wbuyConfig = integrations.wbuy;
+
+        if (!wbuyConfig || !wbuyConfig.enabled || !wbuyConfig.apiUser || !wbuyConfig.apiPassword) {
+            return res.status(400).json({ success: false, message: 'A integração com a Wbuy não está ativa ou faltam credenciais.' });
+        }
+
+        // 2. Auth for Wbuy
+        const authStr = `${wbuyConfig.apiUser}:${wbuyConfig.apiPassword}`;
+        const base64Auth = Buffer.from(authStr).toString('base64');
+        const headers = {
+            'Authorization': `Bearer ${base64Auth}`,
+            'User-Agent': `PrompIA (suporte@promp.com.br)`,
+            'Content-Type': 'application/json'
+        };
+
+        // 3. Fetch Products from Wbuy
+        // Paginating to get all could be needed, assuming one page limits for now (adjust as required)
+        const wbuyRes = await fetch('https://sistema.sistemawbuy.com.br/api/v1/product', { headers });
+
+        if (!wbuyRes.ok) {
+            console.error(`Status HTTP Wbuy: ${wbuyRes.status}`);
+            return res.status(500).json({ success: false, message: `Erro ao comunicar com API da Wbuy (Status ${wbuyRes.status}). Verifique as credenciais.` });
+        }
+
+        const wbuyData = await wbuyRes.json();
+
+        // Data format check. Usually { data: [...] } 
+        let rawProducts = wbuyData.data || wbuyData;
+
+        if (!Array.isArray(rawProducts)) {
+            // Se pagination, the items could be in inside 'data'
+            return res.status(500).json({ success: false, message: 'Formato de resposta inesperado da Wbuy.' });
+        }
+
+        // 4. Transform to Promp Format
+        let productsMap = new Map();
+
+        // Carregar produtos que já existem para fazer merge em vez de sobrescrever puramente
+        const existingProducts = config.products ? JSON.parse(config.products) : [];
+        existingProducts.forEach(p => {
+            // Let's use name as key if wbuy ID is not available in our DB, but we should prefer wbuy ID if we had a field. 
+            // We'll trust the wbuy Name uniqueness roughly, or create our own id `wbuy_${p.id}`
+            productsMap.set(p.name.trim().toLowerCase(), p);
+        });
+
+        rawProducts.forEach(wp => {
+            const productName = wp.nome || 'Produto Wbuy';
+            const wbuyId = String(wp.id);
+            const wbuyUrl = wp.url || '';
+            const existing = productsMap.get(productName.trim().toLowerCase());
+
+            // Check details
+            const hasVariations = Array.isArray(wp.variacoes) && wp.variacoes.length > 0;
+            const stock = parseFloat(wp.estoque) || 0;
+            const price = parseFloat(wp.preco_venda || wp.preco) || 0;
+
+            // Generate standard PaymentLink
+            // Often wbuy checkouts are "https://DOMINIO/checkout/cart/add/produto/ID"
+            // For now, if there's a url, we use the product URL
+            const paymentLink = wbuyUrl;
+
+            let internalProduct = {
+                id: existing ? existing.id : `wbuy_${wbuyId}_${Date.now()}`,
+                type: 'product',
+                name: productName,
+                price: price.toFixed(2),
+                description: wp.descricao || '',
+                image: (wp.imagens && wp.imagens.length > 0) ? wp.imagens[0].url : (existing ? existing.image : null),
+                active: wp.ativo !== "0",
+                unit: 'Unidade',
+                stock: stock,
+                hasPaymentLink: !!paymentLink,
+                paymentLink: paymentLink,
+                variantItems: existing ? existing.variantItems || [] : []
+            };
+
+            // Process Variations if present
+            if (hasVariations) {
+                // Wipe and import again or merge? Safest to wipe and import from source of truth
+                internalProduct.variantItems = wp.variacoes.map(v => {
+                    const vNameInfo = v.nome || '';
+                    return {
+                        id: `var_${wbuyId}_${v.id}_${Date.now()}`,
+                        color: '',
+                        size: vNameInfo, // Mapeando as variações da wbuy pro campo size genericamente
+                        price: (parseFloat(v.preco_venda || v.preco) || 0).toFixed(2),
+                        stock: parseFloat(v.estoque) || 0,
+                        image: null,
+                        sku: String(v.id)
+                    };
+                });
+            }
+
+            productsMap.set(productName.trim().toLowerCase(), internalProduct);
+        });
+
+        const mergedProductsList = Array.from(productsMap.values());
+
+        // 5. Save back to the DB
+        await prisma.agentConfig.update({
+            where: { companyId },
+            data: { products: JSON.stringify(mergedProductsList) }
+        });
+
+        return res.json({ success: true, count: rawProducts.length });
+
+    } catch (error) {
+        console.error('Erro Wbuy Sync:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // Startup Check
 if (process.env.OPENAI_API_KEY) {
     console.log('[Startup] Global OpenAI Key detected in ENV.');

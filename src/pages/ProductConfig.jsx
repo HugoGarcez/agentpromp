@@ -139,6 +139,7 @@ const ProductConfig = () => {
         // NEW: Unit & Payment Methods
         unit: 'Unidade',
         customUnit: '',
+        stock: '', // NEW: Stock field
         paymentPrices: [
             { id: 'pix', label: 'Pix', active: false, price: '' },
             { id: 'cash', label: 'Dinheiro', active: false, price: '' },
@@ -199,7 +200,7 @@ const ProductConfig = () => {
     // --- VARIATION LOGIC (For Products) ---
     const addVariation = () => {
         const newId = `var_${Date.now()}`;
-        const newVariant = { id: newId, name: '', price: formData.price, sku: '', image: null, color: '', size: '' };
+        const newVariant = { id: newId, name: '', price: formData.price, sku: '', image: null, color: '', size: '', stock: '' };
         setFormData(prev => ({ ...prev, variantItems: [...(prev.variantItems || []), newVariant] }));
     };
 
@@ -372,6 +373,7 @@ const ProductConfig = () => {
                     type: 'product',
                     active: true,
                     unit: 'Unidade',
+                    stock: p.stock || '',
                     variantItems: p.variantItems || []
                 }));
 
@@ -677,6 +679,11 @@ const ProductConfig = () => {
                                         style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
                                 </div>
                             )}
+                            <div style={{ width: '100px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Estoque</label>
+                                <input type="number" name="stock" value={formData.stock || ''} onChange={handleInputChange} placeholder="Qtd"
+                                    style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
+                            </div>
                         </div>
                     </div>
 
@@ -774,7 +781,7 @@ const ProductConfig = () => {
                             </div>
                             <div style={{ display: 'grid', gap: '12px' }}>
                                 {formData.variantItems?.map((variant) => (
-                                    <div key={variant.id} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr 1fr 40px', gap: '8px', alignItems: 'center', background: 'white', padding: '10px', borderRadius: '4px', border: '1px solid #E5E7EB' }}>
+                                    <div key={variant.id} style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr 1fr 1fr 40px', gap: '8px', alignItems: 'center', background: 'white', padding: '10px', borderRadius: '4px', border: '1px solid #E5E7EB' }}>
                                         <label style={{ cursor: 'pointer', width: '32px', height: '32px', border: '1px dashed #ccc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                                             {variant.image ? <img src={variant.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <ImageIcon size={14} color="#ccc" />}
                                             <input type="file" style={{ display: 'none' }} accept="image/*" onChange={(e) => handleVariantImageChange(variant.id, e)} />
@@ -782,6 +789,7 @@ const ProductConfig = () => {
                                         <input type="text" placeholder="Cor" value={variant.color} onChange={(e) => updateVariation(variant.id, 'color', e.target.value)} style={{ padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }} />
                                         <input type="text" placeholder="Tam" value={variant.size} onChange={(e) => updateVariation(variant.id, 'size', e.target.value)} style={{ padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }} />
                                         <input type="number" placeholder="Preço" value={variant.price} onChange={(e) => updateVariation(variant.id, 'price', e.target.value)} style={{ padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }} />
+                                        <input type="number" placeholder="Estoque" value={variant.stock || ''} onChange={(e) => updateVariation(variant.id, 'stock', e.target.value)} style={{ padding: '6px', fontSize: '13px', border: '1px solid #ddd', borderRadius: '4px' }} />
                                         <button type="button" onClick={() => removeVariation(variant.id)} style={{ color: '#EF4444', cursor: 'pointer' }}><Trash2 size={16} /></button>
                                     </div>
                                 ))}
