@@ -211,6 +211,22 @@ const PromptTab = ({ systemPrompt, onPromptChange, persona, onPersonaChange }) =
                             </select>
                         </div>
                     </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: '#4B5563' }}>
+                            Frase de apresentação (Opcional)
+                        </label>
+                        <p style={{ fontSize: '11px', color: '#6B7280', marginBottom: '8px', lineHeight: '1.4' }}>
+                            Essa frase será enviada <strong>uma única vez</strong> na primeira interação com um novo cliente, antes da resposta da IA. Use isso para garantir um cumprimento padrão (ex: "Olá, sou a Ana da Promp!"). Se definida, a IA será instruída a não repetir cumprimentos.
+                        </p>
+                        <input
+                            type="text"
+                            value={persona?.greetingMessage || ''}
+                            onChange={(e) => onPersonaChange({ ...persona, greetingMessage: e.target.value })}
+                            placeholder="Ex: Olá! Sou o assistente virtual da empresa. Como posso ajudar?"
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        />
+                    </div>
                 </div>
             </div>
 

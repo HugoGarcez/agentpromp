@@ -2511,6 +2511,19 @@ Resposta: "Aqui está a foto! 👕 [SHOW_IMAGE: 1770083712009]"
         if (history && history.length > 0) {
             systemPrompt += `\n\nATENÇÃO: Este é um diálogo em andamento. NÃO CUMPRIMENTE o usuário novamente.
         CRÍTICO: Não ofereça ajuda extra no final da mensagem. Apenas responda.`;
+        } else {
+            // First message handling
+            if (config.persona) {
+                let personaData = {};
+                try {
+                    personaData = typeof config.persona === 'string' ? JSON.parse(config.persona) : config.persona;
+                } catch (e) { }
+
+                if (personaData && personaData.greetingMessage) {
+                    systemPrompt += `\n\nATENÇÃO: Esta é a PRIMEIRA mensagem do usuário, MAS o sistema já enviou a seguinte frase de apresentação automaticamente: "${personaData.greetingMessage}"
+        CRÍTICO: VOCÊ ESTÁ PROIBIDO DE CUMPRIMENTAR O USUÁRIO NESTA MENSAGEM (ex: não diga "Olá", "Oi", "Tudo bem", "Sou o assistente"). Vá direto ao ponto e responda à mensagem do usuário de forma natural continuando a conversa.`;
+                }
+            }
         }
 
         // Inject Audio Context if applicable
@@ -3137,7 +3150,19 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
             messageChunks.push({ type: 'text', content: aiResponse });
         }
 
+        // --- INJECT PRESENTATION PHRASE FOR NEW CHATS ---
+        if ((!history || history.length === 0) && config.persona) {
+            let personaData = {};
+            try {
+                personaData = typeof config.persona === 'string' ? JSON.parse(config.persona) : config.persona;
+            } catch (e) { }
 
+            if (personaData && personaData.greetingMessage) {
+                console.log('[Chat] Injetando Frase de apresentação como primeira mensagem.');
+                // Prepend the greeting message as the first chunk
+                messageChunks.unshift({ type: 'text', content: personaData.greetingMessage });
+            }
+        }
 
         // --- PDF Logic (Service Details) ---
         let pdfBase64 = null;
