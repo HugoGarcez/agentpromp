@@ -1591,6 +1591,7 @@ const getCompanyConfig = async (companyId) => {
             products: safeParse(config.products),
             knowledgeBase: safeParse(config.knowledgeBase),
             followUpConfig: safeParse(config.followUpConfig),
+            catalogConfig: safeParse(config.catalogConfig),
             // Scheduling Data
             specialists: config.company?.specialists || [],
             appointmentTypes: config.company?.appointmentTypes || [],
@@ -1732,7 +1733,8 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             integrations: JSON.stringify(combinedIntegrations),
             products: productsToSave ? JSON.stringify(productsToSave) : undefined,
             knowledgeBase: finalKB ? JSON.stringify(finalKB) : undefined,
-            followUpConfig: newConfig.followUpConfig ? (typeof newConfig.followUpConfig === 'object' ? JSON.stringify(newConfig.followUpConfig) : newConfig.followUpConfig) : undefined
+            followUpConfig: newConfig.followUpConfig ? (typeof newConfig.followUpConfig === 'object' ? JSON.stringify(newConfig.followUpConfig) : newConfig.followUpConfig) : undefined,
+            catalogConfig: newConfig.catalogConfig ? (typeof newConfig.catalogConfig === 'object' ? JSON.stringify(newConfig.catalogConfig) : newConfig.catalogConfig) : undefined
         };
 
         const updatedConfig = await prisma.agentConfig.upsert({
@@ -2319,12 +2321,10 @@ Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
                 let priceDisplay = `R$ ${p.price}`;
                 let priceDetails = "";
 
-                if (p.priceHidden) {
+                const globalHidePrices = config.catalogConfig?.hidePrices || false;
+                if (globalHidePrices) {
                     // If price is hidden, use the reason as the display text
-                    let reason = p.priceHiddenReason || 'Sob consulta';
-                    if (reason === 'Outro' && p.customPriceHiddenReason) {
-                        reason = p.customPriceHiddenReason;
-                    }
+                    let reason = config.catalogConfig?.hidePricesReason || 'Sob consulta';
                     priceDisplay = `[PREÇO_OCULTO: ${reason}]`;
                 } else {
                     // Standard Price Logic (Matrix)
@@ -3011,7 +3011,7 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                     type: p.type === 'service' ? 'servico' : 'produto',
                                     description: String(p.description || '').substring(0, 500),
                                     price: Number(p.price),
-                                    priceHidden: p.priceHidden || false,
+                                    priceHidden: config.catalogConfig?.hidePrices || false,
                                     unit: p.unit || 'Unidade',
                                     customUnit: p.customUnit || '',
                                     paymentConditions: p.paymentConditions || '',
@@ -3683,12 +3683,15 @@ function resolveProductImageFromConfig(targetId, config) {
     let cleanId = String(targetId).trim();
     console.log(`[ImageResolution] Searching for Image. Target: "${cleanId}" in ${products.length} products.`);
 
+    const hidePrices = config.catalogConfig?.hidePrices || false;
+
     // Check Parent (ID exact match)
     for (const p of products) {
         if (String(p.id) === cleanId) {
             if (p.image) {
                 console.log(`[ImageResolution] FOUND by ID Match: ${cleanId}`);
-                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+                const caption = hidePrices ? p.name : `${p.name} - R$ ${p.price}`;
+                return { found: true, url: p.image, caption };
             } else {
                 // Produto encontrado mas SEM imagem cadastrada
                 console.log(`[ImageResolution] Product ${cleanId} exists but has NO IMAGE`);
@@ -3705,7 +3708,8 @@ function resolveProductImageFromConfig(targetId, config) {
         if (p.name && p.name.toLowerCase().includes(cleanId.toLowerCase())) {
             if (p.image) {
                 console.log(`[ImageResolution] FOUND by Name Match: "${cleanId}" in "${p.name}"`);
-                return { found: true, url: p.image, caption: `${p.name} - R$ ${p.price}` };
+                const caption = hidePrices ? p.name : `${p.name} - R$ ${p.price}`;
+                return { found: true, url: p.image, caption };
             }
         }
 
@@ -3716,7 +3720,8 @@ function resolveProductImageFromConfig(targetId, config) {
                 if (variant.image || p.image) {
                     const details = [variant.color, variant.size].filter(Boolean).join(' / ');
                     console.log(`[ImageResolution] FOUND VARIANT by ID Match: ${cleanId} (Parent: ${p.name})`);
-                    return { found: true, url: variant.image || p.image, caption: `${p.name} - ${details} - R$ ${variant.price || p.price}` };
+                    const caption = hidePrices ? `${p.name} - ${details}` : `${p.name} - ${details} - R$ ${variant.price || p.price}`;
+                    return { found: true, url: variant.image || p.image, caption };
                 } else {
                     // Variação encontrada mas sem imagem
                     console.log(`[ImageResolution] Variant ${cleanId} exists but has NO IMAGE`);

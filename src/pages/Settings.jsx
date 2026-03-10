@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Save, Bot, Cpu, Mic, Volume2, Globe, Clock, MessageCircle } from 'lucide-react';
+import { Save, Bot, Cpu, Mic, Volume2, Globe, Clock, MessageCircle, Package } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Settings = () => {
@@ -39,6 +39,12 @@ const Settings = () => {
             { id: 4, delayValue: 3, delayUnit: 'days', active: true },
             { id: 5, delayValue: 7, delayUnit: 'days', active: true }
         ]
+    });
+
+    const [catalogConfig, setCatalogConfig] = useState({
+        hidePrices: false,
+        hidePricesReason: 'Sob consulta',
+        customPriceHiddenReason: ''
     });
 
     const [showToast, setShowToast] = useState(false);
@@ -99,6 +105,18 @@ const Settings = () => {
                         } catch (e) { console.error("Error parsing followUpConfig", e); }
                     }
 
+                    // Populate Catalog Config
+                    if (data.catalogConfig) {
+                        try {
+                            const parsedCatalog = typeof data.catalogConfig === 'string' ? JSON.parse(data.catalogConfig) : data.catalogConfig;
+                            setCatalogConfig({
+                                hidePrices: parsedCatalog.hidePrices || false,
+                                hidePricesReason: parsedCatalog.hidePricesReason || 'Sob consulta',
+                                customPriceHiddenReason: parsedCatalog.customPriceHiddenReason || ''
+                            });
+                        } catch (e) { console.error("Error parsing catalogConfig", e); }
+                    }
+
                     // CRITICAL: Preserve products from DB
                     if (data.products && Array.isArray(data.products)) {
                         setServerProducts(data.products);
@@ -144,6 +162,14 @@ const Settings = () => {
 
     const handleFollowUpChange = (field, value) => {
         setFollowUp(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleCatalogChange = (e) => {
+        const { name, type, checked, value } = e.target;
+        setCatalogConfig(prev => ({
+            ...prev,
+            [name]: type === 'checkbox' ? checked : value
+        }));
     };
 
     const handleSave = async () => {
@@ -241,7 +267,10 @@ DIRETRIZES:
                     // products field removed to prevent overwriting managed data from ProductConfig
 
                     // NEW: Save Follow-up Config
-                    followUpConfig: JSON.stringify(followUp)
+                    followUpConfig: JSON.stringify(followUp),
+
+                    // NEW: Save Catalog Config
+                    catalogConfig: JSON.stringify(catalogConfig)
                 }),
             });
 
@@ -316,7 +345,7 @@ DIRETRIZES:
                     onClick={() => setActiveSection('followup')}
                     style={{
                         display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '12px',
-                        borderRadius: 'var(--radius-md)',
+                        borderRadius: 'var(--radius-md)', marginBottom: '4px',
                         background: activeSection === 'followup' ? 'var(--primary-light)' : 'transparent',
                         color: activeSection === 'followup' ? 'var(--primary-blue)' : 'var(--text-medium)',
                         fontWeight: 500
@@ -324,6 +353,21 @@ DIRETRIZES:
                 >
                     <Clock size={20} />
                     Follow-up (IA)
+                </button>
+
+                {/* CATALOG TAB */}
+                <button
+                    onClick={() => setActiveSection('catalog')}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '12px',
+                        borderRadius: 'var(--radius-md)',
+                        background: activeSection === 'catalog' ? 'var(--primary-light)' : 'transparent',
+                        color: activeSection === 'catalog' ? 'var(--primary-blue)' : 'var(--text-medium)',
+                        fontWeight: 500
+                    }}
+                >
+                    <Package size={20} />
+                    Catálogo de Produtos
                 </button>
             </div>
 
@@ -704,6 +748,77 @@ DIRETRIZES:
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Catalog Section */}
+                {activeSection === 'catalog' && (
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+                            <div>
+                                <h2 style={{ fontSize: '20px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <Package size={24} color="var(--primary-blue)" />
+                                    Configurações do Catálogo
+                                </h2>
+                                <p style={{ color: 'var(--text-medium)', marginTop: 8 }}>
+                                    Defina regras gerais para a forma como a IA apresenta seus produtos e serviços.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{ background: '#F9FAFB', padding: 24, borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 24 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                                <input
+                                    type="checkbox"
+                                    id="hidePrices"
+                                    name="hidePrices"
+                                    checked={catalogConfig.hidePrices}
+                                    onChange={handleCatalogChange}
+                                    style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                                />
+                                <label htmlFor="hidePrices" style={{ fontWeight: 600, cursor: 'pointer', fontSize: '15px' }}>
+                                    Ocultar os preços de todos os produtos
+                                </label>
+                            </div>
+                            <p style={{ fontSize: 13, color: '#6B7280', marginBottom: '20px', paddingLeft: '32px' }}>
+                                Quando ativado, a IA nunca informará o valor real do produto/serviço para os clientes ou na legenda das fotos.
+                            </p>
+
+                            {catalogConfig.hidePrices && (
+                                <div style={{ paddingLeft: '32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                    <div style={{ padding: '16px', background: '#FEF3C7', borderRadius: '8px', border: '1px solid #FCD34D' }}>
+                                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#92400E' }}>
+                                            Motivo / Mensagem Substituta (O que a IA vai dizer?)
+                                        </label>
+                                        <select
+                                            name="hidePricesReason"
+                                            value={catalogConfig.hidePricesReason}
+                                            onChange={handleCatalogChange}
+                                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #F59E0B', fontSize: '14px', marginBottom: catalogConfig.hidePricesReason === 'Outro' ? '12px' : '0' }}
+                                        >
+                                            <option value="Sob consulta">Sob consulta (Ex: "O valor é sob consulta")</option>
+                                            <option value="Preço com vendedor">Preço com vendedor (A IA dirá que um consultor informará)</option>
+                                            <option value="A partir de (Variável)">A partir de (Variável de acordo com projeto)</option>
+                                            <option value="Outro">Outro (Mensagem Personalizada)</option>
+                                        </select>
+
+                                        {catalogConfig.hidePricesReason === 'Outro' && (
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px', color: '#92400E' }}>Sua Mensagem Personalizada:</label>
+                                                <input
+                                                    type="text"
+                                                    name="customPriceHiddenReason"
+                                                    value={catalogConfig.customPriceHiddenReason}
+                                                    onChange={handleCatalogChange}
+                                                    placeholder='Ex: "Valor sob medida, vou chamar um técnico."'
+                                                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #F59E0B', fontSize: '14px' }}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
