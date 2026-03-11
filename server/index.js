@@ -139,10 +139,13 @@ const handleWebhookRequest = async (req, res) => {
         for (const key of Object.keys(obj)) {
             const val = obj[key];
             const newPath = `${currentPath}.${key}`;
-            if (key === 'whatsappId' || (key === 'id' && currentPath.endsWith('.whatsapp'))) {
-                if (val !== null && val !== undefined) {
+            const lowerKey = key.toLowerCase();
+            const idKeys = ['whatsappid', 'instanceid', 'connectionid', 'wabaid', 'sessionid', 'sessionname', 'session'];
+            
+            if (idKeys.includes(lowerKey) || (lowerKey === 'id' && currentPath.endsWith('.whatsapp'))) {
+                if (val !== null && val !== undefined && (typeof val === 'string' || typeof val === 'number')) {
                     const strVal = String(val).trim();
-                    foundIds.add(strVal);
+                    if (strVal) foundIds.add(strVal);
                 }
             }
             if (val && typeof val === 'object') {
