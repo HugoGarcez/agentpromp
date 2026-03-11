@@ -20,14 +20,21 @@ cd server
 npm install
 cd ..
 
-# 4. Build de Produção (Frontend)
-echo "🏗️  4. Gerando build de produção (Vite)..."
+# 4. Atualizar Schema do Banco de Dados (Prisma)
+echo "🗄️  4. Atualizando Schema do Banco de Dados..."
+cd server
+npx prisma generate
+npx prisma migrate deploy
+cd ..
+
+# 5. Build de Produção (Frontend)
+echo "🏗️  5. Gerando build de produção (Vite)..."
 npm run build
 
-# 5. Reiniciar o Servidor (PM2)
-echo "🔄 5. Reiniciando processo PM2 (promp-ia)..."
+# 6. Reiniciar o Servidor (PM2)
+echo "🔄 6. Reiniciando processo PM2 (promp-ia)..."
 # Tenta recarregar (reload = zero downtime), se falhar, restart/start
-pm2 reload promp-ia || pm2 restart promp-ia || pm2 start server/index.js --name promp-ia
+pm2 reload promp-ia || pm2 restart promp-ia || pm2 start server/polyfill.js --name promp-ia
 
 echo "--------------------------------------------------"
 echo "✅ Atualização Concluída com Sucesso!"
