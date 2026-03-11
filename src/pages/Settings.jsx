@@ -52,9 +52,6 @@ const Settings = () => {
 
     const [showToast, setShowToast] = useState(false);
     const [serverProducts, setServerProducts] = useState([]); // Store products from DB to prevent overwrite
-    const [isPrompConnected, setIsPrompConnected] = useState(false);
-    const [prompChannels, setPrompChannels] = useState([]);
-    const [loadingChannels, setLoadingChannels] = useState(false);
     const { user } = useAuth();
 
     // Load settings from Backend on mount (Source of Truth)
@@ -145,9 +142,8 @@ const Settings = () => {
                         setServerProducts(data.products);
                     }
 
-                    // Check Promp Connection
                     if (data.prompUuid) {
-                        setIsPrompConnected(true);
+                        // isPrompConnected is no longer used here
                     }
                 }
             } catch (e) {
@@ -163,53 +159,6 @@ const Settings = () => {
 
     }, [user, selectedAgentId]);
 
-    const fetchChannels = async () => {
-        try {
-            setLoadingChannels(true);
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/promp/channels', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setPrompChannels(data.channels || []);
-            }
-        } catch (e) {
-            console.error("Failed to fetch Promp channels:", e);
-        } finally {
-            setLoadingChannels(false);
-        }
-    };
-
-    const toggleChannelLink = async (channelObj, isLinked) => {
-        if (!selectedAgentId) return alert("Selecione um agente primeiro.");
-        try {
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/promp/channels/link', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    agentId: selectedAgentId,
-                    channelObj,
-                    link: !isLinked
-                })
-            });
-            if (res.ok) {
-                fetchChannels(); // Refresh list to show updated links
-            }
-        } catch (e) {
-            console.error("Link error:", e);
-        }
-    };
-
-    useEffect(() => {
-        if (isPrompConnected) {
-            fetchChannels();
-        }
-    }, [isPrompConnected, selectedAgentId]);
 
     const handlePersonaChange = (e) => {
         setPersona({ ...persona, [e.target.name]: e.target.value });
@@ -509,202 +458,6 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                                 </p>
                             </div>
 
-                            {/* PROMP API INTEGRATION CARD (MOVED HERE) */}
-                            <div style={{ padding: "24px", border: "1px solid #10B981", borderRadius: "var(--radius-md)", background: "#F0FDF4" }}>
-                                <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#059669", marginBottom: "8px", display: "flex", alignItems: "center", gap: "8px" }}>
-                                    <Globe size={20} />
-                                    Integração Promp
-                                </h3>
-                                <p style={{ color: "#047857", fontSize: "14px", marginBottom: "16px" }}>
-                                    Configure a conexão com o sistema Promp utilizando a URL da API e o Token de Acesso.
-                                </p>
-
-                                {!isPrompConnected ? (
-                                    <div style={{ display: "grid", gap: "16px" }}>
-                                        <div>
-                                            <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500, color: "#047857" }}>URL da API Promp (External)</label>
-                                            <input
-                                                type="text"
-                                                placeholder="https://api.promp.com.br/v2/api/external/SEU-ID-AQUI"
-                                                id="prompApiUrlInput"
-                                                style={{
-                                                    width: "100%", padding: "10px",
-                                                    borderRadius: "var(--radius-md)",
-                                                    border: "1px solid #10B981",
-                                                    background: "white"
-                                                }}
-                                            />
-                                            <p style={{ fontSize: "12px", color: "#059669", marginTop: "4px" }}>Copie a 'Url de Integração' do sistema Promp.</p>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500, color: "#047857" }}>Bearer Token (API Key)</label>
-                                            <input
-                                                type="password"
-                                                placeholder="eyJhbGci..."
-                                                id="prompApiTokenInput"
-                                                style={{
-                                                    width: "100%", padding: "10px",
-                                                    borderRadius: "var(--radius-md)",
-                                                    border: "1px solid #10B981",
-                                                    background: "white"
-                                                }}
-                                            />
-                                        </div>
-                                        <button
-                                            onClick={async () => {
-                                                const apiUrl = document.getElementById("prompApiUrlInput").value;
-                                                const apiToken = document.getElementById("prompApiTokenInput").value;
-                                                if (!apiUrl || !apiToken) return alert("URL e Token são obrigatórios.");
-
-                                                try {
-                                                    const token = localStorage.getItem("token");
-                                                    const res = await fetch("/api/promp/connect", {
-                                                        method: "POST",
-                                                        headers: {
-                                                            "Content-Type": "application/json",
-                                                            "Authorization": `Bearer ${token}`
-                                                        },
-                                                        body: JSON.stringify({ apiUrl, apiToken })
-                                                    });
-
-                                                    const data = await res.json();
-                                                    if (res.ok) {
-                                                        alert("Promp conectada com sucesso!");
-                                                        setIsPrompConnected(true);
-                                                        fetchChannels();
-                                                    } else {
-                                                        alert(data.message || "Erro ao conectar.");
-                                                    }
-                                                } catch (e) {
-                                                    alert("Erro de conexão.");
-                                                }
-                                            }}
-                                            style={{
-                                                background: "#10B981",
-                                                color: "white",
-                                                padding: "12px 20px",
-                                                borderRadius: "var(--radius-md)",
-                                                fontWeight: 600,
-                                                cursor: "pointer",
-                                                border: "none"
-                                            }}
-                                        >
-                                            Validar e Conectar Promp
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div style={{ borderTop: "1px solid #10B981", paddingTop: "16px", marginTop: "16px" }}>
-                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
-                                            <div style={{ display: "flex", alignItems: 'center', gap: "8px" }}>
-                                                <div style={{ width: "10px", height: "10px", background: "#059669", borderRadius: "50%" }}></div>
-                                                <strong style={{ color: "#059669" }}>Integração Global Ativa (Manual)</strong>
-                                            </div>
-                                            <button
-                                                onClick={() => setIsPrompConnected(false)}
-                                                style={{
-                                                    border: "1px solid #059669",
-                                                    background: "transparent",
-                                                    color: "#059669",
-                                                    padding: "6px 12px",
-                                                    borderRadius: "var(--radius-md)",
-                                                    fontSize: "12px",
-                                                    fontWeight: 600,
-                                                    cursor: "pointer"
-                                                }}
-                                            >
-                                                Redefinir Configurações
-                                            </button>
-                                        </div>
-
-                                        <h4 style={{ fontSize: "15px", fontWeight: 600, color: "#059669", marginBottom: "12px" }}>Canais do Agente</h4>
-                                        <p style={{ fontSize: "13px", color: "#047857", marginBottom: "16px" }}>
-                                            Selecione os canais que o agente <b>{agents.find(a => a.id === selectedAgentId)?.name || "Selecionado"}</b> deve responder:
-                                        </p>
-
-                                        {loadingChannels ? (
-                                            <div style={{ textAlign: "center", padding: "20px", color: "#059669" }}>Carregando canais...</div>
-                                        ) : (
-                                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: "12px" }}>
-                                                {prompChannels.map(ch => {
-                                                    const isLinked = ch.linkedAgents?.some(a => a.id === selectedAgentId);
-                                                    return (
-                                                        <div key={ch.id} style={{
-                                                            background: "white",
-                                                            padding: "12px",
-                                                            borderRadius: "8px",
-                                                            border: isLinked ? "2px solid #10B981" : "1px solid #E5E7EB",
-                                                            display: "flex",
-                                                            justifyContent: "space-between",
-                                                            alignItems: "center"
-                                                        }}>
-                                                            <div style={{ overflow: "hidden" }}>
-                                                                <div style={{ fontWeight: 600, fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ch.name}</div>
-                                                                <div style={{ fontSize: "11px", color: "#6B7280" }}>{ch.type.toUpperCase()} | {ch.status}</div>
-                                                            </div>
-                                                            <button
-                                                                onClick={() => toggleChannelLink(ch, isLinked)}
-                                                                style={{
-                                                                    padding: "4px 8px",
-                                                                    borderRadius: "4px",
-                                                                    fontSize: "11px",
-                                                                    fontWeight: 700,
-                                                                    cursor: "pointer",
-                                                                    border: "none",
-                                                                    background: isLinked ? "#FEE2E2" : "#D1FAE5",
-                                                                    color: isLinked ? "#B91C1C" : "#065F46"
-                                                                }}
-                                                            >
-                                                                {isLinked ? "Desvincular" : "Vincular"}
-                                                            </button>
-                                                        </div>
-                                                    );
-                                                })}
-                                                {prompChannels.length === 0 && <div style={{ color: "#047857", fontSize: "13px", fontStyle: "italic" }}>Nenhum canal encontrado. Verifique sua conta Promp.</div>}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--bg-main)' }}>
-                                <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px' }}>Webhook Manual (Genérico)</h3>
-                                <p style={{ color: 'var(--text-medium)', fontSize: '14px', marginBottom: '16px' }}>
-                                    Utilize este URL para integração manual secundária:
-                                </p>
-                                <div style={{ display: 'flex', gap: '12px' }}>
-                                    <input
-                                        type="text"
-                                        readOnly
-                                        value={webhookUrl}
-                                        style={{
-                                            flex: 1,
-                                            padding: '12px',
-                                            borderRadius: 'var(--radius-md)',
-                                            border: '1px solid var(--border-color)',
-                                            background: 'var(--bg-white)',
-                                            color: 'var(--text-medium)'
-                                        }}
-                                    />
-                                    <button
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(webhookUrl);
-                                            setShowToast(true);
-                                            setTimeout(() => setShowToast(false), 2000);
-                                        }}
-                                        style={{
-                                            padding: '0 20px',
-                                            background: 'var(--bg-white)',
-                                            border: '1px solid var(--border-color)',
-                                            borderRadius: 'var(--radius-md)',
-                                            fontWeight: 500,
-                                            cursor: 'pointer',
-                                            color: 'var(--text-dark)'
-                                        }}
-                                    >
-                                        Copiar
-                                    </button>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 )}
