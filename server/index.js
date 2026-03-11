@@ -3488,13 +3488,14 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
         });
 
         const detailedTenants = await Promise.all(detailPromises);
-        const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
+        const targetTenant = detailedTenants.find(t => t && (sanitize(t.identity) === targetIdentity || sanitize(t.cnpj) === targetIdentity || sanitize(t.cpf) === targetIdentity));
 
         if (!targetTenant) {
+            console.log(`[Promp] Tenants detalhados para debug:`, JSON.stringify(detailedTenants.map(t => ({ id: t.id, name: t.name, identity: t.identity, cnpj: t.cnpj })), null, 2));
             return res.status(404).json({ message: `Nenhum Tenant encontrado na Promp com a identidade ${identity}.` });
         }
 
-        console.log(`[Promp] Tenant encontrado: ${targetTenant.name} (ID: ${targetTenant.id})`);
+        console.log(`[Promp] Tenant encontrado: ${targetTenant.name} (ID: ${targetTenant.id}). Meta:`, JSON.stringify(targetTenant, null, 2));
 
         // 3. SEGURANÇA: Validar se o usuário logado existe no Tenant da Promp
         const currentUser = await prisma.user.findUnique({ where: { id: req.user.userId } });
@@ -3515,7 +3516,10 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             // Strategy 2: Explicit Fetch (Trying root level patterns first, then v2 as last resort)
             console.log(`[Promp] Buscando lista de usuários para Tenant #${targetTenant.id}...`);
             
+            const apiId = targetTenant.tenantEmail || targetTenant.uuid || targetTenant.id;
             const urlsToTry = [
+                { url: `${PROMP_BASE_URL}/v2/api/external/${apiId}/listUsers?pageNumber=1`, method: 'GET' }, // Sugerido pelo usuário
+                { url: `${PROMP_BASE_URL}/tenantApiListUsers`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) }, // Possível padrão admin
                 { url: `${PROMP_BASE_URL}/userApiList`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) },
                 { url: `${PROMP_BASE_URL}/listUsers?tenantId=${targetTenant.id}&pageNumber=1`, method: 'GET' },
                 { url: `${PROMP_BASE_URL}/v2/api/userApiList`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) },
