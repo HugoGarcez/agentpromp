@@ -126,7 +126,9 @@ const handleWebhookRequest = async (req, res) => {
     let matchedChannel = null;
 
     // 2. Identify Sender and Owner Early
-    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
+    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || 
+                      payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender ||
+                      payload.ticket?.contact?.number || payload.sender?.number;
     const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
     
     const rawOwner = payload.msg?.owner || payload.owner || payload.to || payload.msg?.to || 
@@ -446,6 +448,7 @@ const handleWebhookRequest = async (req, res) => {
         payload.message?.text ||
         payload.msg?.text ||
         payload.msg?.body ||
+        payload.msg?.message ||
         payload.msg?.content;
 
     // 🔥 CRITICAL FIX: Ensure userMessage is always a STRING (never object)
