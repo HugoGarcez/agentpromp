@@ -15,6 +15,11 @@ model Company {
   users     User[]
   agents    AgentConfig[] @relation("CompanyAgents")
 
+  // Global Promp Integration
+  prompIdentity String?
+  prompUuid     String?
+  prompToken    String?
+
   // New Relations
   prompChannels    PrompChannel[]
   specialists      Specialist[]

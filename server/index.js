@@ -123,16 +123,36 @@ const handleWebhookRequest = async (req, res) => {
     // Load Config EARLY (needed for Identity check)
     let followUpCfg = null;
     let config = null;
+    let followUpCfg = null;
     let matchedChannel = null;
 
-    // Recursive ID search moved up!
-
-    // 2. Identify Sender and Owner Early (moved up for channel resolution)
+    // 2. Identify Sender and Owner Early
     const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
     const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
     
     const rawOwner = payload.msg?.owner || payload.owner;
     const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+
+    // --- REAL-TIME DIAGNOSTIC RECURSIVE ID FINDER ---
+    const foundIds = new Set();
+    const findIdsRecursively = (obj, currentPath = 'payload') => {
+        if (!obj || typeof obj !== 'object') return;
+        for (const key of Object.keys(obj)) {
+            const val = obj[key];
+            const newPath = `${currentPath}.${key}`;
+            if (key === 'whatsappId' || (key === 'id' && currentPath.endsWith('.whatsapp'))) {
+                if (val !== null && val !== undefined) {
+                    const strVal = String(val).trim();
+                    foundIds.add(strVal);
+                }
+            }
+            if (val && typeof val === 'object') {
+                findIdsRecursively(val, newPath);
+            }
+        }
+    };
+    findIdsRecursively(payload);
+    const incomingConnectionIdArr = Array.from(foundIds);
 
     try {
         // MULTIPLE AGENTS RESOLUTION
@@ -149,23 +169,17 @@ const handleWebhookRequest = async (req, res) => {
             matchedChannel = channels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner);
         }
 
+        let agentId = null;
         if (matchedChannel && matchedChannel.agents.length > 0) {
-            config = matchedChannel.agents[0]; // Take FIRST agent
-            console.log(`[Webhook] Routed to Channel ${matchedChannel.name}, Agent: ${config.name}`);
-        } else {
-            // FALLBACK
-            config = await prisma.agentConfig.findFirst({ where: { companyId } });
+            agentId = matchedChannel.agents[0].id; // Take FIRST agent linked to this channel
+            console.log(`[Webhook] Routed to Channel ${matchedChannel.name}, Agent ID: ${agentId}`);
         }
 
+        // LOAD FULL CONFIG (Global Tokens + JSON Parsed)
+        config = await getCompanyConfig(companyId, agentId);
+
         if (config?.followUpConfig) {
-            // Safe JSON Parsing to avoid SyntaxError
-            if (typeof config.followUpConfig === 'string') {
-                if (config.followUpConfig.trim().startsWith('{')) {
-                    followUpCfg = JSON.parse(config.followUpConfig);
-                }
-            } else if (typeof config.followUpConfig === 'object') {
-                followUpCfg = config.followUpConfig;
-            }
+            followUpCfg = config.followUpConfig; // It's already parsed by getCompanyConfig
         }
     } catch (e) {
         console.error('[Webhook] Failed to load config:', e);
@@ -180,7 +194,7 @@ const handleWebhookRequest = async (req, res) => {
         payload.msg?.id ||
         payload.content?.messageId ||
         payload.body?.content?.messageId ||
-        payload.ticket?.uniqueId; // Add more candidates
+        payload.ticket?.uniqueId;
 
     if (msgId) {
         if (processedMessages.has(msgId)) {
@@ -188,7 +202,6 @@ const handleWebhookRequest = async (req, res) => {
             return res.json({ status: 'ignored_duplicate' });
         }
         processedMessages.add(msgId);
-        // Clear from memory after 15 seconds
         setTimeout(() => processedMessages.delete(msgId), 15000);
     }
 
@@ -196,14 +209,10 @@ const handleWebhookRequest = async (req, res) => {
     // LOOP PROTECTION & SENDER IDENTITY
     // ------------------------------------------------------------------
 
-    // 1. Check "wasSentByApi" (Explicit flag from some Providers)
-    // If true, it is DEFINITELY the bot/agent.
     if (payload.wasSentByApi || payload.msg?.wasSentByApi || payload.data?.wasSentByApi) {
         console.log('[Webhook] Loop Protection: Message marked as "wasSentByApi". Ignoring.');
         return res.json({ status: 'ignored_api_sent' });
     }
-
-    // 2. Sender identify moved up!
 
     // 4. Identify Configured Identity & Connection ID (From DB)
     let dbIdentity = null;
@@ -212,55 +221,24 @@ const handleWebhookRequest = async (req, res) => {
         if (matchedChannel.prompIdentity) dbIdentity = String(matchedChannel.prompIdentity).replace(/\D/g, '');
         if (matchedChannel.prompConnectionId) dbConnectionId = String(matchedChannel.prompConnectionId).trim();
     } else if (config) {
+        // Fallback backward compat
         if (config.prompIdentity) dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
         if (config.prompConnectionId) dbConnectionId = String(config.prompConnectionId).trim(); 
     }
-
-    // --- V6 REAL-TIME DIAGNOSTIC RECURSIVE ID FINDER ---
-    console.log(`[Webhook-V6-ENV] PID: ${process.pid} | CWD: ${process.cwd()} | File: ${__filename}`);
-
-    const foundIds = new Set();
-    const findIdsRecursively = (obj, currentPath = 'payload') => {
-        if (!obj || typeof obj !== 'object') return;
-
-        // Check for common keys
-        for (const key of Object.keys(obj)) {
-            const val = obj[key];
-            const newPath = `${currentPath}.${key}`;
-
-            if (key === 'whatsappId' || (key === 'id' && currentPath.endsWith('.whatsapp'))) {
-                if (val !== null && val !== undefined) {
-                    const strVal = String(val).trim();
-                    console.log(`[Webhook-V6-DIAG] Found candidate ID '${strVal}' at: ${newPath}`);
-                    foundIds.add(strVal);
-                }
-            }
-
-            // Recurse
-            if (val && typeof val === 'object') {
-                findIdsRecursively(val, newPath);
-            }
-        }
-    };
-
-    findIdsRecursively(payload);
-    const incomingConnectionIdArr = Array.from(foundIds);
 
     if (dbConnectionId) {
         if (incomingConnectionIdArr.length === 0) {
             console.log(`[Webhook-V6] ERROR: No WhatsApp ID found in payload (Recursive Search). Expected: '${dbConnectionId}'. Ignoring.`);
             return res.json({ status: 'ignored_missing_whatsapp_id' });
         }
-
         const hasMatch = incomingConnectionIdArr.includes(dbConnectionId);
-
         if (!hasMatch) {
             console.log(`[Webhook-V6] CONNECTION ISOLATION: Expected ID '${dbConnectionId}' NOT FOUND. Candidates: ${JSON.stringify(incomingConnectionIdArr)}. Ignoring.`);
             return res.json({ status: 'ignored_wrong_whatsapp_id' });
         }
-
         console.log(`[Webhook-V6] CONNECTION MATCH VERIFIED: ID '${dbConnectionId}' found recursively.`);
     }
+
 
     // IDENTITY CHECK (Secondary/Legacy check: "Consider ONLY what is sent TO the number that is in the AI")
     // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
@@ -1621,10 +1599,13 @@ const getCompanyConfig = async (companyId, agentId = null) => {
             knowledgeBase: safeParse(config.knowledgeBase),
             followUpConfig: safeParse(config.followUpConfig),
             catalogConfig: safeParse(config.catalogConfig),
-            // Scheduling Data
             specialists: config.company?.specialists || [],
             appointmentTypes: config.company?.appointmentTypes || [],
-            googleConfig: config.company?.googleConfig || null
+            googleConfig: config.company?.googleConfig || null,
+            // Fallback to Global Promp credentials if agent doesn't have them
+            prompIdentity: config.prompIdentity || config.company?.prompIdentity,
+            prompUuid: config.prompUuid || config.company?.prompUuid,
+            prompToken: config.prompToken || config.company?.prompToken
         };
     } catch (error) {
         console.error(`[Config] Error fetching config for ${companyId}:`, error);
@@ -3447,8 +3428,8 @@ app.get('/api/chat/history', authenticateToken, async (req, res) => {
 
 
 app.post('/api/promp/connect', authenticateToken, async (req, res) => {
-    // SessionID manual input support
-    const { identity, sessionId, manualUserId, agentId } = req.body;
+    // SessionID is no longer strictly required for the global tenant connection, but we can generate a random one.
+    const { identity, manualUserId } = req.body;
     const companyId = req.user.companyId;
 
     if (!PROMP_ADMIN_TOKEN) {
@@ -3506,12 +3487,10 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
         console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
 
         // 3. Create API (Best Effort)
-        const apiName = "Agente IA Auto";
+        const apiName = "Agente IA Global";
 
-        // Priority: Manual Session ID > Tenant ID (Fallback)
-        // If manual sessionId is provided, use it blindly.
-        // If not, use tenant.id (which failed before, but is the best guess if no other option).
-        const finalSessionId = sessionId || targetTenant.id;
+        // Since this is a global connection, we can just use the tenant.id as a fallback Session ID
+        const finalSessionId = targetTenant.id;
 
         // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
         // We must find a valid User ID *inside* this specific tenant.
@@ -3653,38 +3632,129 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             });
         }
 
-        // SAVE TO DB (Upsert to create if missing)
-        const newChannel = await prisma.prompChannel.upsert({
-            where: { companyId_prompUuid: { companyId, prompUuid: apiData.id } },
-            update: {
-                name: targetTenant.name + ' (' + sessionId + ')',
+        // SAVE TO DB (Global to Company)
+        await prisma.company.update({
+            where: { id: companyId },
+            data: {
                 prompIdentity: identity,
-                prompConnectionId: sessionId,
-                prompToken: apiData.token
-            },
-            create: {
-                companyId,
-                name: targetTenant.name + ' (' + sessionId + ')',
-                prompIdentity: identity,
-                prompConnectionId: sessionId,
                 prompUuid: apiData.id,
                 prompToken: apiData.token
             }
         });
-        
-        // Link to explicit agent if provided
-        if (req.body.agentId) {
-            await prisma.prompChannel.update({
-                where: { id: newChannel.id },
-                data: { agents: { connect: { id: req.body.agentId } } }
-            });
-        }
 
-        res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
+        res.json({ success: true, message: `Integração Global Conectada: ${targetTenant.name}` });
 
     } catch (error) {
         console.error('Promp Connect Error:', error);
         res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+    }
+});
+
+
+// --- GLOBAL CHANNELS API (List and Link) ---
+app.get('/api/promp/channels', authenticateToken, async (req, res) => {
+    try {
+        const companyId = req.user.companyId;
+
+        // Fetch global promp integration from Company
+        const company = await prisma.company.findUnique({
+            where: { id: companyId },
+            select: { prompUuid: true, prompToken: true }
+        });
+
+        if (!company || !company.prompUuid || !company.prompToken) {
+            return res.json({ channels: [] }); // Not integrated globally yet
+        }
+
+        const url = `${PROMP_BASE_URL}/v2/api/external/${company.prompUuid}/listChannels`;
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${company.prompToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            console.error('[Promp] Failed to list channels:', await response.text());
+            return res.status(response.status).json({ message: 'Erro ao buscar canais na Promp' });
+        }
+
+        const data = await response.json();
+        
+        // Also fetch from DB to see which are already linked to which agents
+        const linkedChannels = await prisma.prompChannel.findMany({
+            where: { companyId },
+            include: { agents: { select: { id: true, name: true } } }
+        });
+
+        // Map backend channels and embellish with DB links
+        let finalChannels = [];
+        if (data && Array.isArray(data.channels)) {
+            finalChannels = data.channels.map(ch => {
+                const dbMatch = linkedChannels.find(l => String(l.prompConnectionId) === String(ch.id) || String(l.prompConnectionId) === String(ch.wabaId) || String(l.name) === String(ch.name));
+                return {
+                    ...ch,
+                    dbId: dbMatch ? dbMatch.id : null,
+                    linkedAgents: dbMatch ? dbMatch.agents : []
+                };
+            });
+        }
+
+        res.json({ channels: finalChannels });
+    } catch (e) {
+        console.error('Error fetching global channels:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
+    try {
+        const companyId = req.user.companyId;
+        const { agentId, channelObj, link } = req.body; // link = true (connect), false (disconnect)
+
+        if (!agentId || !channelObj) {
+            return res.status(400).json({ message: 'agentId e channelObj são obrigatórios.' });
+        }
+
+        const connectionId = String(channelObj.wabaId || channelObj.id || channelObj.name);
+
+        // 1. Ensure channel exists in DB
+        let channelRecord = await prisma.prompChannel.findFirst({
+            where: { companyId, prompConnectionId: connectionId }
+        });
+
+        if (!channelRecord) {
+            // First time linking this specific channel
+            channelRecord = await prisma.prompChannel.create({
+                data: {
+                    companyId,
+                    name: channelObj.name || `Canal ${connectionId}`,
+                    prompConnectionId: connectionId,
+                    prompIdentity: String(channelObj.id), // Store its internal Promp ID too
+                    // Do we need the exact token per channel? The global one works for all.
+                    // But for backwards compat, store what we have or generic
+                }
+            });
+        }
+
+        // 2. Link or Unlink agent
+        if (link) {
+            await prisma.prompChannel.update({
+                where: { id: channelRecord.id },
+                data: { agents: { connect: { id: agentId } } }
+            });
+        } else {
+            await prisma.prompChannel.update({
+                where: { id: channelRecord.id },
+                data: { agents: { disconnect: { id: agentId } } }
+            });
+        }
+
+        res.json({ success: true, message: link ? 'Canal vinculado' : 'Canal desvinculado' });
+
+    } catch (e) {
+        console.error('Error linking channel:', e);
+        res.status(500).json({ error: e.message });
     }
 });
 

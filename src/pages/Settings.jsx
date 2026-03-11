@@ -53,6 +53,8 @@ const Settings = () => {
     const [showToast, setShowToast] = useState(false);
     const [serverProducts, setServerProducts] = useState([]); // Store products from DB to prevent overwrite
     const [isPrompConnected, setIsPrompConnected] = useState(false);
+    const [prompChannels, setPrompChannels] = useState([]);
+    const [loadingChannels, setLoadingChannels] = useState(false);
     const { user } = useAuth();
 
     // Load settings from Backend on mount (Source of Truth)
@@ -82,7 +84,55 @@ const Settings = () => {
         };
         fetchAgents();
     
-        const fetchConfig = async () => {
+        const fetchChannels = async () => {
+        try {
+            setLoadingChannels(true);
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/promp/channels', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setPrompChannels(data.channels || []);
+            }
+        } catch (e) {
+            console.error("Failed to fetch Promp channels:", e);
+        } finally {
+            setLoadingChannels(false);
+        }
+    };
+
+    const toggleChannelLink = async (channelObj, isLinked) => {
+        if (!selectedAgentId) return alert("Selecione um agente primeiro na barra superior.");
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/promp/channels/link', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    agentId: selectedAgentId,
+                    channelObj,
+                    link: !isLinked
+                })
+            });
+            if (res.ok) {
+                fetchChannels(); // Refresh list to show updated links
+            }
+        } catch (e) {
+            console.error("Link error:", e);
+        }
+    };
+
+    useEffect(() => {
+        if (isPrompConnected) {
+            fetchChannels();
+        }
+    }, [isPrompConnected, selectedAgentId]);
+
+    const fetchConfig = async () => {
             try {
                 const token = localStorage.getItem('token');
                 const url = selectedAgentId ? `/api/config?agentId=${selectedAgentId}` : '/api/config';
@@ -159,6 +209,54 @@ const Settings = () => {
         if (savedPersona && !user) setPersona(JSON.parse(savedPersona));
 
     }, [user, selectedAgentId]);
+
+    const fetchChannels = async () => {
+        try {
+            setLoadingChannels(true);
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/promp/channels', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setPrompChannels(data.channels || []);
+            }
+        } catch (e) {
+            console.error("Failed to fetch Promp channels:", e);
+        } finally {
+            setLoadingChannels(false);
+        }
+    };
+
+    const toggleChannelLink = async (channelObj, isLinked) => {
+        if (!selectedAgentId) return alert("Selecione um agente primeiro.");
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/promp/channels/link', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    agentId: selectedAgentId,
+                    channelObj,
+                    link: !isLinked
+                })
+            });
+            if (res.ok) {
+                fetchChannels(); // Refresh list to show updated links
+            }
+        } catch (e) {
+            console.error("Link error:", e);
+        }
+    };
+
+    useEffect(() => {
+        if (isPrompConnected) {
+            fetchChannels();
+        }
+    }, [isPrompConnected, selectedAgentId]);
 
     const handlePersonaChange = (e) => {
         setPersona({ ...persona, [e.target.name]: e.target.value });
@@ -257,7 +355,11 @@ DIRETRIZES:
                 toneInstruction = "Mantenha um tom profissional e equilibrado.";
         }
 
-        const finalSystemPrompt = `${basePrompt}\n\n${toneInstruction}\n\nLembre-se: Você está conversando com um cliente real. Mantenha o personagem o tempo todo.`;
+        const finalSystemPrompt = `${basePrompt}
+
+${toneInstruction}
+
+Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o tempo todo.`;
 
         localStorage.setItem('promp_ai_system_prompt', finalSystemPrompt);
 
@@ -556,127 +658,145 @@ DIRETRIZES:
                             Integração Webhook
                         </h2>
 
-                        {/* PROMP API INTEGRATION CARD */}
-                        <div style={{ padding: '24px', border: '1px solid #10B981', borderRadius: 'var(--radius-md)', background: '#F0FDF4', marginBottom: '32px' }}>
-                            <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#059669', marginBottom: '8px' }}>Integração Automática Promp</h3>
-                            <p style={{ color: '#047857', fontSize: '14px', marginBottom: '16px' }}>
-                                Conecte-se automaticamente à infraestrutura da Promp para enviar respostas pelos canais de WhatsApp do sistema Promp.
+                                                {/* PROMP API INTEGRATION CARD */}
+                        <div style={{ padding: "24px", border: "1px solid #10B981", borderRadius: "var(--radius-md)", background: "#F0FDF4", marginBottom: "32px" }}>
+                            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#059669", marginBottom: "8px" }}>Integração Automática Promp</h3>
+                            <p style={{ color: "#047857", fontSize: "14px", marginBottom: "16px" }}>
+                                Conecte-se globalmente ao seu Tenant da Promp e depois vincule este agente aos canais desejados.
                             </p>
 
-                            {isPrompConnected ? (
-                                <div style={{ borderTop: '1px solid #10B981', paddingTop: '16px', marginTop: '16px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                                        <div style={{ width: '10px', height: '10px', background: '#059669', borderRadius: '50%' }}></div>
-                                        <strong style={{ color: '#059669' }}>Você está integrado ao sistema Promp.</strong>
-                                    </div>
-                                    <button
-                                        onClick={() => setIsPrompConnected(false)}
-                                        style={{
-                                            border: '1px solid #059669',
-                                            background: 'transparent',
-                                            color: '#059669',
-                                            padding: '8px 16px',
-                                            borderRadius: 'var(--radius-md)',
-                                            fontSize: '13px',
-                                            fontWeight: 600,
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        Reconfigurar
-                                    </button>
-                                </div>
-                            ) : (
-                                <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+                            {!isPrompConnected ? (
+                                <div style={{ display: "flex", gap: "12px", alignItems: "flex-end" }}>
                                     <div style={{ flex: 1 }}>
-                                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>Identidade do Tenant (CPF/CNPJ)</label>
+                                        <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500, color: "#047857" }}>Identidade do Tenant (CPF/CNPJ)</label>
                                         <input
                                             type="text"
                                             placeholder="000.000.000-00"
                                             id="prompIdentityInput"
                                             style={{
-                                                width: '100%', padding: '10px',
-                                                borderRadius: 'var(--radius-md)',
-                                                border: '1px solid #10B981',
-                                                background: 'white'
-                                            }}
-                                        />
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>ID da Conexão (Obrigatório)</label>
-                                        <input
-                                            type="text"
-                                            placeholder="Nome da Sessão no Promp"
-                                            id="prompSessionInput"
-                                            style={{
-                                                width: '100%', padding: '10px',
-                                                borderRadius: 'var(--radius-md)',
-                                                border: '1px solid #10B981',
-                                                background: 'white'
-                                            }}
-                                        />
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500, color: '#047857' }}>ID do Usuário (Opcional)</label>
-                                        <input
-                                            type="text"
-                                            placeholder="Ex: 57"
-                                            id="prompUserIdInput"
-                                            style={{
-                                                width: '100%', padding: '10px',
-                                                borderRadius: 'var(--radius-md)',
-                                                border: '1px solid #10B981',
-                                                background: 'white'
+                                                width: "100%", padding: "10px",
+                                                borderRadius: "var(--radius-md)",
+                                                border: "1px solid #10B981",
+                                                background: "white"
                                             }}
                                         />
                                     </div>
                                     <button
                                         onClick={async () => {
-                                            const identity = document.getElementById('prompIdentityInput').value;
-                                            const sessionId = document.getElementById('prompSessionInput').value;
-                                            const manualUserId = document.getElementById('prompUserIdInput').value;
-                                            if (!identity) return alert('Digite a identidade (CPF/CNPJ).');
-                                            if (!sessionId) return alert('O ID da Conexão é obrigatório para vincular o WhatsApp correto.');
+                                            const identity = document.getElementById("prompIdentityInput").value;
+                                            if (!identity) return alert("Digite a identidade (CPF/CNPJ).");
 
                                             try {
-                                                const token = localStorage.getItem('token');
-                                                const res = await fetch('/api/promp/connect', {
-                                                    method: 'POST',
+                                                const token = localStorage.getItem("token");
+                                                const res = await fetch("/api/promp/connect", {
+                                                    method: "POST",
                                                     headers: {
-                                                        'Content-Type': 'application/json',
-                                                        'Authorization': `Bearer ${token}`
+                                                        "Content-Type": "application/json",
+                                                        "Authorization": `Bearer ${token}`
                                                     },
-                                                    body: JSON.stringify({ identity, sessionId, manualUserId })
+                                                    body: JSON.stringify({ identity })
                                                 });
+
                                                 const data = await res.json();
                                                 if (res.ok) {
-                                                    alert('Sucesso: ' + data.message);
+                                                    alert("Tenant conectado com sucesso!");
                                                     setIsPrompConnected(true);
                                                 } else {
-                                                    alert('Erro: ' + data.message);
+                                                    alert(data.message || "Erro ao conectar.");
                                                 }
                                             } catch (e) {
-                                                alert('Erro de conexão');
+                                                alert("Erro de conexão.");
                                             }
                                         }}
                                         style={{
-                                            padding: '10px 20px',
-                                            height: '42px',
-                                            background: '#10B981',
-                                            color: 'white',
-                                            border: 'none',
-                                            borderRadius: 'var(--radius-md)',
+                                            background: "#10B981",
+                                            color: "white",
+                                            padding: "10px 20px",
+                                            borderRadius: "var(--radius-md)",
                                             fontWeight: 600,
-                                            cursor: 'pointer'
+                                            cursor: "pointer",
+                                            border: "none",
+                                            height: "42px"
                                         }}
                                     >
-                                        Conectar Automaticamente
+                                        Conectar Tenant
                                     </button>
+                                </div>
+                            ) : (
+                                <div style={{ borderTop: "1px solid #10B981", paddingTop: "16px", marginTop: "16px" }}>
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                            <div style={{ width: "10px", height: "10px", background: "#059669", borderRadius: "50%" }}></div>
+                                            <strong style={{ color: "#059669" }}>Integração Global Ativa</strong>
+                                        </div>
+                                        <button
+                                            onClick={() => setIsPrompConnected(false)}
+                                            style={{
+                                                border: "1px solid #059669",
+                                                background: "transparent",
+                                                color: "#059669",
+                                                padding: "6px 12px",
+                                                borderRadius: "var(--radius-md)",
+                                                fontSize: "12px",
+                                                fontWeight: 600,
+                                                cursor: "pointer"
+                                            }}
+                                        >
+                                            Trocar Tenant
+                                        </button>
+                                    </div>
+
+                                    <h4 style={{ fontSize: "15px", fontWeight: 600, color: "#059669", marginBottom: "12px" }}>Canais do Agente</h4>
+                                    <p style={{ fontSize: "13px", color: "#047857", marginBottom: "16px" }}>
+                                        Selecione os canais que o agente <b>{agents.find(a => a.id === selectedAgentId)?.name || "Selecionado"}</b> deve responder:
+                                    </p>
+
+                                    {loadingChannels ? (
+                                        <div style={{ textAlign: "center", padding: "20px", color: "#059669" }}>Carregando canais...</div>
+                                    ) : (
+                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: "12px" }}>
+                                            {prompChannels.map(ch => {
+                                                const isLinked = ch.linkedAgents?.some(a => a.id === selectedAgentId);
+                                                return (
+                                                    <div key={ch.id} style={{
+                                                        background: "white",
+                                                        padding: "12px",
+                                                        borderRadius: "8px",
+                                                        border: isLinked ? "2px solid #10B981" : "1px solid #E5E7EB",
+                                                        display: "flex",
+                                                        justifyContent: "space-between",
+                                                        alignItems: "center"
+                                                    }}>
+                                                        <div style={{ overflow: "hidden" }}>
+                                                            <div style={{ fontWeight: 600, fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ch.name}</div>
+                                                            <div style={{ fontSize: "11px", color: "#6B7280" }}>{ch.type.toUpperCase()} | {ch.status}</div>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => toggleChannelLink(ch, isLinked)}
+                                                            style={{
+                                                                padding: "4px 8px",
+                                                                borderRadius: "4px",
+                                                                fontSize: "11px",
+                                                                fontWeight: 700,
+                                                                cursor: "pointer",
+                                                                border: "none",
+                                                                background: isLinked ? "#FEE2E2" : "#D1FAE5",
+                                                                color: isLinked ? "#B91C1C" : "#065F46"
+                                                            }}
+                                                        >
+                                                            {isLinked ? "Desvincular" : "Vincular"}
+                                                        </button>
+                                                    </div>
+                                                );
+                                            })}
+                                            {prompChannels.length === 0 && <div style={{ color: "#047857", fontSize: "13px", fontStyle: "italic" }}>Nenhum canal encontrado. Verifique sua conta Promp.</div>}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
 
-                        <p style={{ color: 'var(--text-medium)', marginBottom: '24px' }}>
-                            Ou utilize este URL para integrar manualmente (Webhook Genérico):
+                        Ou utilize este URL para integrar manualmente (Webhook Genérico):
                         </p>
 
                         <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--bg-main)' }}>
