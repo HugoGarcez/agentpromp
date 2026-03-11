@@ -231,35 +231,39 @@ const handleWebhookRequest = async (req, res) => {
         if (matchedChannel && config) {
             if (matchedChannel.prompIdentity) config.prompIdentity = matchedChannel.prompIdentity;
 
-            // --- UUID LOGIC ---
-            // Prioridade para o UUID configurado no banco (DB). 
-            // Se o usuário atualizou as credenciais, usamos o valor novo do banco.
-            const dbUuid = config.prompUuid || config.company?.prompUuid;
+            // --- CREDENTIALS PRIORITY (MASTER LOGIC) ---
+            // A Integração configurada na Empresa (Global) é a nossa fonte da verdade.
+            // Se o usuário atualizou a URL/Token na tela de Integrações, TODA a IA deve seguir.
             
-            if (dbUuid && uuidRegex.test(dbUuid)) {
-                config.prompUuid = dbUuid;
+            const companyUuid = config.company?.prompUuid;
+            const companyToken = config.company?.prompToken;
+
+            // 1. UUID Priority: Company > Agent > URL Fallback > Channel
+            if (companyUuid && uuidRegex.test(companyUuid)) {
+                config.prompUuid = companyUuid;
+            } else if (config.prompUuid && uuidRegex.test(config.prompUuid)) {
+                // Keep agent level if company is empty
             } else if (uuidRegex.test(companyId)) {
-                // Se o banco está vazio/inválido, usamos o ID da URL como Fallback
                 config.prompUuid = companyId;
             } else if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
                 config.prompUuid = matchedChannel.prompUuid;
             }
 
-            // --- TOKEN LOGIC (STRICT) ---
-            // O prompToken do canal tem prioridade, DESDE QUE não seja uma duplicata do UUID.
-            if (matchedChannel.prompToken) {
-                config.prompToken = matchedChannel.prompToken;
-            }
-
-            // Se o token parece ser um UUID (corrupção comum durante linkagem), recuamos para o da empresa.
-            if (config.prompToken && uuidRegex.test(config.prompToken)) {
-                if (config.prompToken === config.prompUuid || incomingConnectionIdArr.includes(config.prompToken)) {
-                    console.log(`[Webhook] Channel token looks like a Session UUID (${config.prompToken}). Falling back to Company Token.`);
-                    config.prompToken = config.company?.prompToken || config.prompToken;
+            // 2. Token Priority: Company > Agent > Channel
+            // Se o token da empresa existir, ele deve ser soberano para evitar o erro 'Invalid token'
+            // causado por IDs de sessão vindo dos canais.
+            if (companyToken && companyToken.length > 10) {
+                config.prompToken = companyToken;
+            } else if (config.prompToken && config.prompToken.length > 10) {
+                // Keep agent level token
+            } else if (matchedChannel.prompToken && matchedChannel.prompToken.length > 10) {
+                // Fallback do Canal (Cuidado: pode ser um UUID de sessão, por isso é a última opção)
+                if (!uuidRegex.test(matchedChannel.prompToken)) {
+                    config.prompToken = matchedChannel.prompToken;
                 }
             }
 
-            console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: URL_ID=${config.prompUuid}, Token=${config.prompToken?.substring(0, 5)}...`);
+            console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: URL_ID=${config.prompUuid}, Token=${config.prompToken?.substring(0, 5)}... (Source: ${companyToken ? 'Company' : 'Agent/Fallback'})`);
         }
 
         if (config?.followUpConfig) {
