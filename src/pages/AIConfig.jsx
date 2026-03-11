@@ -3,7 +3,7 @@ import FilesTab from '../components/AIConfig/FilesTab';
 import LinksTab from '../components/AIConfig/LinksTab';
 import QATab from '../components/AIConfig/QATab';
 import PromptTab from '../components/AIConfig/PromptTab';
-import { Save, Plus, ArrowLeft, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2 } from 'lucide-react';
+import { Save, Plus, ArrowLeft, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2, Package } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const AgentCard = ({ agent, onClick }) => {
@@ -19,6 +19,15 @@ const AgentCard = ({ agent, onClick }) => {
         kb = agent.knowledgeBase ? (typeof agent.knowledgeBase === 'string' ? JSON.parse(agent.knowledgeBase) : agent.knowledgeBase) : {};
     } catch (e) {
         console.error("Error parsing knowledgeBase in AgentCard:", e);
+    }
+
+    let catalog = { showProducts: true, showServices: true };
+    try {
+        if (agent.catalogConfig) {
+            catalog = typeof agent.catalogConfig === 'string' ? JSON.parse(agent.catalogConfig) : agent.catalogConfig;
+        }
+    } catch (e) {
+        console.error("Error parsing catalogConfig in AgentCard:", e);
     }
     
     const roleLabels = {
@@ -87,6 +96,17 @@ const AgentCard = ({ agent, onClick }) => {
                 ) : (
                     <span style={{ fontSize: '11px', color: 'var(--text-medium)', fontStyle: 'italic' }}>Sem base de conhecimento</span>
                 )}
+            </div>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--text-medium)' }}>
+                    <Package size={14} />
+                    <span style={{ fontWeight: 500, color: 'var(--text-dark)' }}>
+                        {catalog.showProducts && catalog.showServices ? 'Produtos e Serviços' : 
+                         catalog.showProducts ? 'Apenas Produtos' : 
+                         catalog.showServices ? 'Apenas Serviços' : 'Catálogo Desativado'}
+                    </span>
+                </div>
             </div>
 
             <div style={{ marginTop: 'auto', paddingTop: '12px', borderTop: '1px solid #F3F4F6' }}>
@@ -166,6 +186,9 @@ const AIConfig = () => {
     const [prompChannels, setPrompChannels] = useState([]);
     const [loadingChannels, setLoadingChannels] = useState(false);
     const [isPrompConnected, setIsPrompConnected] = useState(false);
+
+    // Catalog State
+    const [catalogConfig, setCatalogConfig] = useState({ showProducts: true, showServices: true });
 
     const [showToast, setShowToast] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -283,6 +306,21 @@ const AIConfig = () => {
                     setLinks((kb.links || []).map(l => typeof l === 'string' ? { url: l, content: '' } : l));
                     setQa(kb.qa || []);
                 }
+
+                if (data.catalogConfig) {
+                    let cat = data.catalogConfig;
+                    if (typeof cat === 'string') {
+                        try {
+                            cat = JSON.parse(cat);
+                        } catch (e) {
+                            console.error("error parsing catalogConfig", e);
+                            cat = { showProducts: true, showServices: true };
+                        }
+                    }
+                    setCatalogConfig(cat);
+                } else {
+                    setCatalogConfig({ showProducts: true, showServices: true });
+                }
             }
         } catch (e) {
             console.error("Failed to load AI Config:", e);
@@ -298,7 +336,8 @@ const AIConfig = () => {
                 agentId: selectedAgentId,
                 systemPrompt,
                 persona,
-                knowledgeBase: { files, links, qa }
+                knowledgeBase: { files, links, qa },
+                catalogConfig
             };
 
             const res = await fetch('/api/config', {
@@ -416,6 +455,7 @@ const AIConfig = () => {
                 {[
                     { id: 'prompt', label: 'Persona', icon: Bot },
                     { id: 'channels', label: 'Canais de Atendimento', icon: MessageSquare },
+                    { id: 'catalog', label: 'Catálogo', icon: Package },
                     { id: 'files', label: 'Arquivos', icon: FileText },
                     { id: 'links', label: 'Links', icon: Globe },
                     { id: 'qa', label: 'Q&A', icon: HelpCircle }
@@ -511,6 +551,55 @@ const AIConfig = () => {
                                         )}
                                     </>
                                 )}
+                            </div>
+                        )}
+
+                        {activeTab === 'catalog' && (
+                            <div style={{ padding: '8px' }}>
+                                <div style={{ marginBottom: '24px' }}>
+                                    <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Configuração do Catálogo</h3>
+                                    <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Defina quais itens do seu catálogo este agente deve oferecer aos clientes.</p>
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '400px' }}>
+                                    <label style={{ 
+                                        display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', 
+                                        borderRadius: '12px', border: '1px solid var(--border-color)', 
+                                        cursor: 'pointer', transition: 'all 0.2s',
+                                        background: catalogConfig.showProducts ? '#F0FDF4' : 'transparent',
+                                        borderColor: catalogConfig.showProducts ? '#10B981' : 'var(--border-color)'
+                                    }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={catalogConfig.showProducts}
+                                            onChange={(e) => setCatalogConfig(prev => ({ ...prev, showProducts: e.target.checked }))}
+                                            style={{ width: '20px', height: '20px' }}
+                                        />
+                                        <div>
+                                            <div style={{ fontWeight: 600, fontSize: '15px' }}>Oferecer Produtos</div>
+                                            <div style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Itens físicos e catálogo da Wbuy</div>
+                                        </div>
+                                    </label>
+
+                                    <label style={{ 
+                                        display: 'flex', alignItems: 'center', gap: '12px', padding: '16px', 
+                                        borderRadius: '12px', border: '1px solid var(--border-color)', 
+                                        cursor: 'pointer', transition: 'all 0.2s',
+                                        background: catalogConfig.showServices ? '#F0FDF4' : 'transparent',
+                                        borderColor: catalogConfig.showServices ? '#10B981' : 'var(--border-color)'
+                                    }}>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={catalogConfig.showServices}
+                                            onChange={(e) => setCatalogConfig(prev => ({ ...prev, showServices: e.target.checked }))}
+                                            style={{ width: '20px', height: '20px' }}
+                                        />
+                                        <div>
+                                            <div style={{ fontWeight: 600, fontSize: '15px' }}>Oferecer Serviços / Agendamentos</div>
+                                            <div style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Serviços cadastrados e integração com Agenda</div>
+                                        </div>
+                                    </label>
+                                </div>
                             </div>
                         )}
 
