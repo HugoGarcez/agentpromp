@@ -129,8 +129,11 @@ const handleWebhookRequest = async (req, res) => {
     const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
     const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
     
-    const rawOwner = payload.msg?.owner || payload.owner || payload.to || payload.msg?.to || payload.ticket?.owner || payload.ticket?.destination;
+    const rawOwner = payload.msg?.owner || payload.owner || payload.to || payload.msg?.to || 
+                      payload.ticket?.owner || payload.ticket?.destination || payload.ticket?.whatsappId ||
+                      payload.data?.to || payload.data?.owner || payload.destination;
     const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+    console.log(`[Webhook] Identified Owner: ${cleanOwner} (Raw: ${rawOwner})`);
 
     // --- REAL-TIME DIAGNOSTIC RECURSIVE ID FINDER ---
     const foundIds = new Set();
@@ -228,17 +231,19 @@ const handleWebhookRequest = async (req, res) => {
         if (config.prompConnectionId) dbConnectionId = String(config.prompConnectionId).trim(); 
     }
 
-    if (dbConnectionId) {
-        if (incomingConnectionIdArr.length === 0) {
-            console.log(`[Webhook-V6] WARNING: No Connection ID found in payload keys. Proceeding because isolation is handled by URL/Owner match. Expected: '${dbConnectionId}'.`);
-        } else {
+    if (dbConnectionId && !matchedChannel) { 
+        // Only enforce isolation if we HAVEN'T matched by Identity (Owner) yet.
+        // If we matched by Identity, we trust that more than recursive ID finding.
+        if (incomingConnectionIdArr.length > 0) {
             const hasMatch = incomingConnectionIdArr.includes(dbConnectionId);
             if (!hasMatch) {
-                console.log(`[Webhook-V6] CONNECTION ISOLATION: Expected ID '${dbConnectionId}' NOT FOUND. Candidates: ${JSON.stringify(incomingConnectionIdArr)}. Ignoring.`);
+                console.log(`[Webhook-V6] CONNECTION ISOLATION: Expected ID '${dbConnectionId}' NOT FOUND. Candidates: ${JSON.stringify(incomingConnectionIdArr)}. Ignoring to prevent cross-account replies.`);
                 return res.json({ status: 'ignored_wrong_whatsapp_id' });
             }
             console.log(`[Webhook-V6] CONNECTION MATCH VERIFIED: ID '${dbConnectionId}' found recursively.`);
         }
+    } else if (dbConnectionId && matchedChannel) {
+        console.log(`[Webhook-V6] Proceeding with matched channel by Identity: ${matchedChannel.name} (ID: ${dbConnectionId})`);
     }
 
 
@@ -407,7 +412,10 @@ const handleWebhookRequest = async (req, res) => {
     console.log(`[Webhook] Processing User Message from ${cleanSender}...`);
 
     // Check if Ticket is Open (Human Attendance)
-    if (payload.ticket && payload.ticket.status === 'open') {
+    // We ONLY ignore if status is explicitly 'open'. 
+    // Statuses like 'pending', 'waiting', 'closed', or undefined should be processed by the AI if configured.
+    console.log(`[Webhook] Ticket Info: ID=${payload.ticket?.id}, Status=${payload.ticket?.status}`);
+    if (payload.ticket && String(payload.ticket.status).toLowerCase() === 'open') {
         console.log(`[Webhook] Ignoring Message from ${cleanSender}. Ticket is 'open' (Human Attendance).`);
         return res.json({ status: 'ignored_ticket_open' });
     }
