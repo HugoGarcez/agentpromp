@@ -3453,20 +3453,29 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
         // 2. Parallel Fetch Details (identity is only in detailed view)
         const detailPromises = tenantListBasic.map(async (t) => {
             try {
+                // Determine ID (v2 might use 'id' or 'uuid' or just be the object)
+                const tid = t.id || t.uuid;
+                if (!tid) return t; // Fallback to basic object if no ID found
+
                 const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ id: t.id })
+                    body: JSON.stringify({ id: tid })
                 });
-                if (!res.ok) return null;
+                if (!res.ok) return t; 
                 const json = await res.json();
-                const tenantObj = Array.isArray(json.tenant) ? json.tenant[0] : json.tenant;
-                return tenantObj || json;
+                
+                // Inspect response structure (Promp sometimes wraps in 'tenant' or 'data')
+                const tenantObj = json.tenant || json.data || json;
+                const finalObj = Array.isArray(tenantObj) ? tenantObj[0] : tenantObj;
+                
+                // Ensure we merge ID from the list if detail missed it
+                return { ...t, ...finalObj };
             } catch (e) {
-                return null;
+                return t;
             }
         });
 
@@ -3578,30 +3587,42 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
                 console.error('[Promp] Auth lookup failed (skipping email match):', authErr);
             }
 
-            // Strategy 2: Admin/Owner Fallback (if no email match)
+            // Strategy 2: Explicit Fetch for Users List (If tenant object didn't have them)
+            if (!targetUserId) {
+                try {
+                    console.log(`[Promp] Fetching User List for tenant ID: ${targetTenant.id}`);
+                    const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenantId: targetTenant.id })
+                    });
+                    if (usersRes.ok) {
+                        const usersData = await usersRes.json();
+                        const userList = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
+                        if (userList.length > 0) {
+                            // Try email match again on fresh list
+                            const currentUser = await prisma.user.findUnique({ where: { id: req.user.userId } });
+                            const emailMatch = currentUser?.email ? userList.find(u => u.email?.toLowerCase() === currentUser.email.toLowerCase()) : null;
+                            
+                            targetUserId = emailMatch ? emailMatch.id : userList[0].id;
+                            console.log(`[Promp] User ID found via explicit userApiList: ${targetUserId}`);
+                        }
+                    }
+                } catch (e) {
+                    console.error('[Promp] Manual user list fetch failed:', e);
+                }
+            }
+
+            // Strategy 3: Admin/Owner Fallback
             if (!targetUserId) {
                 targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
             }
 
-            // Inspect 'users' array if available (Fallback to first user)
-            if (!targetUserId && Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
-                targetUserId = targetTenant.users[0].id;
-                console.log(`[Promp] Found User ID from 'users' array (First User): ${targetUserId}`);
-            }
-
-            // Inspect 'admin' object if available
-            if (!targetUserId && targetTenant.admin && targetTenant.admin.id) {
-                targetUserId = targetTenant.admin.id;
-                console.log(`[Promp] Found User ID from 'admin' object: ${targetUserId}`);
-            }
-
             // Final Fallback (Try 1, but warn)
             if (!targetUserId) {
-                console.warn('[Promp] WARNING: No explicit User ID found in Tenant object. Defaulting to 1 (Risk of failure).');
-                console.log('[Promp] Tenant Keys:', Object.keys(targetTenant).join(', '));
+                console.warn('[Promp] WARNING: No explicit User ID found. Defaulting to 1.');
                 targetUserId = 1;
             }
-
         }
 
         console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
