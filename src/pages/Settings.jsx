@@ -795,8 +795,8 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                                 </div>
                             )}
                         </div>
-
-                        Ou utilize este URL para integrar manualmente (Webhook Genérico):
+                        <p style={{ color: 'var(--text-medium)', marginBottom: '24px' }}>
+                            Ou utilize este URL para integrar manualmente (Webhook Genérico):
                         </p>
 
                         <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', background: 'var(--bg-main)' }}>
