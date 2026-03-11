@@ -69,6 +69,7 @@ const Settings = () => {
 
         // Fetch current config from API
         
+        // Fetch current config from API
         const fetchAgents = async () => {
             try {
                 const token = localStorage.getItem('token');
@@ -83,54 +84,6 @@ const Settings = () => {
             }
         };
         fetchAgents();
-    
-        const fetchChannels = async () => {
-        try {
-            setLoadingChannels(true);
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/promp/channels', {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setPrompChannels(data.channels || []);
-            }
-        } catch (e) {
-            console.error("Failed to fetch Promp channels:", e);
-        } finally {
-            setLoadingChannels(false);
-        }
-    };
-
-    const toggleChannelLink = async (channelObj, isLinked) => {
-        if (!selectedAgentId) return alert("Selecione um agente primeiro na barra superior.");
-        try {
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/promp/channels/link', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    agentId: selectedAgentId,
-                    channelObj,
-                    link: !isLinked
-                })
-            });
-            if (res.ok) {
-                fetchChannels(); // Refresh list to show updated links
-            }
-        } catch (e) {
-            console.error("Link error:", e);
-        }
-    };
-
-    useEffect(() => {
-        if (isPrompConnected) {
-            fetchChannels();
-        }
-    }, [isPrompConnected, selectedAgentId]);
 
     const fetchConfig = async () => {
             try {
