@@ -3573,10 +3573,17 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
         }
 
         const connectionId = String(channelObj.wabaId || channelObj.id || channelObj.name);
+        const prompUuid = String(channelObj.uuid || connectionId);
 
         // 1. Ensure channel exists in DB
         let channelRecord = await prisma.prompChannel.findFirst({
-            where: { companyId, prompConnectionId: connectionId }
+            where: { 
+                companyId, 
+                OR: [
+                    { prompConnectionId: connectionId },
+                    { prompUuid: prompUuid }
+                ]
+            }
         });
 
         if (!channelRecord) {
@@ -3587,8 +3594,7 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
                     name: channelObj.name || `Canal ${connectionId}`,
                     prompConnectionId: connectionId,
                     prompIdentity: String(channelObj.id), // Store its internal Promp ID too
-                    // Do we need the exact token per channel? The global one works for all.
-                    // But for backwards compat, store what we have or generic
+                    prompUuid: prompUuid, // MANDATORY FIELD in Schema
                 }
             });
         }
