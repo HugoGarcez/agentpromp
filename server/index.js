@@ -123,7 +123,6 @@ const handleWebhookRequest = async (req, res) => {
     // Load Config EARLY (needed for Identity check)
     let followUpCfg = null;
     let config = null;
-    let followUpCfg = null;
     let matchedChannel = null;
 
     // 2. Identify Sender and Owner Early
