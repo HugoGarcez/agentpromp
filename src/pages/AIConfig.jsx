@@ -3,12 +3,23 @@ import FilesTab from '../components/AIConfig/FilesTab';
 import LinksTab from '../components/AIConfig/LinksTab';
 import QATab from '../components/AIConfig/QATab';
 import PromptTab from '../components/AIConfig/PromptTab';
-import { Save, Plus, ArrowLeft, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash } from 'lucide-react';
+import { Save, Plus, ArrowLeft, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const AgentCard = ({ agent, onClick }) => {
-    const persona = agent.persona ? (typeof agent.persona === 'string' ? JSON.parse(agent.persona) : agent.persona) : {};
-    const kb = agent.knowledgeBase ? (typeof agent.knowledgeBase === 'string' ? JSON.parse(agent.knowledgeBase) : agent.knowledgeBase) : {};
+    let persona = {};
+    try {
+        persona = agent.persona ? (typeof agent.persona === 'string' ? JSON.parse(agent.persona) : agent.persona) : {};
+    } catch (e) {
+        console.error("Error parsing persona in AgentCard:", e);
+    }
+
+    let kb = {};
+    try {
+        kb = agent.knowledgeBase ? (typeof agent.knowledgeBase === 'string' ? JSON.parse(agent.knowledgeBase) : agent.knowledgeBase) : {};
+    } catch (e) {
+        console.error("Error parsing knowledgeBase in AgentCard:", e);
+    }
     
     const roleLabels = {
         sales: 'Vendas',
