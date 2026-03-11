@@ -106,36 +106,29 @@ export const sendPrompMessage = async (config, number, text, audioBase64, imageU
     // Ensure prompUuid is clean (no spaces)
     config.prompUuid = config.prompUuid.trim();
 
-    // 1. Send Text (ALWAYS send text for debug visibility, even if audio exists)
+    // 1. Send Text (Match Postman structure)
     if (text && text.trim().length > 0) {
-        console.log(`[Promp] Sending Text to ${number} (Audio Present: ${!!audioBase64}). URL: ${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`);
+        console.log(`[Promp] Sending Text to ${number}. URL: ${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`);
         try {
-            // Split by DOUBLE Newlines to keep lists grouped in one bubble
-            const chunks = text.split(/\n\s*\n/).map(c => c.trim()).filter(c => c.length > 0);
+            const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${config.prompToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    number: number,
+                    body: text, // Send full text as in Postman
+                    externalKey: `ai_key_${Date.now()}`,
+                    isClosed: false
+                })
+            });
 
-            console.log(`[Promp] Sending Text (${chunks.length} chunks) to ${number}...`);
-
-            for (const chunk of chunks) {
-                const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${config.prompToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        number: number,
-                        body: chunk,
-                        externalKey: `ai_${Date.now()}_${Math.random()}`,
-                        isClosed: false
-                    })
-                });
-
-                if (!textResponse.ok) {
-                    console.error('[Promp] Text Chunk Send Failed:', await textResponse.text());
-                } else {
-                    // Small delay to ensure order in WhatsApp
-                    await new Promise(r => setTimeout(r, 600));
-                }
+            if (!textResponse.ok) {
+                const errText = await textResponse.text();
+                console.error('[Promp] Text Send Failed:', errText);
+            } else {
+                console.log('[Promp] Text Sent Successfully');
             }
         } catch (e) {
             console.error('[Promp] Text Exception:', e);
