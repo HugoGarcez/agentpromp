@@ -263,29 +263,10 @@ const handleWebhookRequest = async (req, res) => {
                 }
             }
 
-            // --- TOKEN LOGIC ---
-            // NUNCA substituímos o Token por algo que pareça ser o UUID da sessão.
-            // O campo 'tokenAPI' no payload muitas vezes contém o UUID, não o segredo de autorização.
-            const payloadToken = payload.ticket?.whatsapp?.tokenAPI || payload.whatsapp?.tokenAPI;
-            if (payloadToken && uuidRegex.test(payloadToken)) {
-                // Se o token do payload é IGUAL ao UUID que estamos usando na URL (ou um dos UUIDs da conexão), ele NÃO é o token de auth.
-                const isProbablyUuid = incomingConnectionIdArr.includes(payloadToken);
-                
-                if (isProbablyUuid && payloadToken === config.prompUuid) {
-                    console.log(`[Webhook] payloadToken matches prompUuid (${payloadToken}). Ignoring as Auth Token.`);
-                } else {
-                    // É um UUID diferente, talvez seja o token de fato (algumas instâncias usam UUID como token)
-                    if (config.prompToken !== payloadToken) {
-                         console.log(`[Webhook] Updating Token for channel ${matchedChannel.name}: ${config.prompToken} -> ${payloadToken}`);
-                         config.prompToken = payloadToken;
-                         prisma.prompChannel.update({
-                             where: { id: matchedChannel.id },
-                             data: { prompToken: payloadToken }
-                         }).catch(e => console.error('[Webhook] Failed to persist Token update:', e));
-                    }
-                }
-            }
-
+            // --- TOKEN LOGIC (STRICT) ---
+            // O prompToken deve ser o segredo configurado na integração (Bearer Token).
+            // NUNCA substituímos o Token de autorização por valores vindos do webhook, 
+            // pois o 'tokenAPI' no payload costuma ser apenas o UUID da sessão, causando 'Invalid token'.
             console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: URL_ID=${config.prompUuid}, Token=${config.prompToken?.substring(0, 5)}...`);
         }
 
