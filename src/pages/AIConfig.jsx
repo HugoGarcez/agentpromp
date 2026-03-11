@@ -102,7 +102,7 @@ const AgentCard = ({ agent, onClick }) => {
                             color: '#166534',
                             border: '1px solid #DCFCE7'
                         }}>
-                             {ch.type.toUpperCase()}
+                                {ch.type ? ch.type.toUpperCase() : 'CANAL'}
                         </span>
                     )) : (
                         <span style={{ fontSize: '11px', color: '#9CA3AF', fontStyle: 'italic' }}>Nenhum canal</span>
@@ -483,7 +483,7 @@ const AIConfig = () => {
                                                         }}>
                                                             <div style={{ overflow: "hidden" }}>
                                                                 <div style={{ fontWeight: 600, fontSize: "14px", color: 'var(--text-dark)' }}>{ch.name}</div>
-                                                                <div style={{ fontSize: "11px", color: "var(--text-medium)", textTransform: 'uppercase' }}>{ch.type}</div>
+                                                                <div style={{ fontSize: "11px", color: "var(--text-medium)", textTransform: 'uppercase' }}>{ch.type || 'Padrão'}</div>
                                                             </div>
                                                             <button
                                                                 onClick={() => toggleChannelLink(ch, isLinked)}
