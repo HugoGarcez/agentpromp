@@ -8,108 +8,86 @@ datasource db {
 }
 
 model Company {
-  id        String       @id @default(uuid())
-  name      String
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  users     User[]
-  agents    AgentConfig[] @relation("CompanyAgents")
-
-  // Global Promp Integration
-  prompIdentity String?
-  prompUuid     String?
-  prompToken    String?
-
-  // New Relations
+  id               String                @id @default(uuid())
+  name             String
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  prompIdentity    String?
+  prompToken       String?
+  prompUuid        String?
+  agents           AgentConfig[]         @relation("CompanyAgents")
+  appointments     Appointment[]
+  appointmentTypes AppointmentType[]
+  googleConfig     GoogleCalendarConfig?
   prompChannels    PrompChannel[]
   specialists      Specialist[]
-  appointmentTypes AppointmentType[]
-  appointments     Appointment[]
-  googleConfig     GoogleCalendarConfig?
   tagTriggers      TagTrigger[]
+  users            User[]
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  role      String   @default("USER") // ADMIN, USER
-  companyId String
-  company   Company  @relation(fields: [companyId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Password Reset
-  resetToken        String? // Hashed or raw token
+  id                String             @id @default(uuid())
+  email             String             @unique
+  password          String
+  role              String             @default("USER")
+  companyId         String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  resetToken        String?
   resetTokenExpires DateTime?
-
-  // Notifications
   notificationsRead NotificationRead[]
+  company           Company            @relation(fields: [companyId], references: [id])
 }
 
 model AgentConfig {
-  id            String  @id @default(uuid())
-  companyId     String
-  company       Company @relation("CompanyAgents", fields: [companyId], references: [id])
-  name          String  @default("Agente Principal")
-  systemPrompt  String?
-  persona       String? // JSON
-  integrations  String? // JSON
-  products      String? // JSON
-  knowledgeBase String? // JSON - Files text and Scraped URLs
-
-  // Promp API Integration (Legacy fields, keeping for backwards compatibility initially, but moving to PrompChannel)
+  id                String          @id @default(uuid())
+  companyId         String
+  name              String          @default("Agente Principal")
+  systemPrompt      String?
+  persona           String?
+  integrations      String?
+  products          String?
+  knowledgeBase     String?
   prompIdentity     String?
-  prompConnectionId String? // NEW: Binds AI to a specific Session/Channel ID
+  prompConnectionId String?
   prompUuid         String?
   prompToken        String?
-
-  // N:N Relation with PrompChannels
-  prompChannels PrompChannel[]
-
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-  history   PromptHistory[]
-
-  // Follow-up Config
-  followUpConfig String? // JSON: { enabled, attempts: [], tone: '' }
-  
-  // Catalog Global Config
-  catalogConfig String? // JSON: { hidePrices: boolean, hidePricesReason: string }
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  followUpConfig    String?
+  catalogConfig     String?
+  company           Company         @relation("CompanyAgents", fields: [companyId], references: [id])
+  history           PromptHistory[]
+  prompChannels     PrompChannel[]  @relation("AgentConfigToPrompChannel")
 }
 
 model PrompChannel {
-  id                String  @id @default(uuid())
+  id                String        @id @default(uuid())
   companyId         String
-  company           Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  
   name              String
   prompIdentity     String
   prompConnectionId String
   prompUuid         String
   prompToken        String?
-
-  agents            AgentConfig[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  company           Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  agents            AgentConfig[] @relation("AgentConfigToPrompChannel")
 
   @@unique([companyId, prompUuid])
 }
 
 model ContactState {
-  id        String @id @default(uuid())
-  companyId String
-  remoteJid String // Phone Number
-
-  lastOutbound DateTime? // When did we last message them?
-  nextFollowUp DateTime? // When is the next AI msg scheduled?
-  attemptIndex Int       @default(0) // 0 to 4
-  isActive     Boolean   @default(false) // Is the sequence running?
-  metadata     String? // JSON: { name: 'Hugo', context: 'Sales' }
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String    @id @default(uuid())
+  companyId    String
+  remoteJid    String
+  lastOutbound DateTime?
+  nextFollowUp DateTime?
+  attemptIndex Int       @default(0)
+  isActive     Boolean   @default(false)
+  metadata     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@unique([companyId, remoteJid])
 }
@@ -117,171 +95,145 @@ model ContactState {
 model PromptHistory {
   id            String      @id @default(uuid())
   agentConfigId String
-  agentConfig   AgentConfig @relation(fields: [agentConfigId], references: [id], onDelete: Cascade)
   systemPrompt  String?
   createdAt     DateTime    @default(now())
+  agentConfig   AgentConfig @relation(fields: [agentConfigId], references: [id], onDelete: Cascade)
 }
 
 model TagTrigger {
   id               String   @id @default(uuid())
   companyId        String
-  company          Company  @relation(fields: [companyId], references: [id])
   tagId            Int
   tagName          String
   triggerCondition String
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  company          Company  @relation(fields: [companyId], references: [id])
 }
 
 model TestMessage {
   id        String   @id @default(uuid())
   companyId String
-  sender    String // 'user' | 'ai'
+  sender    String
   text      String
-  sessionId String? // Optional: For grouping messages by ticket/session (e.g. from Webhook)
-  owner     String? // The bot number this message belongs to
-  metadata  String? // Optional: JSON string for extra data (e.g. n8n payload)
+  sessionId String?
+  owner     String?
+  metadata  String?
   createdAt DateTime @default(now())
 }
 
 model GlobalConfig {
-  id                String  @id @default(uuid())
-  openaiKey         String?
-  geminiKey         String?
-  elevenLabsKey     String?
-  elevenLabsVoiceId String?
-
-  // Google Calendar Integration
+  id                 String   @id @default(uuid())
+  openaiKey          String?
+  geminiKey          String?
+  elevenLabsKey      String?
+  elevenLabsVoiceId  String?
   googleClientId     String?
   googleClientSecret String?
   googleRedirectUri  String?
-
-  updatedAt DateTime @updatedAt
+  updatedAt          DateTime @updatedAt
 }
 
 model ProductSource {
   id          String    @id @default(uuid())
   companyId   String
-  type        String // 'URL' | 'FILE'
-  url         String? // For URL extraction
-  fileName    String? // For File uploads
-  fileContent String? // Base64 or Text content for Files
-  frequency   String // 'once', 'hourly', 'daily', 'weekly'
+  type        String
+  url         String?
+  fileName    String?
+  fileContent String?
+  frequency   String
   lastRun     DateTime?
   nextRun     DateTime?
-  status      String    @default("active") // 'active', 'paused', 'error'
+  status      String    @default("active")
   error       String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
-// --- GOOGLE CALENDAR & SCHEDULING ---
-
 model GoogleCalendarConfig {
-  id        String  @id @default(uuid())
-  companyId String  @unique
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  // Auth
-  accessToken  String?
-  refreshToken String?
-  tokenExpiry  DateTime?
-
-  // Settings
+  id                String    @id @default(uuid())
+  companyId         String    @unique
+  accessToken       String?
+  refreshToken      String?
+  tokenExpiry       DateTime?
   primaryCalendarId String?
-  timezone          String  @default("America/Sao_Paulo")
-  officeHours       String? // JSON: { "0": { start: "09:00", end: "18:00" }, ... }
-  reminderBefore    Int? // Minutes before to remind
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  timezone          String    @default("America/Sao_Paulo")
+  officeHours       String?
+  reminderBefore    Int?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model Specialist {
-  id        String  @id @default(uuid())
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  name       String
-  phone      String?
-  email      String?
-  calendarId String? // If different from primary
-  active     Boolean @default(true)
-
-  // Relations
-  appointmentTypes AppointmentType[] // Many-to-Many via implicit or explicit? Let's use implicit for simplicity or explicit if needed. 
+  id               String            @id @default(uuid())
+  companyId        String
+  name             String
+  phone            String?
+  email            String?
+  calendarId       String?
+  active           Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   appointments     Appointment[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  appointmentTypes AppointmentType[] @relation("AppointmentTypeToSpecialist")
 }
 
 model AppointmentType {
-  id        String  @id @default(uuid())
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  name        String
-  description String?
-  duration    Int     @default(30) // Minutes
-  color       String?
-  active      Boolean @default(true)
-
-  specialists  Specialist[]
+  id           String        @id @default(uuid())
+  companyId    String
+  name         String
+  description  String?
+  duration     Int           @default(30)
+  color        String?
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   appointments Appointment[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  specialists  Specialist[]  @relation("AppointmentTypeToSpecialist")
 }
 
 model Appointment {
-  id        String  @id @default(uuid())
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  googleEventId String? @unique
-
-  customerId    String? // Link to ContactState if possible, but ContactState doesn't have ID exposed well. Storing Phone/Name.
+  id            String           @id @default(uuid())
+  companyId     String
+  googleEventId String?          @unique
+  customerId    String?
   customerName  String
   customerPhone String
-
-  specialistId String?
-  specialist   Specialist? @relation(fields: [specialistId], references: [id])
-
-  typeId String?
-  type   AppointmentType? @relation(fields: [typeId], references: [id])
-
-  startTime DateTime
-  endTime   DateTime
-  status    String   @default("CONFIRMED") // CONFIRMED, CANCELLED, COMPLETED
-
-  notes String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  specialistId  String?
+  typeId        String?
+  startTime     DateTime
+  endTime       DateTime
+  status        String           @default("CONFIRMED")
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  type          AppointmentType? @relation(fields: [typeId], references: [id])
+  specialist    Specialist?      @relation(fields: [specialistId], references: [id])
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model Notification {
-  id        String   @id @default(uuid())
+  id        String             @id @default(uuid())
   title     String
   content   String
-  type      String   @default("INFO") // FIX, IMPROVEMENT, NEWS
-  status    String   @default("DRAFT") // DRAFT, APPROVED
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  readBy NotificationRead[]
+  type      String             @default("INFO")
+  status    String             @default("DRAFT")
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  readBy    NotificationRead[]
 }
 
 model NotificationRead {
   id             String       @id @default(uuid())
   userId         String
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   notificationId String
-  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
   readAt         DateTime     @default(now())
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, notificationId])
 }

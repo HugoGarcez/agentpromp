@@ -1473,7 +1473,9 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
 // --- Notification Routes (User) ---
 app.get('/api/notifications', authenticateToken, async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user.userId;
+        console.log(`[Notifications] Fetching for user ${userId}`);
+        
         const notifications = await prisma.notification.findMany({
             where: { status: 'APPROVED' },
             orderBy: { createdAt: 'desc' },
@@ -1484,9 +1486,11 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
             }
         });
 
+        console.log(`[Notifications] Found ${notifications.length} approved notifications`);
+
         const formatted = notifications.map(notif => ({
             ...notif,
-            read: notif.readBy.length > 0,
+            read: notif.readBy ? notif.readBy.length > 0 : false,
             readBy: undefined // cleanup
         }));
 
@@ -1499,7 +1503,7 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
 
 app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     try {
         await prisma.notificationRead.upsert({
