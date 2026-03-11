@@ -231,15 +231,18 @@ const handleWebhookRequest = async (req, res) => {
         if (matchedChannel && config) {
             if (matchedChannel.prompIdentity) config.prompIdentity = matchedChannel.prompIdentity;
 
-            // --- UUID LOGIC (MASTER) ---
-            // O UUID na URL do webhook (req.params.companyId) é o identificador 
-            // REAL da sessão/tenant na Promp. Devemos priorizá-lo sempre.
-            if (uuidRegex.test(companyId)) {
+            // --- UUID LOGIC ---
+            // Prioridade para o UUID configurado no banco (DB). 
+            // Se o usuário atualizou as credenciais, usamos o valor novo do banco.
+            const dbUuid = config.prompUuid || config.company?.prompUuid;
+            
+            if (dbUuid && uuidRegex.test(dbUuid)) {
+                config.prompUuid = dbUuid;
+            } else if (uuidRegex.test(companyId)) {
+                // Se o banco está vazio/inválido, usamos o ID da URL como Fallback
                 config.prompUuid = companyId;
             } else if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
                 config.prompUuid = matchedChannel.prompUuid;
-            } else {
-                config.prompUuid = config.company?.prompUuid || config.prompUuid;
             }
 
             // --- TOKEN LOGIC (STRICT) ---
