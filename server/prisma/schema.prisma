@@ -13,9 +13,10 @@ model Company {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   users     User[]
-  config    AgentConfig?
+  agents    AgentConfig[] @relation("CompanyAgents")
 
   // New Relations
+  prompChannels    PrompChannel[]
   specialists      Specialist[]
   appointmentTypes AppointmentType[]
   appointments     Appointment[]
@@ -40,19 +41,23 @@ model User {
 
 model AgentConfig {
   id            String  @id @default(uuid())
-  companyId     String  @unique
-  company       Company @relation(fields: [companyId], references: [id])
+  companyId     String
+  company       Company @relation("CompanyAgents", fields: [companyId], references: [id])
+  name          String  @default("Agente Principal")
   systemPrompt  String?
   persona       String? // JSON
   integrations  String? // JSON
   products      String? // JSON
   knowledgeBase String? // JSON - Files text and Scraped URLs
 
-  // Promp API Integration
+  // Promp API Integration (Legacy fields, keeping for backwards compatibility initially, but moving to PrompChannel)
   prompIdentity     String?
   prompConnectionId String? // NEW: Binds AI to a specific Session/Channel ID
   prompUuid         String?
   prompToken        String?
+
+  // N:N Relation with PrompChannels
+  prompChannels PrompChannel[]
 
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
@@ -63,6 +68,25 @@ model AgentConfig {
   
   // Catalog Global Config
   catalogConfig String? // JSON: { hidePrices: boolean, hidePricesReason: string }
+}
+
+model PrompChannel {
+  id                String  @id @default(uuid())
+  companyId         String
+  company           Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  name              String
+  prompIdentity     String
+  prompConnectionId String
+  prompUuid         String
+  prompToken        String?
+
+  agents            AgentConfig[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, prompUuid])
 }
 
 model ContactState {

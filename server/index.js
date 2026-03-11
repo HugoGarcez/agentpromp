@@ -123,8 +123,40 @@ const handleWebhookRequest = async (req, res) => {
     // Load Config EARLY (needed for Identity check)
     let followUpCfg = null;
     let config = null;
+    let matchedChannel = null;
+
+    // Recursive ID search moved up!
+
+    // 2. Identify Sender and Owner Early (moved up for channel resolution)
+    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
+    const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
+    
+    const rawOwner = payload.msg?.owner || payload.owner;
+    const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+
     try {
-        config = await prisma.agentConfig.findUnique({ where: { companyId } });
+        // MULTIPLE AGENTS RESOLUTION
+        const channels = await prisma.prompChannel.findMany({
+            where: { companyId },
+            include: { agents: true }
+        });
+
+        // Match by Connection ID
+        matchedChannel = channels.find(ch => incomingConnectionIdArr.includes(String(ch.prompConnectionId).trim()));
+        
+        // Match by Owner (Fallback)
+        if (!matchedChannel && cleanOwner) {
+            matchedChannel = channels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner);
+        }
+
+        if (matchedChannel && matchedChannel.agents.length > 0) {
+            config = matchedChannel.agents[0]; // Take FIRST agent
+            console.log(`[Webhook] Routed to Channel ${matchedChannel.name}, Agent: ${config.name}`);
+        } else {
+            // FALLBACK
+            config = await prisma.agentConfig.findFirst({ where: { companyId } });
+        }
+
         if (config?.followUpConfig) {
             // Safe JSON Parsing to avoid SyntaxError
             if (typeof config.followUpConfig === 'string') {
@@ -171,20 +203,17 @@ const handleWebhookRequest = async (req, res) => {
         return res.json({ status: 'ignored_api_sent' });
     }
 
-    // 2. Identify Sender
-    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
-    const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
-
-    // 3. Identify Protocol Owner (The session/bot number)
-    const rawOwner = payload.msg?.owner || payload.owner;
-    const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+    // 2. Sender identify moved up!
 
     // 4. Identify Configured Identity & Connection ID (From DB)
     let dbIdentity = null;
     let dbConnectionId = null;
-    if (config) {
+    if (matchedChannel) {
+        if (matchedChannel.prompIdentity) dbIdentity = String(matchedChannel.prompIdentity).replace(/\D/g, '');
+        if (matchedChannel.prompConnectionId) dbConnectionId = String(matchedChannel.prompConnectionId).trim();
+    } else if (config) {
         if (config.prompIdentity) dbIdentity = String(config.prompIdentity).replace(/\D/g, '');
-        if (config.prompConnectionId) dbConnectionId = String(config.prompConnectionId).trim(); // Keep alphanumeric for session names
+        if (config.prompConnectionId) dbConnectionId = String(config.prompConnectionId).trim(); 
     }
 
     // --- V6 REAL-TIME DIAGNOSTIC RECURSIVE ID FINDER ---
@@ -795,9 +824,7 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
         const companyId = req.user.companyId;
 
         // 1. Fetch current config
-        const config = await prisma.agentConfig.findUnique({
-            where: { companyId }
-        });
+        const config = await prisma.agentConfig.findFirst({ where: { companyId } });
 
         if (!config || !config.integrations) {
             return res.status(400).json({ success: false, message: 'Nenhuma integração configurada.' });
@@ -916,8 +943,7 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
         const mergedProductsList = Array.from(productsMap.values());
 
         // 5. Save back to the DB
-        await prisma.agentConfig.update({
-            where: { companyId },
+        await prisma.agentConfig.updateMany({ where: { companyId },
             data: { products: JSON.stringify(mergedProductsList) }
         });
 
@@ -1639,7 +1665,11 @@ app.post('/api/config', authenticateToken, async (req, res) => {
     }
 
     try {
-        const currentConfig = await prisma.agentConfig.findUnique({ where: { companyId } });
+        const agentId = newConfig.agentId;
+        let whereClause = { companyId };
+        if (agentId) whereClause.id = agentId;
+        
+        const currentConfig = await prisma.agentConfig.findFirst({ where: whereClause });
 
         // Merge Voice settings into Integrations
         let combinedIntegrations = {};
@@ -1737,11 +1767,14 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             catalogConfig: newConfig.catalogConfig ? (typeof newConfig.catalogConfig === 'object' ? JSON.stringify(newConfig.catalogConfig) : newConfig.catalogConfig) : undefined
         };
 
-        const updatedConfig = await prisma.agentConfig.upsert({
-            where: { companyId },
-            update: data,
-            create: data,
-        });
+        
+        let updatedConfig = await prisma.agentConfig.findFirst({ where: whereClause });
+        if (updatedConfig) {
+            updatedConfig = await prisma.agentConfig.update({ where: { id: updatedConfig.id }, data });
+        } else {
+            updatedConfig = await prisma.agentConfig.create({ data });
+        }
+    
 
         // Save History if systemPrompt changed
         // Check if currentConfig exists to avoid null reference
@@ -1764,8 +1797,9 @@ app.post('/api/config', authenticateToken, async (req, res) => {
 
 app.get('/api/config', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
+    const agentId = req.query.agentId; // Allow fetching specific agent
     try {
-        const config = await getCompanyConfig(companyId);
+        const config = await getCompanyConfig(companyId, agentId);
         res.json(config || {});
     } catch (error) {
         console.error('Error fetching config:', error);
@@ -3306,7 +3340,7 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
 app.get('/api/config/history', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
     try {
-        const config = await prisma.agentConfig.findUnique({ where: { companyId } });
+        const config = await prisma.agentConfig.findFirst({ where: { companyId } });
         if (!config) return res.json([]);
 
         const history = await prisma.promptHistory.findMany({
@@ -3329,8 +3363,7 @@ app.post('/api/config/restore', authenticateToken, async (req, res) => {
         const historyItem = await prisma.promptHistory.findUnique({ where: { id: historyId } });
         if (!historyItem) return res.status(404).json({ message: 'Versão não encontrada' });
 
-        await prisma.agentConfig.update({
-            where: { companyId },
+        await prisma.agentConfig.updateMany({ where: { companyId },
             data: { systemPrompt: historyItem.systemPrompt }
         });
 
@@ -3412,7 +3445,7 @@ app.get('/api/chat/history', authenticateToken, async (req, res) => {
 
 app.post('/api/promp/connect', authenticateToken, async (req, res) => {
     // SessionID manual input support
-    const { identity, sessionId, manualUserId } = req.body;
+    const { identity, sessionId, manualUserId, agentId } = req.body;
     const companyId = req.user.companyId;
 
     if (!PROMP_ADMIN_TOKEN) {
@@ -3618,22 +3651,31 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
         }
 
         // SAVE TO DB (Upsert to create if missing)
-        await prisma.agentConfig.upsert({
-            where: { companyId },
+        const newChannel = await prisma.prompChannel.upsert({
+            where: { companyId_prompUuid: { companyId, prompUuid: apiData.id } },
             update: {
+                name: targetTenant.name + ' (' + sessionId + ')',
                 prompIdentity: identity,
-                prompConnectionId: sessionId, // NEW: Bind exactly to this Connection
-                prompUuid: apiData.id,
+                prompConnectionId: sessionId,
                 prompToken: apiData.token
             },
             create: {
                 companyId,
+                name: targetTenant.name + ' (' + sessionId + ')',
                 prompIdentity: identity,
-                prompConnectionId: sessionId, // NEW: Bind exactly to this Connection
+                prompConnectionId: sessionId,
                 prompUuid: apiData.id,
                 prompToken: apiData.token
             }
         });
+        
+        // Link to explicit agent if provided
+        if (req.body.agentId) {
+            await prisma.prompChannel.update({
+                where: { id: newChannel.id },
+                data: { agents: { connect: { id: req.body.agentId } } }
+            });
+        }
 
         res.json({ success: true, message: `Conectado a ${targetTenant.name}` });
 
@@ -3741,6 +3783,101 @@ function resolveProductImageFromConfig(targetId, config) {
 };
 
 
+
+// --- MULTIPLE AGENTS (AgentConfig) ROUTES ---
+app.get('/api/agents', authenticateToken, async (req, res) => {
+    try {
+        const agents = await prisma.agentConfig.findMany({
+            where: { companyId: req.user.companyId },
+            include: { prompChannels: true }
+        });
+        res.json(agents);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/agents', authenticateToken, async (req, res) => {
+    try {
+        const { name } = req.body;
+        const newAgent = await prisma.agentConfig.create({
+            data: {
+                companyId: req.user.companyId,
+                name: name || 'Novo Agente'
+            }
+        });
+        res.json(newAgent);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete('/api/agents/:id', authenticateToken, async (req, res) => {
+    try {
+        await prisma.agentConfig.delete({
+            where: { id: req.params.id, companyId: req.user.companyId } // companyId is not @unique but checking is safe, but prisma delete requires unique fields only in where!
+            // Wait, deleting by id is enough. id is unique.
+        });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- CHANNELS ROUTES ---
+app.get('/api/channels', authenticateToken, async (req, res) => {
+    try {
+        const channels = await prisma.prompChannel.findMany({
+            where: { companyId: req.user.companyId },
+            include: { agents: true }
+        });
+        res.json(channels);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/channels/:id/link-agent', authenticateToken, async (req, res) => {
+    try {
+        const { agentId, action } = req.body; // action: 'connect' or 'disconnect'
+        const channelId = req.params.id;
+        
+        const channel = await prisma.prompChannel.findFirst({
+            where: { id: channelId, companyId: req.user.companyId }
+        });
+        const agent = await prisma.agentConfig.findFirst({
+            where: { id: agentId, companyId: req.user.companyId }
+        });
+        
+        if (!channel || !agent) return res.status(404).json({ error: 'Not found' });
+
+        if (action === 'connect') {
+            await prisma.prompChannel.update({
+                where: { id: channelId },
+                data: { agents: { connect: { id: agentId } } }
+            });
+        } else {
+            await prisma.prompChannel.update({
+                where: { id: channelId },
+                data: { agents: { disconnect: { id: agentId } } }
+            });
+        }
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete('/api/channels/:id', authenticateToken, async (req, res) => {
+    try {
+        await prisma.prompChannel.delete({
+            where: { id: req.params.id }
+        });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 // Handle React Routing (SPA) - must be the last route
 app.get('*', (req, res) => {

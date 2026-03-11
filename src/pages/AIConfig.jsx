@@ -9,6 +9,9 @@ import { useAuth } from '../contexts/AuthContext';
 const AIConfig = () => {
     const { user } = useAuth();
     const [activeTab, setActiveTab] = useState('prompt');
+    const [agents, setAgents] = useState([]);
+    const [selectedAgentId, setSelectedAgentId] = useState('');
+
 
     // Knowledge Base State
     const [files, setFiles] = useState([]);
@@ -24,10 +27,27 @@ const AIConfig = () => {
     // Fetch Config on Mount
     useEffect(() => {
         if (!user || !user.companyId) return;
+        
+        const fetchAgents = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch('/api/agents', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (res.ok) {
+                    const data = await res.json();
+                    setAgents(data);
+                    if (data.length > 0 && !selectedAgentId) setSelectedAgentId(data[0].id);
+                }
+            } catch (e) {
+                console.error("Failed to fetch agents:", e);
+            }
+        };
+        fetchAgents();
+    
         const fetchConfig = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const res = await fetch('/api/config', {
+                const url = selectedAgentId ? `/api/config?agentId=${selectedAgentId}` : '/api/config';
+                const res = await fetch(url, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 if (res.ok) {
@@ -47,7 +67,7 @@ const AIConfig = () => {
             }
         };
         fetchConfig();
-    }, [user]);
+    }, [user, selectedAgentId]);
 
     const handleSave = async () => {
         try {
@@ -161,19 +181,50 @@ const AIConfig = () => {
                     </button>
                 </div>
 
-                <button
-                    onClick={handleSave}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '8px',
-                        background: 'var(--primary-blue)', color: 'white',
-                        padding: '8px 16px', borderRadius: 'var(--radius-md)',
-                        fontWeight: 500, cursor: 'pointer', marginBottom: '8px',
-                        outline: 'none', border: 'none'
-                    }}
-                >
-                    <Save size={16} />
-                    {showToast ? 'Salvo!' : 'Salvar Alterações'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+                    <select
+                        value={selectedAgentId}
+                        onChange={(e) => setSelectedAgentId(e.target.value)}
+                        style={{ padding: '8px 16px', border: '1px solid #ccc', borderRadius: '4px', background: 'white' }}
+                    >
+                        {agents.map(agent => (
+                            <option key={agent.id} value={agent.id}>{agent.name}</option>
+                        ))}
+                    </select>
+                    <button 
+                        onClick={async () => {
+                            const name = prompt('Nome do novo agente:');
+                            if (!name) return;
+                            const token = localStorage.getItem('token');
+                            const res = await fetch('/api/agents', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                body: JSON.stringify({ name })
+                            });
+                            if (res.ok) {
+                                const newAg = await res.json();
+                                setAgents(prev => [...prev, newAg]);
+                                setSelectedAgentId(newAg.id);
+                            }
+                        }}
+                        style={{ padding: '8px 16px', background: 'var(--primary-blue)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 500 }}
+                    >
+                        + Novo
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            background: 'var(--primary-blue)', color: 'white',
+                            padding: '8px 16px', borderRadius: 'var(--radius-md)',
+                            fontWeight: 500, cursor: 'pointer',
+                            outline: 'none', border: 'none'
+                        }}
+                    >
+                        <Save size={16} />
+                        {showToast ? 'Salvo!' : 'Salvar Alterações'}
+                    </button>
+                </div>
             </div>
 
             <div className="content">
