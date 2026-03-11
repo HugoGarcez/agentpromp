@@ -205,6 +205,24 @@ const handleWebhookRequest = async (req, res) => {
             if (matchedChannel.prompToken) config.prompToken = matchedChannel.prompToken;
             if (matchedChannel.prompUuid) config.prompUuid = matchedChannel.prompUuid;
             if (matchedChannel.prompIdentity) config.prompIdentity = matchedChannel.prompIdentity;
+
+            // --- HEAL UUID IF INVALID ---
+            // Se o UUID no banco estiver no formato errado (ex: r96...), procuramos um UUID real no Payload
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (!uuidRegex.test(config.prompUuid)) {
+                const betterUuid = incomingConnectionIdArr.find(id => uuidRegex.test(id));
+                if (betterUuid) {
+                    console.log(`[Webhook] Healing invalid UUID ${config.prompUuid} -> ${betterUuid} for channel ${matchedChannel.name}`);
+                    config.prompUuid = betterUuid;
+
+                    // Persist back to DB to fix it permanently
+                    prisma.prompChannel.update({
+                        where: { id: matchedChannel.id },
+                        data: { prompUuid: betterUuid }
+                    }).catch(e => console.error('[Webhook] Failed to persist UUID heal:', e));
+                }
+            }
+
             console.log(`[Webhook] Using Channel Credentials: ${matchedChannel.name} (UUID: ${config.prompUuid})`);
         }
 
