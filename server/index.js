@@ -120,6 +120,14 @@ const handleWebhookRequest = async (req, res) => {
         console.log(`[Webhook] FULL PAYLOAD (${companyId}):`, JSON.stringify(payload, null, 2));
     }
 
+    // --- IGNORE OUTBOUND MESSAGES (CRITICAL) ---
+    // Se o método for 'message_send...', significa que é uma NOTIFICAÇÃO de mensagem enviada.
+    // A IA só deve responder a mensagens RECEBIDAS (Inbound).
+    if (payload.method && payload.method.toLowerCase().includes('_send')) {
+        console.log(`[Webhook] Ignoring outbound method: ${payload.method}`);
+        return res.json({ status: 'ignored_outbound' });
+    }
+
     // Load Config EARLY (needed for Identity check)
     let followUpCfg = null;
     let config = null;
@@ -218,19 +226,42 @@ const handleWebhookRequest = async (req, res) => {
                 config.prompUuid = config.company?.prompUuid || config.prompUuid;
             }
 
-            // --- HEAL TOKEN/UUID FROM PAYLOAD ---
-            // O campo 'tokenAPI' no payload costuma ser o TOKEN, não o UUID de sessão.
-            const payloadToken = payload.ticket?.whatsapp?.tokenAPI || payload.whatsapp?.tokenAPI;
-            if (payloadToken && uuidRegex.test(payloadToken)) {
-                if (config.prompToken !== payloadToken) {
-                    console.log(`[Webhook] Healing Token for channel ${matchedChannel.name}: ${config.prompToken} -> ${payloadToken}`);
-                    config.prompToken = payloadToken;
-                    
+            // --- HEAL UUID IF VALID ---
+            // Se o UUID do canal é inválido (ex: r96...), procuramos um UUID real no Payload
+            if (!uuidRegex.test(config.prompUuid)) {
+                const betterUuid = incomingConnectionIdArr.find(id => uuidRegex.test(id));
+                if (betterUuid) {
+                    console.log(`[Webhook] Healing invalid UUID ${config.prompUuid} -> ${betterUuid} for channel ${matchedChannel.name}`);
+                    config.prompUuid = betterUuid;
+
                     // Persistir no banco
                     prisma.prompChannel.update({
                         where: { id: matchedChannel.id },
-                        data: { prompToken: payloadToken }
-                    }).catch(e => console.error('[Webhook] Failed to persist Token heal:', e));
+                        data: { prompUuid: betterUuid }
+                    }).catch(e => console.error('[Webhook] Failed to persist UUID heal:', e));
+                }
+            }
+
+            // --- TOKEN LOGIC ---
+            // NUNCA substituímos o Token por algo que pareça ser o UUID da sessão.
+            // O campo 'tokenAPI' no payload muitas vezes contém o UUID, não o segredo de autorização.
+            const payloadToken = payload.ticket?.whatsapp?.tokenAPI || payload.whatsapp?.tokenAPI;
+            if (payloadToken && uuidRegex.test(payloadToken)) {
+                // Se o token do payload é IGUAL ao UUID que estamos usando na URL (ou um dos UUIDs da conexão), ele NÃO é o token de auth.
+                const isProbablyUuid = incomingConnectionIdArr.includes(payloadToken);
+                
+                if (isProbablyUuid && payloadToken === config.prompUuid) {
+                    console.log(`[Webhook] payloadToken matches prompUuid (${payloadToken}). Ignoring as Auth Token.`);
+                } else {
+                    // É um UUID diferente, talvez seja o token de fato (algumas instâncias usam UUID como token)
+                    if (config.prompToken !== payloadToken) {
+                         console.log(`[Webhook] Updating Token for channel ${matchedChannel.name}: ${config.prompToken} -> ${payloadToken}`);
+                         config.prompToken = payloadToken;
+                         prisma.prompChannel.update({
+                             where: { id: matchedChannel.id },
+                             data: { prompToken: payloadToken }
+                         }).catch(e => console.error('[Webhook] Failed to persist Token update:', e));
+                    }
                 }
             }
 
