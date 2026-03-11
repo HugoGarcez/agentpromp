@@ -185,6 +185,16 @@ const handleWebhookRequest = async (req, res) => {
         // LOAD FULL CONFIG (Global Tokens + JSON Parsed)
         config = await getCompanyConfig(companyId, agentId);
 
+        // --- MULTI-CHANNEL CREDENTIAL OVERRIDE ---
+        // Se encontramos um canal específico via Webhook, as credenciais para responder 
+        // DEVEM ser as desse canal, e não as globais do agente ou da empresa.
+        if (matchedChannel && config) {
+            if (matchedChannel.prompToken) config.prompToken = matchedChannel.prompToken;
+            if (matchedChannel.prompUuid) config.prompUuid = matchedChannel.prompUuid;
+            if (matchedChannel.prompIdentity) config.prompIdentity = matchedChannel.prompIdentity;
+            console.log(`[Webhook] Using Channel Credentials: ${matchedChannel.name} (UUID: ${config.prompUuid})`);
+        }
+
         if (config?.followUpConfig) {
             followUpCfg = config.followUpConfig; // It's already parsed by getCompanyConfig
         }
