@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Save, Bot, Cpu, Mic, Volume2, Globe, Clock, MessageCircle, Package } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
