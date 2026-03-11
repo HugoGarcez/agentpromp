@@ -197,6 +197,13 @@ const handleWebhookRequest = async (req, res) => {
             matchedChannel = channels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner);
         }
 
+        // --- DIAGNOSTICS: NO CHANNEL MATCHED ---
+        if (!matchedChannel && channels.length > 0) {
+            console.log(`[Webhook] WARNING: No channel matched for Company ${companyId}. Expected Identity matches: ${channels.map(c => c.prompIdentity).join(', ')}. Payload Owner: ${cleanOwner}`);
+        } else if (channels.length === 0) {
+            console.log(`[Webhook] WARNING: Company ${companyId} has NO PROMP CHANNELS LINKED. Use /ai-config to link a channel.`);
+        }
+
         let agentId = null;
         if (matchedChannel && matchedChannel.agents.length > 0) {
             agentId = matchedChannel.agents[0].id; // Take FIRST agent linked to this channel
@@ -3771,7 +3778,7 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
                     companyId,
                     name: channelObj.name || `Canal ${connectionId}`,
                     prompConnectionId: connectionId,
-                    prompIdentity: String(channelObj.id),
+                    prompIdentity: String(channelObj.number || channelObj.id).replace(/\D/g, ''), // Store phone number for Webhook matching
                     prompUuid: prompUuid, 
                     prompToken: prompToken
                 }
