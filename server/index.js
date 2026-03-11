@@ -3438,7 +3438,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
         console.log(`[Promp] Iniciando conexão segura para identidade: ${identity}`);
 
         // 1. Listar Tenants na Promp
-        const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
+        const tenantsRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantApiListTenants`, {
             headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
         });
 
@@ -3455,7 +3455,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             try {
                 const tid = t.id || t.uuid;
                 if (!tid) return t;
-                const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
+                const res = await fetch(`${PROMP_BASE_URL}/v2/api/tenantApiShowTenant`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: tid })
@@ -3486,18 +3486,42 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
         const currentUserEmail = currentUser.email.trim().toLowerCase();
         console.log(`[Promp] Validando e-mail ${currentUserEmail} no Tenant #${targetTenant.id}...`);
 
-        const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tenantId: targetTenant.id })
-        });
+        let userList = [];
+        
+        // Strategy 1: Check if tenant object already has users
+        if (Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
+            userList = targetTenant.users;
+            console.log(`[Promp] Usuários encontrados no objeto do Tenant. Total: ${userList.length}`);
+        } else {
+            // Strategy 2: Explicit Fetch (Trying both POST and GET patterns)
+            console.log(`[Promp] Buscando lista de usuários via API admin...`);
+            const usersRes = await fetch(`${PROMP_BASE_URL}/v2/api/userApiList`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tenantId: targetTenant.id })
+            });
 
-        if (!usersRes.ok) {
-            return res.status(500).json({ message: 'Erro ao validar lista de usuários na Promp.' });
+            if (usersRes.ok) {
+                const usersData = await usersRes.json();
+                userList = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
+            } else {
+                console.error(`[Promp] Falha no userApiList (POST). Status: ${usersRes.status}. Tentando fallback GET listUsers...`);
+                // Fallback to GET pattern shown in Postman (Admin level)
+                const altRes = await fetch(`${PROMP_BASE_URL}/v2/api/listUsers?tenantId=${targetTenant.id}&pageNumber=1`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
+                });
+                
+                if (altRes.ok) {
+                    const altData = await altRes.json();
+                    userList = altData.users || altData.data || (Array.isArray(altData) ? altData : []);
+                } else {
+                    const errTxt = await altRes.text();
+                    console.error(`[Promp] Falha crítica na validação de usuários. Status: ${altRes.status}, Resp: ${errTxt}`);
+                    return res.status(500).json({ message: 'Erro ao validar lista de usuários na Promp. Verifique os logs do servidor.' });
+                }
+            }
         }
-
-        const usersData = await usersRes.json();
-        const userList = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
         
         const matchedUser = userList.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
 
@@ -3512,7 +3536,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
 
         // 4. Criar API Centralizada para este Tenant
         const apiName = "Agente IA Global";
-        const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
+        const createApiRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantCreateApi`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
