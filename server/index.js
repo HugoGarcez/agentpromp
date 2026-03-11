@@ -3512,33 +3512,47 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             userList = targetTenant.users;
             console.log(`[Promp] Usuários encontrados no objeto do Tenant. Total: ${userList.length}`);
         } else {
-            // Strategy 2: Explicit Fetch (Trying both POST and GET patterns)
-            console.log(`[Promp] Buscando lista de usuários via API admin...`);
-            const usersRes = await fetch(`${PROMP_BASE_URL}/v2/api/userApiList`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tenantId: targetTenant.id })
-            });
+            // Strategy 2: Explicit Fetch (Trying root level patterns first, then v2 as last resort)
+            console.log(`[Promp] Buscando lista de usuários para Tenant #${targetTenant.id}...`);
+            
+            const urlsToTry = [
+                { url: `${PROMP_BASE_URL}/userApiList`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) },
+                { url: `${PROMP_BASE_URL}/listUsers?tenantId=${targetTenant.id}&pageNumber=1`, method: 'GET' },
+                { url: `${PROMP_BASE_URL}/v2/api/userApiList`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) },
+                { url: `${PROMP_BASE_URL}/v2/api/listUsers?tenantId=${targetTenant.id}&pageNumber=1`, method: 'GET' }
+            ];
 
-            if (usersRes.ok) {
-                const usersData = await usersRes.json();
-                userList = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
-            } else {
-                console.error(`[Promp] Falha no userApiList (POST). Status: ${usersRes.status}. Tentando fallback GET listUsers...`);
-                // Fallback to GET pattern shown in Postman (Admin level)
-                const altRes = await fetch(`${PROMP_BASE_URL}/v2/api/listUsers?tenantId=${targetTenant.id}&pageNumber=1`, {
-                    method: 'GET',
-                    headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
-                });
-                
-                if (altRes.ok) {
-                    const altData = await altRes.json();
-                    userList = altData.users || altData.data || (Array.isArray(altData) ? altData : []);
-                } else {
-                    const errTxt = await altRes.text();
-                    console.error(`[Promp] Falha crítica na validação de usuários. Status: ${altRes.status}, Resp: ${errTxt}`);
-                    return res.status(500).json({ message: 'Erro ao validar lista de usuários na Promp. Verifique os logs do servidor.' });
+            for (const attempt of urlsToTry) {
+                try {
+                    console.log(`[Promp] Tentando validar usuários em: ${attempt.method} ${attempt.url}`);
+                    const uRes = await fetch(attempt.url, {
+                        method: attempt.method,
+                        headers: { 
+                            'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: attempt.method === 'POST' ? attempt.body : undefined
+                    });
+
+                    if (uRes.ok) {
+                        const uData = await uRes.json();
+                        const list = Array.isArray(uData) ? uData : (uData.users || uData.data || []);
+                        if (list.length > 0) {
+                            userList = list;
+                            console.log(`[Promp] Sucesso ao obter usuários via ${attempt.url}. Total: ${list.length}`);
+                            break;
+                        }
+                    } else {
+                        console.log(`[Promp] Falha em ${attempt.url} (Status: ${uRes.status})`);
+                    }
+                } catch (err) {
+                    console.error(`[Promp] Erro na requisição para ${attempt.url}:`, err.message);
                 }
+            }
+
+            if (userList.length === 0) {
+                console.error(`[Promp] Nenhuma estratégia de listagem de usuários funcionou.`);
+                return res.status(500).json({ message: 'Não foi possível validar a lista de usuários na Promp. Verifique a configuração da API Admin.' });
             }
         }
         
