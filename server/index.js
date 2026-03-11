@@ -3436,7 +3436,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
     }
 
     try {
-        console.log(`[Promp] Auto-connecting for identity: ${identity} (Manual Session: ${sessionId || 'No'})`);
+        console.log(`[Promp] Auto-connecting for identity: ${identity}`);
 
         // 1. List Tenants to get IDs
         const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
