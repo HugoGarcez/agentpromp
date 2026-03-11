@@ -736,7 +736,7 @@ app.post('/api/products/extract', authenticateToken, async (req, res) => {
         const companyId = req.user?.companyId;
 
         if (companyId) {
-            const config = await prisma.agentConfig.findUnique({
+            const config = await prisma.agentConfig.findFirst({
                 where: { companyId },
                 select: { integrations: true }
             });
@@ -1174,7 +1174,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 // List tags directly from Promp API
 app.get('/api/tags/promp', authenticateToken, async (req, res) => {
     try {
-        const config = await prisma.agentConfig.findUnique({
+        const config = await prisma.agentConfig.findFirst({
             where: { companyId: req.user.companyId }
         });
 
@@ -1363,7 +1363,7 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
 
     try {
         // 1. Fetch Config to get product definitions
-        const config = await prisma.agentConfig.findUnique({
+        const config = await prisma.agentConfig.findFirst({
             where: { companyId },
             select: { products: true }
         });
@@ -1586,12 +1586,15 @@ app.put('/api/admin/users/:id', authenticateAdmin, async (req, res) => {
 
 // Helper to get config from DB
 
-const getCompanyConfig = async (companyId) => {
+const getCompanyConfig = async (companyId, agentId = null) => {
     if (!companyId) return null;
 
     try {
-        const config = await prisma.agentConfig.findUnique({
-            where: { companyId },
+        let whereClause = { companyId };
+        if (agentId) whereClause.id = agentId;
+
+        const config = await prisma.agentConfig.findFirst({
+            where: whereClause,
             include: {
                 company: {
                     include: {
