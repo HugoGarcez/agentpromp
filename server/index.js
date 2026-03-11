@@ -228,34 +228,23 @@ const handleWebhookRequest = async (req, res) => {
         config = await getCompanyConfig(companyId, agentId);
 
         // --- MULTI-CHANNEL CREDENTIAL OVERRIDE ---
-        // Se encontramos um canal específico via Webhook, as credenciais para responder 
-        // DEVEM ser as desse canal (Token), preservando o UUID do Master/Empresa se necessário.
         if (matchedChannel && config) {
-            // Prioridade total para o Token do Canal
-            if (matchedChannel.prompToken) config.prompToken = matchedChannel.prompToken;
             if (matchedChannel.prompIdentity) config.prompIdentity = matchedChannel.prompIdentity;
 
             // --- UUID LOGIC ---
             // O UUID na URL costuma ser o do Tenant/Empresa. Se o canal tem um UUID próprio VÁLIDO, usamos.
-            // Se for um ID legado (r96...), mantemos o da empresa (config.prompUuid original).
-            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            
             if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
                 config.prompUuid = matchedChannel.prompUuid;
             } else {
-                // Se o UUID do canal é inválido, recuamos para o da empresa
                 config.prompUuid = config.company?.prompUuid || config.prompUuid;
             }
 
             // --- HEAL UUID IF VALID ---
-            // Se o UUID do canal é inválido (ex: r96...), procuramos um UUID real no Payload
             if (!uuidRegex.test(config.prompUuid)) {
                 const betterUuid = incomingConnectionIdArr.find(id => uuidRegex.test(id));
                 if (betterUuid) {
                     console.log(`[Webhook] Healing invalid UUID ${config.prompUuid} -> ${betterUuid} for channel ${matchedChannel.name}`);
                     config.prompUuid = betterUuid;
-
-                    // Persistir no banco
                     prisma.prompChannel.update({
                         where: { id: matchedChannel.id },
                         data: { prompUuid: betterUuid }
@@ -264,9 +253,19 @@ const handleWebhookRequest = async (req, res) => {
             }
 
             // --- TOKEN LOGIC (STRICT) ---
-            // O prompToken deve ser o segredo configurado na integração (Bearer Token).
-            // NUNCA substituímos o Token de autorização por valores vindos do webhook, 
-            // pois o 'tokenAPI' no payload costuma ser apenas o UUID da sessão, causando 'Invalid token'.
+            // O prompToken do canal tem prioridade, DESDE QUE não seja uma duplicata do UUID.
+            if (matchedChannel.prompToken) {
+                config.prompToken = matchedChannel.prompToken;
+            }
+
+            // Se o token parece ser um UUID (corrupção comum durante linkagem), recuamos para o da empresa.
+            if (config.prompToken && uuidRegex.test(config.prompToken)) {
+                if (config.prompToken === config.prompUuid || incomingConnectionIdArr.includes(config.prompToken)) {
+                    console.log(`[Webhook] Channel token looks like a Session UUID (${config.prompToken}). Falling back to Company Token.`);
+                    config.prompToken = config.company?.prompToken || config.prompToken;
+                }
+            }
+
             console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: URL_ID=${config.prompUuid}, Token=${config.prompToken?.substring(0, 5)}...`);
         }
 
@@ -3739,20 +3738,21 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
         // CRITICAL FIX: Separate Token and UUID
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         
-        let prompToken = channelObj.tokenAPI || null;
+        let prompToken = null; // We usually inherit the token from company, NOT from tokenAPI field
         let prompUuid = channelObj.uuid || null;
 
-        // Fallback for prompUuid: If channelObj.uuid is missing, we use connectionId 
-        // ONLY IF it's a UUID, otherwise it stays null (to inherit from Company)
-        if (!prompUuid) {
-            if (uuidRegex.test(connectionId)) {
-                prompUuid = connectionId;
-            } else if (uuidRegex.test(channelObj.id)) {
-                prompUuid = String(channelObj.id);
-            }
+        // In Promp, 'tokenAPI' in the channel list is actually the SESSION UUID (Instance ID).
+        // It SHOULD be mapped to 'prompUuid' (URL part), not 'prompToken' (Auth part).
+        if (channelObj.tokenAPI && uuidRegex.test(channelObj.tokenAPI)) {
+            prompUuid = channelObj.tokenAPI;
+            console.log(`[Promp-Link] Mapping tokenAPI as Session UUID: ${prompUuid}`);
         }
 
-        // If we still have no UUID, use connectionId (might be legacy r96...)
+        // Fallback for prompUuid
+        if (!prompUuid) {
+            if (uuidRegex.test(connectionId)) prompUuid = connectionId;
+            else if (uuidRegex.test(channelObj.id)) prompUuid = String(channelObj.id);
+        }
         if (!prompUuid) prompUuid = connectionId;
 
         // 1. Ensure channel exists in DB
