@@ -145,12 +145,16 @@ const handleWebhookRequest = async (req, res) => {
             const val = obj[key];
             const newPath = `${currentPath}.${key}`;
             const lowerKey = key.toLowerCase();
-            const idKeys = ['whatsappid', 'instanceid', 'connectionid', 'wabaid', 'sessionid', 'sessionname', 'session', 'channelid', 'channel_id', 'cid', 'wid'];
+            const idKeys = ['whatsappid', 'instanceid', 'connectionid', 'wabaid', 'sessionid', 'sessionname', 'session', 'channelid', 'channel_id', 'cid', 'wid', 'tokenapi', 'uuid'];
             
             if (idKeys.includes(lowerKey) || (lowerKey === 'id' && currentPath.endsWith('.whatsapp'))) {
                 if (val !== null && val !== undefined && (typeof val === 'string' || typeof val === 'number')) {
                     const strVal = String(val).trim();
-                    if (strVal) foundIds.add(strVal);
+                    if (strVal) {
+                        // PRIORITIZE UUID FORMAT: If it looks like a UUID, put it at the front of the array later
+                        // or just add it normally. The matching logic will find it.
+                        foundIds.add(strVal);
+                    }
                 }
             }
             if (val && typeof val === 'object') {
@@ -159,7 +163,16 @@ const handleWebhookRequest = async (req, res) => {
         }
     };
     findIdsRecursively(payload);
-    const incomingConnectionIdArr = Array.from(foundIds);
+    
+    // Sort so that UUID-like strings (8-4-4-4-12) come first in the array
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const incomingConnectionIdArr = Array.from(foundIds).sort((a, b) => {
+        const aIsUuid = uuidRegex.test(a);
+        const bIsUuid = uuidRegex.test(b);
+        if (aIsUuid && !bIsUuid) return -1;
+        if (!aIsUuid && bIsUuid) return 1;
+        return 0;
+    });
 
     try {
         // MULTIPLE AGENTS RESOLUTION
@@ -3660,7 +3673,17 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
         }
 
         const connectionId = String(channelObj.wabaId || channelObj.id || channelObj.name);
-        const prompUuid = String(channelObj.uuid || connectionId);
+        
+        // CRITICAL FIX: Prioritize REAL UUID format for prompUuid field
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        let prompUuid = channelObj.uuid || channelObj.tokenAPI || connectionId;
+        
+        // If the primary candidates aren't UUIDs but tokenAPI is, use it
+        if (!uuidRegex.test(prompUuid) && channelObj.tokenAPI && uuidRegex.test(channelObj.tokenAPI)) {
+            prompUuid = channelObj.tokenAPI;
+        }
+        
+        prompUuid = String(prompUuid).trim();
 
         // 1. Ensure channel exists in DB
         let channelRecord = await prisma.prompChannel.findFirst({
