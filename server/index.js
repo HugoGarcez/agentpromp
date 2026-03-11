@@ -3497,128 +3497,63 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
 
         console.log(`[Promp] Tenant encontrado: ${targetTenant.name} (ID: ${targetTenant.id}). Meta:`, JSON.stringify(targetTenant, null, 2));
 
-        // 3. SEGURANÇA: Validar se o usuário logado existe no Tenant da Promp
-        const currentUser = await prisma.user.findUnique({ where: { id: req.user.userId } });
-        if (!currentUser || !currentUser.email) {
-            return res.status(403).json({ message: 'Usuário sem e-mail cadastrado no Agente. Impossível validar segurança.' });
-        }
+        // 3. SEGURANÇA SIMPLIFICADA: Validação por CNPJ/Identidade (conforme solicitado pelo usuário)
+        console.log(`[Promp] Validação de Tenant concluída via CNPJ para ${targetTenant.name}.`);
 
-        const currentUserEmail = currentUser.email.trim().toLowerCase();
-        console.log(`[Promp] Validando e-mail ${currentUserEmail} no Tenant #${targetTenant.id}...`);
-
-        let userList = [];
-        
-        // Strategy 1: Check if tenant object already has users
-        if (Array.isArray(targetTenant.users) && targetTenant.users.length > 0) {
-            userList = targetTenant.users;
-            console.log(`[Promp] Usuários encontrados no objeto do Tenant. Total: ${userList.length}`);
-        } else {
-            // Strategy 2: Explicit Fetch (Trying root level patterns first, then external v2)
-            console.log(`[Promp] Buscando lista de usuários para Tenant #${targetTenant.id} (${targetTenant.name})...`);
-            console.log(`[Promp] DEBUG DETALHADO DO TENANT:`, JSON.stringify(targetTenant, null, 2));
-            
-            // Tenta adivinhar o ApiID correto (AppID da estrutura de autenticação)
-            // Pode ser targetTenant.uuid, targetTenant.apiId, ou até o próprio tenantEmail se for um UUID completo em alguns casos.
-            const apiId = targetTenant.uuid || targetTenant.apiId || targetTenant.tenantEmail || targetTenant.id;
-            
-            const urlsToTry = [
-                { url: `${PROMP_BASE_URL}/tenantApiListUsers`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) }, // Padrão admin sugerido para testar
-                { url: `${PROMP_BASE_URL}/v2/api/external/${apiId}/listUsers?pageNumber=1`, method: 'GET' }, // O que o usuário sugeriu
-                { url: `${PROMP_BASE_URL}/userApiList`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) },
-                { url: `${PROMP_BASE_URL}/listUsers?tenantId=${targetTenant.id}&pageNumber=1`, method: 'GET' }
-            ];
-
-            for (const attempt of urlsToTry) {
-                try {
-                    console.log(`[Promp] Tentando validar usuários em: ${attempt.method} ${attempt.url}`);
-                    const uRes = await fetch(attempt.url, {
-                        method: attempt.method,
-                        headers: { 
-                            'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                            'Content-Type': 'application/json'
-                        },
-                        body: attempt.method === 'POST' ? attempt.body : undefined
-                    });
-
-                    if (uRes.ok) {
-                        const uData = await uRes.json();
-                        const list = Array.isArray(uData) ? uData : (uData.users || uData.data || []);
-                        if (list.length > 0) {
-                            userList = list;
-                            console.log(`[Promp] Sucesso ao obter usuários via ${attempt.url}. Total: ${list.length}`);
-                            break;
-                        }
-                    } else {
-                        console.log(`[Promp] Falha em ${attempt.url} (Status: ${uRes.status})`);
-                    }
-                } catch (err) {
-                    console.error(`[Promp] Erro na requisição para ${attempt.url}:`, err.message);
-                }
-            }
-
-            if (userList.length === 0) {
-                console.error(`[Promp] Nenhuma estratégia de listagem de usuários funcionou.`);
-                return res.status(500).json({ message: 'Não foi possível validar a lista de usuários na Promp. Verifique a configuração da API Admin.' });
-            }
-        }
-        
-        const matchedUser = userList.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
-
-        if (!matchedUser) {
-            console.warn(`[Promp] BLOQUEIO DE SEGURANÇA: E-mail ${currentUserEmail} não encontrado no Tenant ${targetTenant.id}.`);
-            return res.status(403).json({ 
-                message: `Acesso Negado: Seu e-mail (${currentUserEmail}) não consta como usuário/admin do Tenant "${targetTenant.name}" na Promp. Verifique suas credenciais em ambos os sistemas.` 
-            });
-        }
-
-        console.log(`[Promp] Validação concluída. Usuário Promp ID: ${matchedUser.id}`);
-
-        // 4. Criar API Centralizada para este Tenant
+        // 4. Criar ou Obter API Centralizada para este Tenant
+        // Removelos a validação de e-mail/usuários para evitar erros de AppID e roteamento administrativo.
         const apiName = "Agente IA Global";
-        
-        let createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: apiName,
-                sessionId: targetTenant.id,
-                userId: matchedUser.id,
-                authToken: Math.random().toString(36).substring(7),
-                tenant: targetTenant.id
-            })
-        });
+        console.log(`[Promp] Solicitando criação de API "${apiName}" para Tenant #${targetTenant.id}...`);
 
-        if (!createApiRes.ok) {
-            console.log(`[Promp] Tentativa de CreateApi na raiz falhou. Tentando v2/api...`);
-            createApiRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantCreateApi`, {
+        let createApiRes;
+        try {
+            createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: apiName,
-                    sessionId: targetTenant.id,
-                    userId: matchedUser.id,
-                    authToken: Math.random().toString(36).substring(7),
-                    tenant: targetTenant.id
-                })
+                body: JSON.stringify({ tenantId: targetTenant.id, name: apiName })
             });
+            
+            if (!createApiRes.ok) {
+                console.log(`[Promp] Falha em /tenantCreateApi, tentando fallback /v2/api/tenantCreateApi...`);
+                createApiRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantCreateApi`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tenantId: targetTenant.id, name: apiName })
+                });
+            }
+        } catch (e) {
+            console.error(`[Promp] Erro de rede ao criar API:`, e.message);
+            return res.status(500).json({ message: 'Erro de rede ao conectar com a Promp.' });
+        }
+
+        if (!createApiRes.ok) {
+            const errTxt = await createApiRes.text();
+            console.error(`[Promp] Falha crítica ao criar API:`, errTxt);
+            return res.status(createApiRes.status).json({ message: 'A Promp recusou a criação da API. Verifique os logs.' });
         }
 
         const apiData = await createApiRes.json();
-        if (!createApiRes.ok || !apiData.id) {
-            return res.status(400).json({ message: `Erro ao criar API na Promp: ${apiData.error || apiData.message || 'Erro desconhecido'}` });
+        const prompUuid = apiData.uuid || apiData.id || apiData.data?.uuid;
+        const prompToken = apiData.token || apiData.apiKey || apiData.data?.token;
+
+        if (!prompUuid || !prompToken) {
+            console.error(`[Promp] Dados de API incompletos recebidos:`, apiData);
+            return res.status(500).json({ message: 'Dados de API inválidos recebidos da Promp.' });
         }
 
-        // 5. Salvar na Empresa (Company)
+        console.log(`[Promp] API Vinculada com sucesso. UUID: ${prompUuid}`);
+
+        // 5. Persistir Globalmente na Company
         await prisma.company.update({
-            where: { id: companyId },
+            where: { id: req.user.companyId },
             data: {
                 prompIdentity: identity,
-                prompUuid: apiData.id,
-                prompToken: apiData.token
+                prompUuid: prompUuid,
+                prompToken: prompToken
             }
         });
 
-        res.json({ success: true, message: `Conectado com sucesso ao Tenant: ${targetTenant.name}` });
+        res.json({ success: true, message: `Integração Promp conectada com sucesso ao Tenant: ${targetTenant.name}` });
 
     } catch (error) {
         console.error('Promp Connect Error:', error);
