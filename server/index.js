@@ -204,17 +204,34 @@ const handleWebhookRequest = async (req, res) => {
             console.log(`[Webhook] WARNING: Company ${companyId} has NO PROMP CHANNELS LINKED.`);
         }
 
-        // --- IDENTITY HEALING ---
-        // Se batemos pelo Connection ID mas a Identity salva é um ID curto (legado) e temos um Owner (fone), curamos.
-        // Isso resolve o problema onde o banco tem "92" mas o webhook manda "5584..."
-        if (matchedChannel && cleanOwner && matchedChannel.prompIdentity !== cleanOwner) {
-            if (String(matchedChannel.prompIdentity).length < 6) { // Provavelmente é um ID interno (ex: 92)
-                console.log(`[Webhook] Healing Identity for channel ${matchedChannel.name}: ${matchedChannel.prompIdentity} -> ${cleanOwner}`);
-                matchedChannel.prompIdentity = cleanOwner; // Update in memory
+        // --- IDENTITY & UUID HEALING ---
+        // Se batemos pelo Connection ID, vamos garantir que o UUID e a Identity (fone) do canal estejam corretos.
+        if (matchedChannel) {
+            const updates = {};
+            const incomingUuid = incomingConnectionIdArr.find(id => uuidRegex.test(id));
+            
+            // 1. Heal Identity (Phone number)
+            if (cleanOwner && matchedChannel.prompIdentity !== cleanOwner) {
+                if (String(matchedChannel.prompIdentity).length < 6) { // Provavelmente é um ID interno legado
+                    console.log(`[Webhook] Healing Identity for channel ${matchedChannel.name}: ${matchedChannel.prompIdentity} -> ${cleanOwner}`);
+                    matchedChannel.prompIdentity = cleanOwner; // In-memory
+                    updates.prompIdentity = cleanOwner;
+                }
+            }
+
+            // 2. Heal UUID (Session ID)
+            // Se o payload trouxe um UUID novo, ele é a nossa melhor chance de bater a API de envio.
+            if (incomingUuid && matchedChannel.prompUuid !== incomingUuid) {
+                console.log(`[Webhook] Healing UUID for channel ${matchedChannel.name}: ${matchedChannel.prompUuid} -> ${incomingUuid}`);
+                matchedChannel.prompUuid = incomingUuid; // In-memory
+                updates.prompUuid = incomingUuid;
+            }
+
+            if (Object.keys(updates).length > 0) {
                 prisma.prompChannel.update({
                     where: { id: matchedChannel.id },
-                    data: { prompIdentity: cleanOwner }
-                }).catch(e => console.error('[Webhook] Failed to persist Identity heal:', e));
+                    data: updates
+                }).catch(e => console.error('[Webhook] Failed to persist channel heals:', e));
             }
         }
 
@@ -231,39 +248,33 @@ const handleWebhookRequest = async (req, res) => {
         if (matchedChannel && config) {
             if (matchedChannel.prompIdentity) config.prompIdentity = matchedChannel.prompIdentity;
 
-            // --- CREDENTIALS PRIORITY (MASTER LOGIC) ---
-            // A Integração configurada na Empresa (Global) é a nossa fonte da verdade.
-            // Se o usuário atualizou a URL/Token na tela de Integrações, TODA a IA deve seguir.
+            // --- CREDENTIALS PRIORITY (SPECIFIC > GLOBAL) ---
+            // Priorizamos o que for mais específico para garantir que a sessão correta seja usada.
             
-            const companyUuid = config.company?.prompUuid;
-            const companyToken = config.company?.prompToken;
+            let source = 'Default';
+            const agentUuid = config.prompUuid; 
+            const agentToken = config.prompToken;
 
-            // 1. UUID Priority: Company > Agent > URL Fallback > Channel
-            if (companyUuid && uuidRegex.test(companyUuid)) {
-                config.prompUuid = companyUuid;
-            } else if (config.prompUuid && uuidRegex.test(config.prompUuid)) {
-                // Keep agent level if company is empty
+            // 1. UUID Priority: Channel (Healed) > Agent/Company > Webhook URL
+            if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
+                config.prompUuid = matchedChannel.prompUuid;
+                source = 'Channel (Healed)';
+            } else if (agentUuid && uuidRegex.test(agentUuid)) {
+                config.prompUuid = agentUuid;
+                source = 'Agent/Global DB';
             } else if (uuidRegex.test(companyId)) {
                 config.prompUuid = companyId;
-            } else if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
-                config.prompUuid = matchedChannel.prompUuid;
+                source = 'Webhook URL ID';
             }
 
-            // 2. Token Priority: Company > Agent > Channel
-            // Se o token da empresa existir, ele deve ser soberano para evitar o erro 'Invalid token'
-            // causado por IDs de sessão vindo dos canais.
-            if (companyToken && companyToken.length > 10) {
-                config.prompToken = companyToken;
-            } else if (config.prompToken && config.prompToken.length > 10) {
-                // Keep agent level token
-            } else if (matchedChannel.prompToken && matchedChannel.prompToken.length > 10) {
-                // Fallback do Canal (Cuidado: pode ser um UUID de sessão, por isso é a última opção)
-                if (!uuidRegex.test(matchedChannel.prompToken)) {
-                    config.prompToken = matchedChannel.prompToken;
-                }
+            // 2. Token Priority: Agent/Company > Channel
+            if (agentToken && agentToken.length > 10 && !uuidRegex.test(agentToken)) {
+                config.prompToken = agentToken;
+            } else if (matchedChannel.prompToken && matchedChannel.prompToken.length > 10 && !uuidRegex.test(matchedChannel.prompToken)) {
+                config.prompToken = matchedChannel.prompToken;
             }
 
-            console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: URL_ID=${config.prompUuid}, Token=${config.prompToken?.substring(0, 5)}... (Source: ${companyToken ? 'Company' : 'Agent/Fallback'})`);
+            console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: UUID=${config.prompUuid}, Token=${config.prompToken?.substring(0, 5)}... (Source: ${source})`);
         }
 
         if (config?.followUpConfig) {
