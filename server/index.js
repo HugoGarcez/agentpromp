@@ -199,9 +199,23 @@ const handleWebhookRequest = async (req, res) => {
 
         // --- DIAGNOSTICS: NO CHANNEL MATCHED ---
         if (!matchedChannel && channels.length > 0) {
-            console.log(`[Webhook] WARNING: No channel matched for Company ${companyId}. Expected Identity matches: ${channels.map(c => c.prompIdentity).join(', ')}. Payload Owner: ${cleanOwner}`);
+            console.log(`[Webhook] WARNING: No channel matched for Company ${companyId}. Expected Identities: ${channels.map(c => c.prompIdentity).join(', ')}. Payload Owner: ${cleanOwner}`);
         } else if (channels.length === 0) {
-            console.log(`[Webhook] WARNING: Company ${companyId} has NO PROMP CHANNELS LINKED. Use /ai-config to link a channel.`);
+            console.log(`[Webhook] WARNING: Company ${companyId} has NO PROMP CHANNELS LINKED.`);
+        }
+
+        // --- IDENTITY HEALING ---
+        // Se batemos pelo Connection ID mas a Identity salva é um ID curto (legado) e temos um Owner (fone), curamos.
+        // Isso resolve o problema onde o banco tem "92" mas o webhook manda "5584..."
+        if (matchedChannel && cleanOwner && matchedChannel.prompIdentity !== cleanOwner) {
+            if (String(matchedChannel.prompIdentity).length < 6) { // Provavelmente é um ID interno (ex: 92)
+                console.log(`[Webhook] Healing Identity for channel ${matchedChannel.name}: ${matchedChannel.prompIdentity} -> ${cleanOwner}`);
+                matchedChannel.prompIdentity = cleanOwner; // Update in memory
+                prisma.prompChannel.update({
+                    where: { id: matchedChannel.id },
+                    data: { prompIdentity: cleanOwner }
+                }).catch(e => console.error('[Webhook] Failed to persist Identity heal:', e));
+            }
         }
 
         let agentId = null;
