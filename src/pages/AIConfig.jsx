@@ -28,94 +28,73 @@ const AgentCard = ({ agent, onClick }) => {
         <div 
             onClick={() => onClick(agent.id)}
             style={{
-                backgroundColor: '#B3E5FC', // Softer blue
-                borderRadius: '24px',
-                padding: '32px',
-                color: '#1A1A1A',
+                backgroundColor: 'var(--bg-white)',
+                borderRadius: 'var(--radius-md)',
+                padding: '24px',
+                color: 'var(--text-dark)',
                 cursor: 'pointer',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                transition: 'all 0.2s ease',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '20px',
-                minHeight: '320px',
-                position: 'relative',
-                overflow: 'hidden',
-                border: '2px solid #000',
-                boxShadow: '8px 8px 0px #000' // Neobrutalism touch
+                gap: '16px',
+                minHeight: '280px',
+                border: '1px solid var(--border-color)',
+                boxShadow: 'var(--shadow-sm)'
             }}
             onMouseEnter={e => {
-                e.currentTarget.style.transform = 'translate(-2px, -2px)';
-                e.currentTarget.style.boxShadow = '12px 12px 0px #000';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+                e.currentTarget.style.borderColor = 'var(--primary-blue)';
             }}
             onMouseLeave={e => {
-                e.currentTarget.style.transform = 'translate(0, 0)';
-                e.currentTarget.style.boxShadow = '8px 8px 0px #000';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
+                e.currentTarget.style.borderColor = 'var(--border-color)';
             }}
         >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ padding: '12px', borderRadius: '16px', backgroundColor: 'rgba(255,255,255,0.5)', border: '1px solid #000' }}>
-                    <Bot size={28} />
-                </div>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                    {[1, 2, 3].map(i => <div key={i} style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#000' }}></div>)}
+                <div style={{ padding: '10px', borderRadius: '12px', backgroundColor: '#F3F4F6', color: 'var(--primary-blue)' }}>
+                    <Bot size={24} />
                 </div>
             </div>
 
             <div>
-                <h3 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '8px', letterSpacing: '-0.5px' }}>{agent.name}</h3>
-                <div style={{ fontSize: '15px', fontWeight: '500', opacity: 0.8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#000' }}></div>
-                        Função: {roleLabels[persona.role] || 'Assistente'}
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
-                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#000' }}></div>
-                        Tom: {toneLabels[persona.tone] || 'Natural'}
-                    </div>
+                <h3 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '8px', color: 'var(--text-dark)' }}>{agent.name}</h3>
+                <div style={{ fontSize: '14px', color: 'var(--text-medium)' }}>
+                    <div style={{ marginBottom: '4px' }}>Função: <span style={{ fontWeight: 500, color: 'var(--text-dark)' }}>{roleLabels[persona.role] || 'Assistente'}</span></div>
+                    <div>Tom: <span style={{ fontWeight: 500, color: 'var(--text-dark)' }}>{toneLabels[persona.tone] || 'Natural'}</span></div>
                 </div>
             </div>
 
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
-                {kb.files?.length > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '600' }}>
-                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#8E44AD', border: '1px solid #000' }}></div>
-                        <span> {kb.files.length} Docs</span>
-                    </div>
-                )}
-                {kb.links?.length > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '600' }}>
-                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#2ECC71', border: '1px solid #000' }}></div>
-                        <span> {kb.links.length} Links</span>
-                    </div>
-                )}
-                {kb.qa?.length > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '600' }}>
-                        <div style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: '#F1C40F', border: '1px solid #000' }}></div>
-                        <span>Q&A Ativo</span>
-                    </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {(kb.files?.length > 0 || kb.links?.length > 0 || kb.qa?.length > 0) ? (
+                    <>
+                        {kb.files?.length > 0 && <span style={{ fontSize: '11px', background: '#EEF2FF', color: '#4F46E5', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>{kb.files.length} Docs</span>}
+                        {kb.links?.length > 0 && <span style={{ fontSize: '11px', background: '#ECFDF5', color: '#059669', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>{kb.links.length} Links</span>}
+                        {kb.qa?.length > 0 && <span style={{ fontSize: '11px', background: '#FFF7ED', color: '#D97706', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>Q&A</span>}
+                    </>
+                ) : (
+                    <span style={{ fontSize: '11px', color: 'var(--text-medium)', fontStyle: 'italic' }}>Sem base de conhecimento</span>
                 )}
             </div>
 
-            <div style={{ marginTop: 'auto' }}>
-                <div style={{ fontSize: '13px', fontWeight: '700', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Canais Habilitados</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {agent.prompChannels?.map(ch => (
-                        <span key={ch.id} style={{ 
-                            backgroundColor: '#C8E6C9', 
-                            padding: '6px 14px', 
-                            borderRadius: '12px', 
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            border: '1.5px solid #000',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
+            <div style={{ marginTop: 'auto', paddingTop: '12px', borderTop: '1px solid #F3F4F6' }}>
+                <div style={{ fontSize: '12px', fontWeight: '600', marginBottom: '8px', color: 'var(--text-medium)', textTransform: 'uppercase' }}>Canais</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {agent.prompChannels?.length > 0 ? agent.prompChannels.map(ch => (
+                        <span key={ch.id} title={ch.name} style={{ 
+                            backgroundColor: '#F0FDF4', 
+                            padding: '2px 6px', 
+                            borderRadius: '4px', 
+                            fontSize: '10px',
+                            fontWeight: '600',
+                            color: '#166534',
+                            border: '1px solid #DCFCE7'
                         }}>
-                            <MessageSquare size={10} /> {ch.name}
+                             {ch.type.toUpperCase()}
                         </span>
-                    ))}
-                    {(!agent.prompChannels || agent.prompChannels.length === 0) && (
-                        <span style={{ fontSize: '12px', fontStyle: 'italic', opacity: 0.6 }}>Aguardando conexão...</span>
+                    )) : (
+                        <span style={{ fontSize: '11px', color: '#9CA3AF', fontStyle: 'italic' }}>Nenhum canal</span>
                     )}
                 </div>
             </div>
@@ -127,40 +106,32 @@ const NewAgentCard = ({ onClick }) => (
     <div 
         onClick={onClick}
         style={{
-            backgroundColor: '#FFF',
-            borderRadius: '24px',
-            border: '2px dashed #000',
+            backgroundColor: 'var(--bg-white)',
+            borderRadius: 'var(--radius-md)',
+            border: '2px dashed var(--border-color)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            minHeight: '320px',
-            transition: 'all 0.3s',
-            gap: '16px'
+            minHeight: '280px',
+            transition: 'all 0.2s',
+            gap: '12px',
+            color: 'var(--text-medium)'
         }}
         onMouseEnter={e => {
-            e.currentTarget.style.backgroundColor = '#F0EBFF';
-            e.currentTarget.style.borderColor = '#7D5FFF';
+            e.currentTarget.style.borderColor = 'var(--primary-blue)';
+            e.currentTarget.style.color = 'var(--primary-blue)';
+            e.currentTarget.style.backgroundColor = '#F8FAFC';
         }}
         onMouseLeave={e => {
-            e.currentTarget.style.backgroundColor = '#FFF';
-            e.currentTarget.style.borderColor = '#000';
+            e.currentTarget.style.borderColor = 'var(--border-color)';
+            e.currentTarget.style.color = 'var(--text-medium)';
+            e.currentTarget.style.backgroundColor = 'var(--bg-white)';
         }}
     >
-        <div style={{ 
-            width: '72px', 
-            height: '72px', 
-            borderRadius: '50%', 
-            backgroundColor: '#000', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            color: 'white'
-        }}>
-            <Plus size={36} strokeWidth={3} />
-        </div>
-        <span style={{ fontWeight: '700', fontSize: '18px', color: '#000' }}>Novo Agente</span>
+        <Plus size={40} />
+        <span style={{ fontWeight: '600', fontSize: '16px' }}>Novo Agente</span>
     </div>
 );
 
@@ -180,23 +151,41 @@ const AIConfig = () => {
     const [systemPrompt, setSystemPrompt] = useState('');
     const [persona, setPersona] = useState(null);
 
+    // Channels State
+    const [prompChannels, setPrompChannels] = useState([]);
+    const [loadingChannels, setLoadingChannels] = useState(false);
+    const [isPrompConnected, setIsPrompConnected] = useState(false);
+
     const [showToast, setShowToast] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    const token = localStorage.getItem('token');
 
     useEffect(() => {
         if (!user || !user.companyId) return;
         fetchAgents();
+        fetchPrompStatus();
     }, [user]);
 
     useEffect(() => {
         if (selectedAgentId) {
             fetchConfig();
+            if (isPrompConnected) fetchChannels();
         }
-    }, [selectedAgentId]);
+    }, [selectedAgentId, isPrompConnected]);
+
+    const fetchPrompStatus = async () => {
+        try {
+            const res = await fetch('/api/config', { headers: { 'Authorization': `Bearer ${token}` } });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.prompUuid) setIsPrompConnected(true);
+            }
+        } catch (e) {}
+    };
 
     const fetchAgents = async () => {
         try {
-            const token = localStorage.getItem('token');
             const res = await fetch('/api/agents', { headers: { 'Authorization': `Bearer ${token}` } });
             if (res.ok) {
                 const data = await res.json();
@@ -204,6 +193,46 @@ const AIConfig = () => {
             }
         } catch (e) {
             console.error("Failed to fetch agents:", e);
+        }
+    };
+
+    const fetchChannels = async () => {
+        try {
+            setLoadingChannels(true);
+            const res = await fetch('/api/promp/channels', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setPrompChannels(data.channels || []);
+            }
+        } catch (e) {
+            console.error("Failed to fetch Promp channels:", e);
+        } finally {
+            setLoadingChannels(false);
+        }
+    };
+
+    const toggleChannelLink = async (channelObj, isLinked) => {
+        try {
+            const res = await fetch('/api/promp/channels/link', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    agentId: selectedAgentId,
+                    channelObj,
+                    link: !isLinked
+                })
+            });
+            if (res.ok) {
+                fetchChannels();
+                fetchAgents(); // Refresh summary cards
+            }
+        } catch (e) {
+            console.error("Link error:", e);
         }
     };
 
@@ -313,15 +342,16 @@ const AIConfig = () => {
 
     if (view === 'selection') {
         return (
-            <div style={{ padding: '20px' }}>
-                <h2 style={{ fontSize: '42px', fontWeight: 'normal', marginBottom: '48px', color: '#000', textTransform: 'uppercase' }}>
-                    SELECIONE UM AGENTE IA
-                </h2>
+            <div style={{ padding: '24px' }}>
+                <div style={{ marginBottom: '40px' }}>
+                    <h2 style={{ fontSize: '32px', fontWeight: '700', color: 'var(--text-dark)', marginBottom: '8px' }}>Seus Agentes IA</h2>
+                    <p style={{ color: 'var(--text-medium)' }}>Gerencie e configure cada um de seus agentes de forma independente.</p>
+                </div>
                 
                 <div style={{ 
                     display: 'grid', 
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', 
-                    gap: '32px' 
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+                    gap: '24px' 
                 }}>
                     {agents.map(agent => (
                         <AgentCard key={agent.id} agent={agent} onClick={handleSelectAgent} />
@@ -333,22 +363,25 @@ const AIConfig = () => {
     }
 
     return (
-        <div style={{ background: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)' }}>
+        <div style={{ background: 'var(--bg-white)', padding: '32px', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                     <button 
                         onClick={() => setView('selection')}
                         style={{ 
                             display: 'flex', alignItems: 'center', gap: '8px', 
                             background: '#F3F4F6', border: 'none', padding: '10px 16px', 
-                            borderRadius: '8px', cursor: 'pointer', color: '#374151', fontWeight: '500'
+                            borderRadius: '8px', cursor: 'pointer', color: '#4B5563', fontWeight: '600',
+                            transition: 'background 0.2s'
                         }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#E5E7EB'}
+                        onMouseLeave={e => e.currentTarget.style.background = '#F3F4F6'}
                     >
-                        <ArrowLeft size={18} /> Voltar
+                        <ArrowLeft size={18} /> Painel
                     </button>
                     <div>
-                        <h2 style={{ fontSize: '24px', fontWeight: '600' }}>Configurando: {agents.find(a => a.id === selectedAgentId)?.name}</h2>
-                        <span style={{ fontSize: '14px', color: '#6B7280' }}>ID do Agente: {selectedAgentId}</span>
+                        <h2 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-dark)' }}>{agents.find(a => a.id === selectedAgentId)?.name}</h2>
+                        <span style={{ fontSize: '13px', color: 'var(--text-medium)' }}>Configuração de Agente</span>
                     </div>
                 </div>
 
@@ -360,20 +393,21 @@ const AIConfig = () => {
                         padding: '12px 24px', borderRadius: '8px',
                         fontWeight: '600', cursor: 'pointer',
                         outline: 'none', border: 'none',
-                        boxShadow: '0 4px 12px rgba(0,102,255,0.2)'
+                        boxShadow: '0 4px 6px -1px rgba(0, 102, 255, 0.2)'
                     }}
                 >
-                    <Save size={18} />
-                    {showToast ? 'Salvo com Sucesso!' : 'Salvar Todas Alterações'}
+                    <Save size={20} />
+                    {showToast ? 'Salvo!' : 'Salvar Alterações'}
                 </button>
             </div>
 
-            <div style={{ borderBottom: '1px solid #E5E7EB', marginBottom: '24px', display: 'flex', gap: '32px', overflowX: 'auto' }}>
+            <div style={{ borderBottom: '1px solid #E5E7EB', marginBottom: '32px', display: 'flex', gap: '32px', overflowX: 'auto' }}>
                 {[
-                    { id: 'prompt', label: 'Editar Persona', icon: Bot },
+                    { id: 'prompt', label: 'Persona', icon: Bot },
+                    { id: 'channels', label: 'Canais de Atendimento', icon: MessageSquare },
                     { id: 'files', label: 'Arquivos', icon: FileText },
-                    { id: 'links', label: 'Páginas Web / Links', icon: Globe },
-                    { id: 'qa', label: 'Perguntas e Respostas', icon: HelpCircle }
+                    { id: 'links', label: 'Links', icon: Globe },
+                    { id: 'qa', label: 'Q&A', icon: HelpCircle }
                 ].map(tab => (
                     <button
                         key={tab.id}
@@ -384,13 +418,13 @@ const AIConfig = () => {
                             gap: '8px',
                             padding: '12px 4px',
                             borderBottom: activeTab === tab.id ? '3px solid var(--primary-blue)' : '3px solid transparent',
-                            color: activeTab === tab.id ? 'var(--primary-blue)' : '#6B7280',
+                            color: activeTab === tab.id ? 'var(--primary-blue)' : 'var(--text-medium)',
                             fontWeight: 600,
                             background: 'none',
                             borderTop: 'none', borderLeft: 'none', borderRight: 'none',
                             cursor: 'pointer',
                             whiteSpace: 'nowrap',
-                            transition: 'color 0.2s, border-color 0.2s'
+                            transition: 'all 0.2s'
                         }}
                     >
                         <tab.icon size={18} />
@@ -399,14 +433,76 @@ const AIConfig = () => {
                 ))}
             </div>
 
-            <div className="content" style={{ minHeight: '400px' }}>
+            <div className="content">
                 {loading ? (
-                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
-                        Carregando configurações...
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px', color: 'var(--text-medium)' }}>
+                        <Loader2 className="animate-spin" style={{ marginRight: '8px' }} /> Carregando...
                     </div>
                 ) : (
                     <>
                         {activeTab === 'prompt' && <PromptTab systemPrompt={systemPrompt} onPromptChange={setSystemPrompt} persona={persona} onPersonaChange={setPersona} />}
+                        
+                        {activeTab === 'channels' && (
+                            <div style={{ padding: '8px' }}>
+                                <div style={{ marginBottom: '24px' }}>
+                                    <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Vincular Canais</h3>
+                                    <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Selecione quais canais de atendimento esta IA deve responder.</p>
+                                </div>
+
+                                {!isPrompConnected ? (
+                                    <div style={{ padding: '32px', textAlign: 'center', background: '#FEF2F2', borderRadius: '12px', border: '1px solid #FEE2E2' }}>
+                                        <p style={{ color: '#B91C1C', fontWeight: 600 }}>Integração Promp não configurada.</p>
+                                        <p style={{ fontSize: '14px', color: '#991B1B' }}>Configure a conexão em "Integrações" para gerenciar os canais aqui.</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {loadingChannels ? (
+                                            <div style={{ textAlign: 'center', padding: '40px' }}><Loader2 className="animate-spin" /></div>
+                                        ) : (
+                                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "16px" }}>
+                                                {prompChannels.map(ch => {
+                                                    const isLinked = ch.linkedAgents?.some(a => a.id === selectedAgentId);
+                                                    return (
+                                                        <div key={ch.id} style={{
+                                                            background: "white", padding: "16px", borderRadius: "12px",
+                                                            border: isLinked ? "2px solid #10B981" : "1px solid var(--border-color)",
+                                                            display: "flex", justifyContent: "space-between", alignItems: "center",
+                                                            boxShadow: isLinked ? '0 4px 6px -1px rgba(16, 185, 129, 0.1)' : 'none',
+                                                            transition: 'all 0.2s'
+                                                        }}>
+                                                            <div style={{ overflow: "hidden" }}>
+                                                                <div style={{ fontWeight: 600, fontSize: "14px", color: 'var(--text-dark)' }}>{ch.name}</div>
+                                                                <div style={{ fontSize: "11px", color: "var(--text-medium)", textTransform: 'uppercase' }}>{ch.type}</div>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => toggleChannelLink(ch, isLinked)}
+                                                                style={{ 
+                                                                    padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, 
+                                                                    cursor: "pointer", border: "none", 
+                                                                    background: isLinked ? "#FEE2E2" : "#D1FAE5", 
+                                                                    color: isLinked ? "#B91C1C" : "#065F46",
+                                                                    transition: 'opacity 0.2s'
+                                                                }}
+                                                                onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
+                                                                onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+                                                            >
+                                                                {isLinked ? "Remover" : "Vincular"}
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {prompChannels.length === 0 && (
+                                                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: 'var(--text-medium)' }}>
+                                                        Nenhum canal encontrado na sua conta Promp.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        )}
+
                         {activeTab === 'files' && <FilesTab files={files} onUpdate={setFiles} />}
                         {activeTab === 'links' && <LinksTab links={links} onUpdate={setLinks} />}
                         {activeTab === 'qa' && <QATab qaList={qa} onUpdate={setQa} />}
@@ -421,10 +517,11 @@ const AIConfig = () => {
                     padding: '16px 32px', borderRadius: '12px',
                     boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
                     zIndex: 1000,
-                    display: 'flex', alignItems: 'center', gap: '12px'
+                    display: 'flex', alignItems: 'center', gap: '12px',
+                    animation: 'slideIn 0.3s ease-out'
                 }}>
                     <Save size={20} />
-                    <span style={{ fontWeight: '500' }}>Configurações do agente salvas com sucesso!</span>
+                    <span style={{ fontWeight: '600' }}>Alterações salvas com sucesso!</span>
                 </div>
             )}
         </div>
