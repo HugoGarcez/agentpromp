@@ -498,14 +498,7 @@ const handleWebhookRequest = async (req, res) => {
 
     // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
     const sessionId = payload.ticket?.id || payload.wuzapi?.id || (payload.classes && payload.classes.length > 0 ? payload.classes[0] : null) || null;
-    const senderNumber = payload.msg?.from ||
-        payload.msg?.sender_pn ||
-        payload.msg?.chatid ||
-        payload.key?.remoteJid ||
-        payload.contact?.number ||
-        payload.number ||
-        payload.data?.key?.remoteJid ||
-        payload.msg?.sender;
+    const senderNumber = rawSender; // Reuse the already extracted and cleaned rawSender
 
     // Clean Sender Number
     const cleanNumber = senderNumber ? String(senderNumber).replace(/\D/g, '') : null;
