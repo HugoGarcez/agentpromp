@@ -129,7 +129,7 @@ const handleWebhookRequest = async (req, res) => {
     const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender;
     const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
     
-    const rawOwner = payload.msg?.owner || payload.owner;
+    const rawOwner = payload.msg?.owner || payload.owner || payload.to || payload.msg?.to || payload.ticket?.owner || payload.ticket?.destination;
     const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
 
     // --- REAL-TIME DIAGNOSTIC RECURSIVE ID FINDER ---
@@ -140,7 +140,7 @@ const handleWebhookRequest = async (req, res) => {
             const val = obj[key];
             const newPath = `${currentPath}.${key}`;
             const lowerKey = key.toLowerCase();
-            const idKeys = ['whatsappid', 'instanceid', 'connectionid', 'wabaid', 'sessionid', 'sessionname', 'session'];
+            const idKeys = ['whatsappid', 'instanceid', 'connectionid', 'wabaid', 'sessionid', 'sessionname', 'session', 'channelid', 'channel_id', 'cid', 'wid'];
             
             if (idKeys.includes(lowerKey) || (lowerKey === 'id' && currentPath.endsWith('.whatsapp'))) {
                 if (val !== null && val !== undefined && (typeof val === 'string' || typeof val === 'number')) {
@@ -230,15 +230,15 @@ const handleWebhookRequest = async (req, res) => {
 
     if (dbConnectionId) {
         if (incomingConnectionIdArr.length === 0) {
-            console.log(`[Webhook-V6] ERROR: No WhatsApp ID found in payload (Recursive Search). Expected: '${dbConnectionId}'. Ignoring.`);
-            return res.json({ status: 'ignored_missing_whatsapp_id' });
+            console.log(`[Webhook-V6] WARNING: No Connection ID found in payload keys. Proceeding because isolation is handled by URL/Owner match. Expected: '${dbConnectionId}'.`);
+        } else {
+            const hasMatch = incomingConnectionIdArr.includes(dbConnectionId);
+            if (!hasMatch) {
+                console.log(`[Webhook-V6] CONNECTION ISOLATION: Expected ID '${dbConnectionId}' NOT FOUND. Candidates: ${JSON.stringify(incomingConnectionIdArr)}. Ignoring.`);
+                return res.json({ status: 'ignored_wrong_whatsapp_id' });
+            }
+            console.log(`[Webhook-V6] CONNECTION MATCH VERIFIED: ID '${dbConnectionId}' found recursively.`);
         }
-        const hasMatch = incomingConnectionIdArr.includes(dbConnectionId);
-        if (!hasMatch) {
-            console.log(`[Webhook-V6] CONNECTION ISOLATION: Expected ID '${dbConnectionId}' NOT FOUND. Candidates: ${JSON.stringify(incomingConnectionIdArr)}. Ignoring.`);
-            return res.json({ status: 'ignored_wrong_whatsapp_id' });
-        }
-        console.log(`[Webhook-V6] CONNECTION MATCH VERIFIED: ID '${dbConnectionId}' found recursively.`);
     }
 
 
