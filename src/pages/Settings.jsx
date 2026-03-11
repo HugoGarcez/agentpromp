@@ -613,19 +613,34 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
 
                                                 {/* PROMP API INTEGRATION CARD */}
                         <div style={{ padding: "24px", border: "1px solid #10B981", borderRadius: "var(--radius-md)", background: "#F0FDF4", marginBottom: "32px" }}>
-                            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#059669", marginBottom: "8px" }}>Integração Automática Promp</h3>
+                            <h3 style={{ fontSize: "16px", fontWeight: 600, color: "#059669", marginBottom: "8px" }}>Integração Manual Promp</h3>
                             <p style={{ color: "#047857", fontSize: "14px", marginBottom: "16px" }}>
-                                Conecte-se globalmente ao seu Tenant da Promp e depois vincule este agente aos canais desejados.
+                                Configure a conexão com o sistema Promp utilizando a URL da API e o Token de Acesso.
                             </p>
 
                             {!isPrompConnected ? (
-                                <div style={{ display: "flex", gap: "12px", alignItems: "flex-end" }}>
-                                    <div style={{ flex: 1 }}>
-                                        <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500, color: "#047857" }}>Identidade do Tenant (CPF/CNPJ)</label>
+                                <div style={{ display: "grid", gap: "16px" }}>
+                                    <div>
+                                        <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500, color: "#047857" }}>URL da API Promp (External)</label>
                                         <input
                                             type="text"
-                                            placeholder="000.000.000-00"
-                                            id="prompIdentityInput"
+                                            placeholder="https://api.promp.com.br/v2/api/external/SEU-ID-AQUI"
+                                            id="prompApiUrlInput"
+                                            style={{
+                                                width: "100%", padding: "10px",
+                                                borderRadius: "var(--radius-md)",
+                                                border: "1px solid #10B981",
+                                                background: "white"
+                                            }}
+                                        />
+                                        <p style={{ fontSize: "12px", color: "#059669", marginTop: "4px" }}>Copie a 'Url de Integração' do sistema Promp.</p>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500, color: "#047857" }}>Bearer Token (API Key)</label>
+                                        <input
+                                            type="password"
+                                            placeholder="eyJhbGci..."
+                                            id="prompApiTokenInput"
                                             style={{
                                                 width: "100%", padding: "10px",
                                                 borderRadius: "var(--radius-md)",
@@ -635,46 +650,45 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                                         />
                                     </div>
                                     <button
-                                                onClick={async () => {
-                                                    const identity = document.getElementById("prompIdentityInput").value;
-                                                    if (!identity) return alert("Digite a identidade (CPF/CNPJ).");
+                                        onClick={async () => {
+                                            const apiUrl = document.getElementById("prompApiUrlInput").value;
+                                            const apiToken = document.getElementById("prompApiTokenInput").value;
+                                            if (!apiUrl || !apiToken) return alert("URL e Token são obrigatórios.");
 
-                                                    try {
-                                                        const token = localStorage.getItem("token");
-                                                        const res = await fetch("/api/promp/connect", {
-                                                            method: "POST",
-                                                            headers: {
-                                                                "Content-Type": "application/json",
-                                                                "Authorization": `Bearer ${token}`
-                                                            },
-                                                            body: JSON.stringify({ identity })
-                                                        });
+                                            try {
+                                                const token = localStorage.getItem("token");
+                                                const res = await fetch("/api/promp/connect", {
+                                                    method: "POST",
+                                                    headers: {
+                                                        "Content-Type": "application/json",
+                                                        "Authorization": `Bearer ${token}`
+                                                    },
+                                                    body: JSON.stringify({ apiUrl, apiToken })
+                                                });
 
-                                                        const data = await res.json();
-                                                        if (res.ok) {
-                                                            alert("Tenant conectado com sucesso!");
-                                                            setIsPrompConnected(true);
-                                                            // Forçar busca de canais imediata
-                                                            fetchChannels();
-                                                        } else {
-                                                            alert(data.message || "Erro ao conectar.");
-                                                        }
-                                                    } catch (e) {
-                                                        alert("Erro de conexão.");
-                                                    }
-                                                }}
+                                                const data = await res.json();
+                                                if (res.ok) {
+                                                    alert("Promp conectada com sucesso!");
+                                                    setIsPrompConnected(true);
+                                                    fetchChannels();
+                                                } else {
+                                                    alert(data.message || "Erro ao conectar.");
+                                                }
+                                            } catch (e) {
+                                                alert("Erro de conexão.");
+                                            }
+                                        }}
                                         style={{
                                             background: "#10B981",
                                             color: "white",
-                                            padding: "10px 20px",
+                                            padding: "12px 20px",
                                             borderRadius: "var(--radius-md)",
                                             fontWeight: 600,
                                             cursor: "pointer",
-                                            border: "none",
-                                            height: "42px"
+                                            border: "none"
                                         }}
                                     >
-                                        Conectar Tenant
+                                        Validar e Conectar Promp
                                     </button>
                                 </div>
                             ) : (
@@ -682,7 +696,7 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
                                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                             <div style={{ width: "10px", height: "10px", background: "#059669", borderRadius: "50%" }}></div>
-                                            <strong style={{ color: "#059669" }}>Integração Global Ativa</strong>
+                                            <strong style={{ color: "#059669" }}>Integração Global Ativa (Manual)</strong>
                                         </div>
                                         <button
                                             onClick={() => setIsPrompConnected(false)}
@@ -697,7 +711,7 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                                                 cursor: "pointer"
                                             }}
                                         >
-                                            Trocar Tenant
+                                            Redefinir Configurações
                                         </button>
                                     </div>
 

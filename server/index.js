@@ -3427,137 +3427,82 @@ app.get('/api/chat/history', authenticateToken, async (req, res) => {
 
 
 app.post('/api/promp/connect', authenticateToken, async (req, res) => {
-    const { identity } = req.body;
-    const companyId = req.user.companyId;
-
-    if (!PROMP_ADMIN_TOKEN) {
-        return res.status(500).json({ message: 'Configuração do Servidor: PROMP_ADMIN_TOKEN ausente' });
-    }
-
     try {
-        console.log(`[Promp] Iniciando conexão segura para identidade: ${identity}`);
+        const { apiUrl, apiToken } = req.body;
 
-        // 1. Listar Tenants na Promp (Endpoint Raiz conforme Postman)
-        let tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
-            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
-        });
-
-        // Fallback para v2/api se a raiz falhar
-        if (!tenantsRes.ok) {
-            console.log(`[Promp] Tentativa de ListTenants na raiz falhou (${tenantsRes.status}). Tentando v2/api...`);
-            tenantsRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantApiListTenants`, {
-                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
-            });
+        if (!apiUrl || !apiToken) {
+            return res.status(400).json({ message: 'URL da API e Bearer Token são obrigatórios.' });
         }
 
-        if (!tenantsRes.ok) throw new Error('Falha ao listar tenants na Promp');
+        console.log(`[Promp] Iniciando conexão manual com URL: ${apiUrl}`);
 
-        const tenantsData = await tenantsRes.json();
-        const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
-
-        // 2. Localizar Tenant por Identidade (Parallel Fetch for details)
-        const sanitize = (str) => String(str || '').replace(/\D/g, '');
-        const targetIdentity = sanitize(identity);
-
-        const detailPromises = tenantListBasic.map(async (t) => {
-            try {
-                const tid = t.id || t.uuid;
-                if (!tid) return t;
-                
-                // Tenta raiz primeiro (Postman)
-                let res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: tid })
-                });
-
-                if (!res.ok) {
-                    // Fallback para v2/api
-                    res = await fetch(`${PROMP_BASE_URL}/v2/api/tenantApiShowTenant`, {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id: tid })
-                    });
-                }
-                if (!res.ok) return t;
-                const json = await res.json();
-                const tenantObj = json.tenant || json.data || json;
-                const finalObj = Array.isArray(tenantObj) ? tenantObj[0] : tenantObj;
-                return { ...t, ...finalObj };
-            } catch (e) { return t; }
-        });
-
-        const detailedTenants = await Promise.all(detailPromises);
-        const targetTenant = detailedTenants.find(t => t && (sanitize(t.identity) === targetIdentity || sanitize(t.cnpj) === targetIdentity || sanitize(t.cpf) === targetIdentity));
-
-        if (!targetTenant) {
-            console.log(`[Promp] Tenants detalhados para debug:`, JSON.stringify(detailedTenants.map(t => ({ id: t.id, name: t.name, identity: t.identity, cnpj: t.cnpj })), null, 2));
-            return res.status(404).json({ message: `Nenhum Tenant encontrado na Promp com a identidade ${identity}.` });
+        // 1. Extrair o UUID da URL
+        let prompUuid = '';
+        const uuidMatch = apiUrl.match(/external\/([a-f0-9-]+)/i);
+        if (uuidMatch && uuidMatch[1]) {
+            prompUuid = uuidMatch[1];
+        } else {
+            const parts = apiUrl.split('/').filter(Boolean);
+            const lastPart = parts[parts.length - 1];
+            if (lastPart && lastPart.includes('-')) {
+                prompUuid = lastPart;
+            }
         }
 
-        console.log(`[Promp] Tenant encontrado: ${targetTenant.name} (ID: ${targetTenant.id}). Meta:`, JSON.stringify(targetTenant, null, 2));
+        if (!prompUuid) {
+            return res.status(400).json({ message: 'Não foi possível extrair o UUID da URL fornecida.' });
+        }
 
-        // 3. SEGURANÇA SIMPLIFICADA: Validação por CNPJ/Identidade (conforme solicitado pelo usuário)
-        console.log(`[Promp] Validação de Tenant concluída via CNPJ para ${targetTenant.name}.`);
+        const prompToken = apiToken.replace('Bearer ', '').trim();
 
-        // 4. Criar ou Obter API Centralizada para este Tenant
-        // Removelos a validação de e-mail/usuários para evitar erros de AppID e roteamento administrativo.
-        const apiName = "Agente IA Global";
-        console.log(`[Promp] Solicitando criação de API "${apiName}" para Tenant #${targetTenant.id}...`);
-
-        let createApiRes;
+        // 2. Validação Imediata: Tentar listar canais com esses dados
+        console.log(`[Promp] Validando conexão manual para UUID: ${prompUuid}...`);
+        
+        // Padrão de URL validado pelo usuário no Postman
+        const validateUrl = `${PROMP_BASE_URL}/v2/api/external/${prompUuid}/listChannels`;
+        
         try {
-            createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tenantId: targetTenant.id, name: apiName })
+            const vRes = await fetch(validateUrl, {
+                headers: { 'Authorization': `Bearer ${prompToken}` }
             });
-            
-            if (!createApiRes.ok) {
-                console.log(`[Promp] Falha em /tenantCreateApi, tentando fallback /v2/api/tenantCreateApi...`);
-                createApiRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantCreateApi`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tenantId: targetTenant.id, name: apiName })
+
+            if (!vRes.ok) {
+                const errTxt = await vRes.text();
+                console.error(`[Promp] Falha na validação manual (Status ${vRes.status}):`, errTxt);
+                return res.status(vRes.status).json({ 
+                    message: 'A Promp recusou a conexão. Verifique se a URL e o Token estão corretos.' 
                 });
             }
+
+            const channelsData = await vRes.json();
+            const channels = Array.isArray(channelsData) ? channelsData : (channelsData.channels || channelsData.data || []);
+            
+            console.log(`[Promp] Conexão MANUAL validada! Canais: ${channels.length}`);
+
+            // 3. Persistir Globalmente na Company
+            await prisma.company.update({
+                where: { id: req.user.companyId },
+                data: {
+                    prompUuid: prompUuid,
+                    prompToken: prompToken
+                }
+            });
+
+            return res.json({ 
+                success: true, 
+                message: 'Integração Promp configurada e validada com sucesso!',
+                prompUuid,
+                channelCount: channels.length
+            });
+
         } catch (e) {
-            console.error(`[Promp] Erro de rede ao criar API:`, e.message);
-            return res.status(500).json({ message: 'Erro de rede ao conectar com a Promp.' });
+            console.error(`[Promp] Erro de rede na validação:`, e.message);
+            return res.status(500).json({ message: 'Erro de rede ao validar conexão com a Promp.' });
         }
-
-        if (!createApiRes.ok) {
-            const errTxt = await createApiRes.text();
-            console.error(`[Promp] Falha crítica ao criar API:`, errTxt);
-            return res.status(createApiRes.status).json({ message: 'A Promp recusou a criação da API. Verifique os logs.' });
-        }
-
-        const apiData = await createApiRes.json();
-        const prompUuid = apiData.uuid || apiData.id || apiData.data?.uuid;
-        const prompToken = apiData.token || apiData.apiKey || apiData.data?.token;
-
-        if (!prompUuid || !prompToken) {
-            console.error(`[Promp] Dados de API incompletos recebidos:`, apiData);
-            return res.status(500).json({ message: 'Dados de API inválidos recebidos da Promp.' });
-        }
-
-        console.log(`[Promp] API Vinculada com sucesso. UUID: ${prompUuid}`);
-
-        // 5. Persistir Globalmente na Company
-        await prisma.company.update({
-            where: { id: req.user.companyId },
-            data: {
-                prompIdentity: identity,
-                prompUuid: prompUuid,
-                prompToken: prompToken
-            }
-        });
-
-        res.json({ success: true, message: `Integração Promp conectada com sucesso ao Tenant: ${targetTenant.name}` });
 
     } catch (error) {
         console.error('Promp Connect Error:', error);
-        res.status(500).json({ message: error.message || 'Erro ao conectar com Promp' });
+        res.status(500).json({ message: error.message || 'Erro inesperado na conexão Promp' });
     }
 });
 
