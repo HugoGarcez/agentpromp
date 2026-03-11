@@ -1473,13 +1473,52 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
 // --- Notification Routes (User) ---
 app.get('/api/notifications', authenticateToken, async (req, res) => {
     try {
+        const userId = req.user.id;
         const notifications = await prisma.notification.findMany({
             where: { status: 'APPROVED' },
-            orderBy: { createdAt: 'desc' }
+            orderBy: { createdAt: 'desc' },
+            include: {
+                readBy: {
+                    where: { userId }
+                }
+            }
         });
-        res.json(notifications);
+
+        const formatted = notifications.map(notif => ({
+            ...notif,
+            read: notif.readBy.length > 0,
+            readBy: undefined // cleanup
+        }));
+
+        res.json(formatted);
     } catch (error) {
+        console.error('Error fetching notifications:', error);
         res.status(500).json({ message: 'Erro ao buscar notificações' });
+    }
+});
+
+app.post('/api/notifications/:id/read', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    try {
+        await prisma.notificationRead.upsert({
+            where: {
+                userId_notificationId: {
+                    userId,
+                    notificationId: id
+                }
+            },
+            update: {},
+            create: {
+                userId,
+                notificationId: id
+            }
+        });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error marking notification as read:', error);
+        res.status(500).json({ message: 'Erro ao marcar notificação como lida' });
     }
 });
 

@@ -111,7 +111,7 @@ const Header = ({ title, onMenuClick }) => {
                     <button title="Notificações" style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                         <Bell size={20} color="var(--text-medium)" />
                     </button>
-                    {notifications.length > 0 && (
+                    {notifications.filter(n => !n.read).length > 0 && (
                         <span style={{
                             position: 'absolute',
                             top: '-5px',
@@ -125,7 +125,7 @@ const Header = ({ title, onMenuClick }) => {
                             border: '2px solid white',
                             pointerEvents: 'none'
                         }}>
-                            {notifications.length}
+                            {notifications.filter(n => !n.read).length}
                         </span>
                     )}
                 </div>
@@ -330,11 +330,23 @@ const Header = ({ title, onMenuClick }) => {
                                     borderRadius: '8px',
                                     border: '1px solid #E5E7EB',
                                     cursor: 'pointer',
-                                    transition: 'background 0.2s'
+                                    transition: 'background 0.2s',
+                                    position: 'relative'
                                 }}
                                 onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#F9FAFB'}
                                 onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                             >
+                                {!notif.read && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        top: '12px',
+                                        right: '12px',
+                                        width: '8px',
+                                        height: '8px',
+                                        borderRadius: '50%',
+                                        backgroundColor: '#DC2626'
+                                    }}></div>
+                                )}
                                 <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
                                     <div style={{
                                         padding: '8px',
@@ -379,7 +391,24 @@ const Header = ({ title, onMenuClick }) => {
                         </div>
                         <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                             <button
-                                onClick={() => setSelectedNotif(null)}
+                                onClick={async () => {
+                                    if (!selectedNotif.read) {
+                                        try {
+                                            const token = localStorage.getItem('token');
+                                            await fetch(`/api/notifications/${selectedNotif.id}/read`, {
+                                                method: 'POST',
+                                                headers: { 'Authorization': `Bearer ${token}` }
+                                            });
+                                            // Update local state
+                                            setNotifications(prev => prev.map(n => 
+                                                n.id === selectedNotif.id ? { ...n, read: true } : n
+                                            ));
+                                        } catch (error) {
+                                            console.error("Error marking as read:", error);
+                                        }
+                                    }
+                                    setSelectedNotif(null);
+                                }}
                                 style={{
                                     backgroundColor: 'var(--primary-blue)',
                                     color: 'white',
