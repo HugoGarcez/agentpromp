@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Send, User, Bot, Sparkles, Save } from 'lucide-react';
+import { Send, User, Bot, Sparkles, Save, Trash2, ChevronDown } from 'lucide-react';
 import PromptTab from '../components/AIConfig/PromptTab';
 
 const TestAI = () => {
@@ -10,29 +10,38 @@ const TestAI = () => {
     const [advancedMode, setAdvancedMode] = useState(false);
     const [systemPrompt, setSystemPrompt] = useState('');
     const [persona, setPersona] = useState(null);
-    const [fullConfig, setFullConfig] = useState(null); // To preserve other fields when saving
+    const [fullConfig, setFullConfig] = useState(null);
+
+    const [agents, setAgents] = useState([]);
+    const [selectedAgentId, setSelectedAgentId] = useState('');
 
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
     const [products, setProducts] = useState([]);
 
-    const fetchData = async () => {
+    const fetchData = async (agentId) => {
+        const idToUse = agentId || selectedAgentId;
+        if (!idToUse) return;
+
         const token = localStorage.getItem('token');
         if (!token) return;
         try {
-            // Config
-            const resConfig = await fetch('/api/config', {
+            const resConfig = await fetch(`/api/config?agentId=${idToUse}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (resConfig.ok) {
                 const data = await resConfig.json();
                 setFullConfig(data);
-                // Only update systemPrompt if we are NOT editing it manually in Advanced Mode
                 if (!advancedMode) {
                     setSystemPrompt(data.systemPrompt || '');
                 }
-                setPersona(data.persona || null);
+                
+                let parsedPersona = data.persona;
+                if (typeof parsedPersona === 'string') {
+                    try { parsedPersona = JSON.parse(parsedPersona); } catch (e) {}
+                }
+                setPersona(parsedPersona || null);
 
                 if (data.products && Array.isArray(data.products)) {
                     setProducts(data.products);
@@ -43,38 +52,76 @@ const TestAI = () => {
         }
     };
 
-    // Load config and history
-    React.useEffect(() => {
+    const fetchAgents = async () => {
         const token = localStorage.getItem('token');
-        if (!token) return;
-
-        fetchData();
-
-        const fetchHistory = async () => {
-            try {
-                // History
-                const resHistory = await fetch('/api/chat/history', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (resHistory.ok) {
-                    const historyData = await resHistory.json();
-                    if (historyData.length > 0) {
-                        setMessages(historyData.map(h => ({
-                            id: h.id,
-                            sender: h.sender,
-                            text: h.text
-                        })));
-                    } else {
-                        // Default welcome if no history
-                        setMessages([{ id: 1, sender: 'ai', text: 'Olá! Como posso ajudar você hoje?' }]);
-                    }
+        try {
+            const res = await fetch('/api/agents', { headers: { 'Authorization': `Bearer ${token}` } });
+            if (res.ok) {
+                const data = await res.json();
+                setAgents(data);
+                if (data.length > 0 && !selectedAgentId) {
+                    setSelectedAgentId(data[0].id);
+                    fetchData(data[0].id);
+                    fetchHistory(data[0].id);
                 }
-            } catch (e) {
-                console.error(e);
             }
-        };
-        fetchHistory();
+        } catch (e) {
+            console.error("Error fetching agents:", e);
+        }
+    };
+
+    const fetchHistory = async (agentId) => {
+        const idToUse = agentId || selectedAgentId;
+        if (!idToUse) return;
+
+        const token = localStorage.getItem('token');
+        try {
+            const resHistory = await fetch(`/api/chat/history?agentId=${idToUse}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (resHistory.ok) {
+                const historyData = await resHistory.json();
+                if (historyData.length > 0) {
+                    setMessages(historyData.map(h => ({
+                        id: h.id,
+                        sender: h.sender,
+                        text: h.text
+                    })));
+                } else {
+                    setMessages([{ id: Date.now(), sender: 'ai', text: 'Olá! Como posso ajudar você hoje?' }]);
+                }
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    // Initial Load
+    React.useEffect(() => {
+        fetchAgents();
     }, []);
+
+    const handleClearHistory = async () => {
+        if (!window.confirm("Tem certeza que deseja limpar o histórico deste agente?")) return;
+        
+        try {
+            const token = localStorage.getItem('token');
+            await fetch(`/api/chat/history?agentId=${selectedAgentId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            setMessages([{ id: Date.now(), sender: 'ai', text: 'Chat reiniciado. Como posso ajudar?' }]);
+        } catch (e) {
+            console.error("Error clearing history:", e);
+        }
+    };
+
+    const handleAgentChange = (e) => {
+        const newId = e.target.value;
+        setSelectedAgentId(newId);
+        fetchData(newId);
+        fetchHistory(newId);
+    };
 
     const handleSendMessage = async (e) => {
         e.preventDefault();
@@ -109,8 +156,9 @@ const TestAI = () => {
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    message: userText, // Still send current message for convenience/logging
-                    history: history,  // Send full history for memory
+                    agentId: selectedAgentId,
+                    message: userText,
+                    history: history,
                     systemPrompt: systemPrompt || undefined,
                     useConfigPrompt: !advancedMode
                 })
@@ -168,7 +216,10 @@ const TestAI = () => {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify(payload)
+                body: JSON.stringify({
+                    ...payload,
+                    agentId: selectedAgentId
+                })
             });
 
             if (res.ok) {
@@ -198,35 +249,78 @@ const TestAI = () => {
                 overflow: 'hidden'
             }}>
                 <div style={{
-                    padding: '16px',
+                    padding: '16px 24px',
                     borderBottom: '1px solid var(--border-color)',
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'center'
+                    alignItems: 'center',
+                    background: '#F9FAFB'
                 }}>
-                    <h2 style={{ fontSize: '18px', fontWeight: 600 }}>Chat de Teste</h2>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Bot size={20} color="var(--primary-blue)" />
+                            <select 
+                                value={selectedAgentId}
+                                onChange={handleAgentChange}
+                                style={{
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '8px',
+                                    padding: '6px 12px',
+                                    fontSize: '14px',
+                                    fontWeight: 600,
+                                    color: 'var(--text-dark)',
+                                    background: 'white',
+                                    outline: 'none',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                {agents.map(a => (
+                                    <option key={a.id} value={a.id}>{a.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <button 
+                            onClick={handleClearHistory}
+                            title="Limpar Chat"
+                            style={{
+                                border: 'none',
+                                background: 'none',
+                                color: 'var(--text-medium)',
+                                cursor: 'pointer',
+                                padding: '4px',
+                                display: 'flex',
+                                alignItems: 'center'
+                            }}
+                        >
+                            <Trash2 size={18} />
+                        </button>
+                    </div>
+
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '14px', color: 'var(--text-medium)' }}>Modo Avançado</span>
+                        <span style={{ fontSize: '13px', color: 'var(--text-medium)', fontWeight: 500 }}>Modo Avançado</span>
                         <button
                             onClick={() => setAdvancedMode(!advancedMode)}
                             style={{
-                                width: '40px',
-                                height: '24px',
-                                background: advancedMode ? 'var(--primary-blue)' : 'var(--text-light)',
-                                borderRadius: '12px',
+                                width: '36px',
+                                height: '20px',
+                                background: advancedMode ? 'var(--primary-blue)' : '#D1D5DB',
+                                borderRadius: '10px',
                                 position: 'relative',
-                                transition: 'background 0.2s'
+                                cursor: 'pointer',
+                                border: 'none',
+                                transition: 'all 0.2s'
                             }}
                         >
                             <div style={{
-                                width: '20px',
-                                height: '20px',
+                                width: '14px',
+                                height: '14px',
                                 background: 'white',
                                 borderRadius: '50%',
                                 position: 'absolute',
-                                top: '2px',
-                                left: advancedMode ? '18px' : '2px',
-                                transition: 'left 0.2s'
+                                top: '3px',
+                                left: advancedMode ? '19px' : '3px',
+                                transition: 'left 0.2s',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
                             }} />
                         </button>
                     </div>

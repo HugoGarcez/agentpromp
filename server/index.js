@@ -3445,8 +3445,16 @@ app.post('/api/chat', authenticateToken, async (req, res) => {
 
 app.get('/api/chat/history', authenticateToken, async (req, res) => {
     try {
+        const { agentId } = req.query;
+        const where = { companyId: req.user.companyId };
+        
+        // If agentId is provided, filter by it (stored in owner field for test messages)
+        if (agentId) {
+            where.owner = agentId;
+        }
+
         const history = await prisma.testMessage.findMany({
-            where: { companyId: req.user.companyId },
+            where: where,
             orderBy: { createdAt: 'asc' }, // Oldest first
             take: 50 // Limit to last 50
         });
@@ -3462,6 +3470,25 @@ app.get('/api/chat/history', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Error fetching chat history:', error);
         res.status(500).json({ message: 'Failed to fetch history' });
+    }
+});
+
+app.delete('/api/chat/history', authenticateToken, async (req, res) => {
+    try {
+        const { agentId } = req.query;
+        if (!agentId) return res.status(400).json({ message: 'agentId required' });
+
+        await prisma.testMessage.deleteMany({
+            where: { 
+                companyId: req.user.companyId,
+                owner: agentId
+            }
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error clearing history:', error);
+        res.status(500).json({ message: 'Failed to clear history' });
     }
 });
 
