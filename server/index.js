@@ -200,30 +200,41 @@ const handleWebhookRequest = async (req, res) => {
 
         // --- MULTI-CHANNEL CREDENTIAL OVERRIDE ---
         // Se encontramos um canal específico via Webhook, as credenciais para responder 
-        // DEVEM ser as desse canal, e não as globais do agente ou da empresa.
+        // DEVEM ser as desse canal (Token), preservando o UUID do Master/Empresa se necessário.
         if (matchedChannel && config) {
+            // Prioridade total para o Token do Canal
             if (matchedChannel.prompToken) config.prompToken = matchedChannel.prompToken;
-            if (matchedChannel.prompUuid) config.prompUuid = matchedChannel.prompUuid;
             if (matchedChannel.prompIdentity) config.prompIdentity = matchedChannel.prompIdentity;
 
-            // --- HEAL UUID IF INVALID ---
-            // Se o UUID no banco estiver no formato errado (ex: r96...), procuramos um UUID real no Payload
+            // --- UUID LOGIC ---
+            // O UUID na URL costuma ser o do Tenant/Empresa. Se o canal tem um UUID próprio VÁLIDO, usamos.
+            // Se for um ID legado (r96...), mantemos o da empresa (config.prompUuid original).
             const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-            if (!uuidRegex.test(config.prompUuid)) {
-                const betterUuid = incomingConnectionIdArr.find(id => uuidRegex.test(id));
-                if (betterUuid) {
-                    console.log(`[Webhook] Healing invalid UUID ${config.prompUuid} -> ${betterUuid} for channel ${matchedChannel.name}`);
-                    config.prompUuid = betterUuid;
+            
+            if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
+                config.prompUuid = matchedChannel.prompUuid;
+            } else {
+                // Se o UUID do canal é inválido, recuamos para o da empresa
+                config.prompUuid = config.company?.prompUuid || config.prompUuid;
+            }
 
-                    // Persist back to DB to fix it permanently
+            // --- HEAL TOKEN/UUID FROM PAYLOAD ---
+            // O campo 'tokenAPI' no payload costuma ser o TOKEN, não o UUID de sessão.
+            const payloadToken = payload.ticket?.whatsapp?.tokenAPI || payload.whatsapp?.tokenAPI;
+            if (payloadToken && uuidRegex.test(payloadToken)) {
+                if (config.prompToken !== payloadToken) {
+                    console.log(`[Webhook] Healing Token for channel ${matchedChannel.name}: ${config.prompToken} -> ${payloadToken}`);
+                    config.prompToken = payloadToken;
+                    
+                    // Persistir no banco
                     prisma.prompChannel.update({
                         where: { id: matchedChannel.id },
-                        data: { prompUuid: betterUuid }
-                    }).catch(e => console.error('[Webhook] Failed to persist UUID heal:', e));
+                        data: { prompToken: payloadToken }
+                    }).catch(e => console.error('[Webhook] Failed to persist Token heal:', e));
                 }
             }
 
-            console.log(`[Webhook] Using Channel Credentials: ${matchedChannel.name} (UUID: ${config.prompUuid})`);
+            console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: URL_ID=${config.prompUuid}, Token=${config.prompToken?.substring(0, 5)}...`);
         }
 
         if (config?.followUpConfig) {
@@ -3692,16 +3703,24 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
 
         const connectionId = String(channelObj.wabaId || channelObj.id || channelObj.name);
         
-        // CRITICAL FIX: Prioritize REAL UUID format for prompUuid field
+        // CRITICAL FIX: Separate Token and UUID
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        let prompUuid = channelObj.uuid || channelObj.tokenAPI || connectionId;
         
-        // If the primary candidates aren't UUIDs but tokenAPI is, use it
-        if (!uuidRegex.test(prompUuid) && channelObj.tokenAPI && uuidRegex.test(channelObj.tokenAPI)) {
-            prompUuid = channelObj.tokenAPI;
+        let prompToken = channelObj.tokenAPI || null;
+        let prompUuid = channelObj.uuid || null;
+
+        // Fallback for prompUuid: If channelObj.uuid is missing, we use connectionId 
+        // ONLY IF it's a UUID, otherwise it stays null (to inherit from Company)
+        if (!prompUuid) {
+            if (uuidRegex.test(connectionId)) {
+                prompUuid = connectionId;
+            } else if (uuidRegex.test(channelObj.id)) {
+                prompUuid = String(channelObj.id);
+            }
         }
-        
-        prompUuid = String(prompUuid).trim();
+
+        // If we still have no UUID, use connectionId (might be legacy r96...)
+        if (!prompUuid) prompUuid = connectionId;
 
         // 1. Ensure channel exists in DB
         let channelRecord = await prisma.prompChannel.findFirst({
@@ -3709,7 +3728,7 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
                 companyId, 
                 OR: [
                     { prompConnectionId: connectionId },
-                    { prompUuid: prompUuid }
+                    { prompIdentity: String(channelObj.id) }
                 ]
             }
         });
@@ -3721,10 +3740,19 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
                     companyId,
                     name: channelObj.name || `Canal ${connectionId}`,
                     prompConnectionId: connectionId,
-                    prompIdentity: String(channelObj.id), // Store its internal Promp ID too
-                    prompUuid: prompUuid, // MANDATORY FIELD in Schema
+                    prompIdentity: String(channelObj.id),
+                    prompUuid: prompUuid, 
+                    prompToken: prompToken
                 }
             });
+        } else {
+            // Update Token if it changed or was missing
+            if (prompToken && channelRecord.prompToken !== prompToken) {
+                await prisma.prompChannel.update({
+                    where: { id: channelRecord.id },
+                    data: { prompToken }
+                });
+            }
         }
 
         // 2. Link or Unlink agent
