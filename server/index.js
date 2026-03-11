@@ -3731,10 +3731,6 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
         let prompToken = null; // We usually inherit the token from company, NOT from tokenAPI field
         let prompUuid = channelObj.uuid || null;
 
-        // In Promp, we use the Company/Tenant prompUuid for the URL.
-        // We preserve channel specific uuid only if explicitly provided in channelObj.uuid
-        let prompUuid = channelObj.uuid || null;
-
         // Fallback for prompUuid
         if (!prompUuid) {
             if (uuidRegex.test(connectionId)) prompUuid = connectionId;
