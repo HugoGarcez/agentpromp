@@ -3437,10 +3437,18 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
     try {
         console.log(`[Promp] Iniciando conexão segura para identidade: ${identity}`);
 
-        // 1. Listar Tenants na Promp
-        const tenantsRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantApiListTenants`, {
+        // 1. Listar Tenants na Promp (Endpoint Raiz conforme Postman)
+        let tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
             headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
         });
+
+        // Fallback para v2/api se a raiz falhar
+        if (!tenantsRes.ok) {
+            console.log(`[Promp] Tentativa de ListTenants na raiz falhou (${tenantsRes.status}). Tentando v2/api...`);
+            tenantsRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantApiListTenants`, {
+                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
+            });
+        }
 
         if (!tenantsRes.ok) throw new Error('Falha ao listar tenants na Promp');
 
@@ -3455,11 +3463,22 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             try {
                 const tid = t.id || t.uuid;
                 if (!tid) return t;
-                const res = await fetch(`${PROMP_BASE_URL}/v2/api/tenantApiShowTenant`, {
+                
+                // Tenta raiz primeiro (Postman)
+                let res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: tid })
                 });
+
+                if (!res.ok) {
+                    // Fallback para v2/api
+                    res = await fetch(`${PROMP_BASE_URL}/v2/api/tenantApiShowTenant`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: tid })
+                    });
+                }
                 if (!res.ok) return t;
                 const json = await res.json();
                 const tenantObj = json.tenant || json.data || json;
@@ -3536,17 +3555,33 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
 
         // 4. Criar API Centralizada para este Tenant
         const apiName = "Agente IA Global";
-        const createApiRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantCreateApi`, {
+        
+        let createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: apiName,
-                sessionId: targetTenant.id, // Usando o proprio ID do tenant como sessionId global
+                sessionId: targetTenant.id,
                 userId: matchedUser.id,
                 authToken: Math.random().toString(36).substring(7),
                 tenant: targetTenant.id
             })
         });
+
+        if (!createApiRes.ok) {
+            console.log(`[Promp] Tentativa de CreateApi na raiz falhou. Tentando v2/api...`);
+            createApiRes = await fetch(`${PROMP_BASE_URL}/v2/api/tenantCreateApi`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: apiName,
+                    sessionId: targetTenant.id,
+                    userId: matchedUser.id,
+                    authToken: Math.random().toString(36).substring(7),
+                    tenant: targetTenant.id
+                })
+            });
+        }
 
         const apiData = await createApiRes.json();
         if (!createApiRes.ok || !apiData.id) {
