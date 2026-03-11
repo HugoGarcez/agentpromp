@@ -3513,17 +3513,19 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             userList = targetTenant.users;
             console.log(`[Promp] Usuários encontrados no objeto do Tenant. Total: ${userList.length}`);
         } else {
-            // Strategy 2: Explicit Fetch (Trying root level patterns first, then v2 as last resort)
-            console.log(`[Promp] Buscando lista de usuários para Tenant #${targetTenant.id}...`);
+            // Strategy 2: Explicit Fetch (Trying root level patterns first, then external v2)
+            console.log(`[Promp] Buscando lista de usuários para Tenant #${targetTenant.id} (${targetTenant.name})...`);
+            console.log(`[Promp] DEBUG DETALHADO DO TENANT:`, JSON.stringify(targetTenant, null, 2));
             
-            const apiId = targetTenant.tenantEmail || targetTenant.uuid || targetTenant.id;
+            // Tenta adivinhar o ApiID correto (AppID da estrutura de autenticação)
+            // Pode ser targetTenant.uuid, targetTenant.apiId, ou até o próprio tenantEmail se for um UUID completo em alguns casos.
+            const apiId = targetTenant.uuid || targetTenant.apiId || targetTenant.tenantEmail || targetTenant.id;
+            
             const urlsToTry = [
-                { url: `${PROMP_BASE_URL}/v2/api/external/${apiId}/listUsers?pageNumber=1`, method: 'GET' }, // Sugerido pelo usuário
-                { url: `${PROMP_BASE_URL}/tenantApiListUsers`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) }, // Possível padrão admin
+                { url: `${PROMP_BASE_URL}/tenantApiListUsers`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) }, // Padrão admin sugerido para testar
+                { url: `${PROMP_BASE_URL}/v2/api/external/${apiId}/listUsers?pageNumber=1`, method: 'GET' }, // O que o usuário sugeriu
                 { url: `${PROMP_BASE_URL}/userApiList`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) },
-                { url: `${PROMP_BASE_URL}/listUsers?tenantId=${targetTenant.id}&pageNumber=1`, method: 'GET' },
-                { url: `${PROMP_BASE_URL}/v2/api/userApiList`, method: 'POST', body: JSON.stringify({ tenantId: targetTenant.id }) },
-                { url: `${PROMP_BASE_URL}/v2/api/listUsers?tenantId=${targetTenant.id}&pageNumber=1`, method: 'GET' }
+                { url: `${PROMP_BASE_URL}/listUsers?tenantId=${targetTenant.id}&pageNumber=1`, method: 'GET' }
             ];
 
             for (const attempt of urlsToTry) {
