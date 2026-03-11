@@ -635,32 +635,34 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                                         />
                                     </div>
                                     <button
-                                        onClick={async () => {
-                                            const identity = document.getElementById("prompIdentityInput").value;
-                                            if (!identity) return alert("Digite a identidade (CPF/CNPJ).");
+                                                onClick={async () => {
+                                                    const identity = document.getElementById("prompIdentityInput").value;
+                                                    if (!identity) return alert("Digite a identidade (CPF/CNPJ).");
 
-                                            try {
-                                                const token = localStorage.getItem("token");
-                                                const res = await fetch("/api/promp/connect", {
-                                                    method: "POST",
-                                                    headers: {
-                                                        "Content-Type": "application/json",
-                                                        "Authorization": `Bearer ${token}`
-                                                    },
-                                                    body: JSON.stringify({ identity })
-                                                });
+                                                    try {
+                                                        const token = localStorage.getItem("token");
+                                                        const res = await fetch("/api/promp/connect", {
+                                                            method: "POST",
+                                                            headers: {
+                                                                "Content-Type": "application/json",
+                                                                "Authorization": `Bearer ${token}`
+                                                            },
+                                                            body: JSON.stringify({ identity })
+                                                        });
 
-                                                const data = await res.json();
-                                                if (res.ok) {
-                                                    alert("Tenant conectado com sucesso!");
-                                                    setIsPrompConnected(true);
-                                                } else {
-                                                    alert(data.message || "Erro ao conectar.");
-                                                }
-                                            } catch (e) {
-                                                alert("Erro de conexão.");
-                                            }
-                                        }}
+                                                        const data = await res.json();
+                                                        if (res.ok) {
+                                                            alert("Tenant conectado com sucesso!");
+                                                            setIsPrompConnected(true);
+                                                            // Forçar busca de canais imediata
+                                                            fetchChannels();
+                                                        } else {
+                                                            alert(data.message || "Erro ao conectar.");
+                                                        }
+                                                    } catch (e) {
+                                                        alert("Erro de conexão.");
+                                                    }
+                                                }}
                                         style={{
                                             background: "#10B981",
                                             color: "white",

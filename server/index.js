@@ -3427,232 +3427,109 @@ app.get('/api/chat/history', authenticateToken, async (req, res) => {
 
 
 app.post('/api/promp/connect', authenticateToken, async (req, res) => {
-    // SessionID is no longer strictly required for the global tenant connection, but we can generate a random one.
-    const { identity, manualUserId } = req.body;
+    const { identity } = req.body;
     const companyId = req.user.companyId;
 
     if (!PROMP_ADMIN_TOKEN) {
-        return res.status(500).json({ message: 'Server misconfiguration: PROMP_ADMIN_TOKEN missing' });
+        return res.status(500).json({ message: 'Configuração do Servidor: PROMP_ADMIN_TOKEN ausente' });
     }
 
     try {
-        console.log(`[Promp] Auto-connecting for identity: ${identity}`);
+        console.log(`[Promp] Iniciando conexão segura para identidade: ${identity}`);
 
-        // 1. List Tenants to get IDs
+        // 1. Listar Tenants na Promp
         const tenantsRes = await fetch(`${PROMP_BASE_URL}/tenantApiListTenants`, {
             headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}` }
         });
 
-        if (!tenantsRes.ok) throw new Error('Failed to list tenants');
+        if (!tenantsRes.ok) throw new Error('Falha ao listar tenants na Promp');
 
         const tenantsData = await tenantsRes.json();
         const tenantListBasic = Array.isArray(tenantsData) ? tenantsData : (tenantsData.tenants || tenantsData.data || []);
 
-        console.log(`[Promp] Checking ${tenantListBasic.length} tenants for identity (Parallel Fetch)...`);
-
-        // 2. Parallel Fetch Details (identity is only in detailed view)
-        const detailPromises = tenantListBasic.map(async (t) => {
-            try {
-                // Determine ID (v2 might use 'id' or 'uuid' or just be the object)
-                const tid = t.id || t.uuid;
-                if (!tid) return t; // Fallback to basic object if no ID found
-
-                const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ id: tid })
-                });
-                if (!res.ok) return t; 
-                const json = await res.json();
-                
-                // Inspect response structure (Promp sometimes wraps in 'tenant' or 'data')
-                const tenantObj = json.tenant || json.data || json;
-                const finalObj = Array.isArray(tenantObj) ? tenantObj[0] : tenantObj;
-                
-                // Ensure we merge ID from the list if detail missed it
-                return { ...t, ...finalObj };
-            } catch (e) {
-                return t;
-            }
-        });
-
-        const detailedTenants = await Promise.all(detailPromises);
-
-        // Exact match on identity string (Sanitized)
+        // 2. Localizar Tenant por Identidade (Parallel Fetch for details)
         const sanitize = (str) => String(str || '').replace(/\D/g, '');
         const targetIdentity = sanitize(identity);
 
+        const detailPromises = tenantListBasic.map(async (t) => {
+            try {
+                const tid = t.id || t.uuid;
+                if (!tid) return t;
+                const res = await fetch(`${PROMP_BASE_URL}/tenantApiShowTenant`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: tid })
+                });
+                if (!res.ok) return t;
+                const json = await res.json();
+                const tenantObj = json.tenant || json.data || json;
+                const finalObj = Array.isArray(tenantObj) ? tenantObj[0] : tenantObj;
+                return { ...t, ...finalObj };
+            } catch (e) { return t; }
+        });
+
+        const detailedTenants = await Promise.all(detailPromises);
         const targetTenant = detailedTenants.find(t => t && sanitize(t.identity) === targetIdentity);
 
         if (!targetTenant) {
-            console.log('[Promp] Available Identities:', detailedTenants.map(t => t?.identity).join(', '));
-            return res.status(404).json({ message: 'Tenant não encontrado na Promp com esta identidade.' });
+            return res.status(404).json({ message: `Nenhum Tenant encontrado na Promp com a identidade ${identity}.` });
         }
 
-        console.log(`[Promp] Found Tenant: ${targetTenant.name} (ID: ${targetTenant.id})`);
+        console.log(`[Promp] Tenant encontrado: ${targetTenant.name} (ID: ${targetTenant.id})`);
 
-        // 3. Create API (Best Effort)
+        // 3. SEGURANÇA: Validar se o usuário logado existe no Tenant da Promp
+        const currentUser = await prisma.user.findUnique({ where: { id: req.user.userId } });
+        if (!currentUser || !currentUser.email) {
+            return res.status(403).json({ message: 'Usuário sem e-mail cadastrado no Agente. Impossível validar segurança.' });
+        }
+
+        const currentUserEmail = currentUser.email.trim().toLowerCase();
+        console.log(`[Promp] Validando e-mail ${currentUserEmail} no Tenant #${targetTenant.id}...`);
+
+        const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId: targetTenant.id })
+        });
+
+        if (!usersRes.ok) {
+            return res.status(500).json({ message: 'Erro ao validar lista de usuários na Promp.' });
+        }
+
+        const usersData = await usersRes.json();
+        const userList = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
+        
+        const matchedUser = userList.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
+
+        if (!matchedUser) {
+            console.warn(`[Promp] BLOQUEIO DE SEGURANÇA: E-mail ${currentUserEmail} não encontrado no Tenant ${targetTenant.id}.`);
+            return res.status(403).json({ 
+                message: `Acesso Negado: Seu e-mail (${currentUserEmail}) não consta como usuário/admin do Tenant "${targetTenant.name}" na Promp. Verifique suas credenciais em ambos os sistemas.` 
+            });
+        }
+
+        console.log(`[Promp] Validação concluída. Usuário Promp ID: ${matchedUser.id}`);
+
+        // 4. Criar API Centralizada para este Tenant
         const apiName = "Agente IA Global";
-
-        // Since this is a global connection, we can just use the tenant.id as a fallback Session ID
-        const finalSessionId = targetTenant.id;
-
-        // RESOLVE USER ID (CRITICAL FOR MULTI-TENANT)
-        // We must find a valid User ID *inside* this specific tenant.
-
-        let targetUserId = null;
-
-        // Strategy 0: Manual User ID (Override - Highest Priority)
-        if (manualUserId) {
-            const manualIdInt = parseInt(manualUserId);
-            if (!isNaN(manualIdInt)) {
-                console.log(`[Promp] Manual User ID provided: ${manualIdInt}. Validating against Tenant...`);
-
-                let fetchDebug = '';
-                let tenantUsers = targetTenant.users;
-                // Fetch if missing
-                if (!tenantUsers || !Array.isArray(tenantUsers) || tenantUsers.length === 0) {
-                    try {
-                        console.log(`[Promp] Fetching users for Tenant ${targetTenant.id} (manual validation)...`);
-                        const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
-                            method: 'POST',
-                            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ tenantId: targetTenant.id })
-                        });
-
-                        if (usersRes.ok) {
-                            const usersData = await usersRes.json();
-                            tenantUsers = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
-                            targetTenant.users = tenantUsers;
-                            console.log(`[Promp] Fetched ${tenantUsers.length} users.`);
-                        } else {
-                            const errText = await usersRes.text();
-                            fetchDebug = `Status: ${usersRes.status}, Resp: ${errText}`;
-                            console.error('[Promp] Fetch User List Failed:', fetchDebug);
-                        }
-                    } catch (e) {
-                        fetchDebug = `Exception: ${e.message}`;
-                        console.error('Error fetching users for manual validation:', e);
-                    }
-                }
-
-                if (Array.isArray(tenantUsers)) {
-                    const exists = tenantUsers.find(u => u.id === manualIdInt);
-                    if (exists) {
-                        targetUserId = manualIdInt;
-                        console.log(`[Promp] MANUAL USER ID VALIDATED and SELECTED: ${targetUserId}`);
-                    } else {
-                        console.warn(`[Promp] Manual User ID ${manualIdInt} NOT FOUND in Tenant #${targetTenant.id}.`);
-                        return res.status(400).json({
-                            message: `O ID de usuário informado (${manualIdInt}) não foi encontrado neste Tenant (ID: ${targetTenant.id}). IDs disponíveis: ${tenantUsers.map(u => u.id + ' (' + u.name + ')').join(', ')}`
-                        });
-                    }
-                } else {
-                    // If we can't validate (API failure), TRUST THE USER.
-                    console.warn(`[Promp] Validation skipped (API error: ${fetchDebug || 'Unknown'}). Trusting Manual ID: ${manualIdInt}`);
-                    targetUserId = manualIdInt;
-                }
-            }
-        }
-
-        // Strategy 1: Match by Email (Identity Alignment)
-        if (!targetUserId) {
-
-            // Check if the current logged-in Agent user exists in the Target Tenant's user list
-
-            try {
-                const currentUser = await prisma.user.findUnique({
-                    where: { id: req.user.userId }
-                });
-
-                if (currentUser && currentUser.email) {
-                    const currentUserEmail = currentUser.email.trim().toLowerCase();
-
-                    if (Array.isArray(targetTenant.users)) {
-                        // Case-insensitive match
-                        const matchedUser = targetTenant.users.find(u => u.email && u.email.trim().toLowerCase() === currentUserEmail);
-
-                        if (matchedUser) {
-                            targetUserId = matchedUser.id;
-                            console.log(`[Promp] IDENTITY MATCH FOUND! Email: ${currentUserEmail} -> User ID: ${targetUserId}`);
-                        } else {
-                            console.log(`[Promp] No match for ${currentUserEmail} in tenant users:`, targetTenant.users.map(u => u.email));
-                        }
-                    }
-                }
-            } catch (authErr) {
-                console.error('[Promp] Auth lookup failed (skipping email match):', authErr);
-            }
-
-            // Strategy 2: Explicit Fetch for Users List (If tenant object didn't have them)
-            if (!targetUserId) {
-                try {
-                    console.log(`[Promp] Fetching User List for tenant ID: ${targetTenant.id}`);
-                    const usersRes = await fetch(`${PROMP_BASE_URL}/userApiList`, {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ tenantId: targetTenant.id })
-                    });
-                    if (usersRes.ok) {
-                        const usersData = await usersRes.json();
-                        const userList = Array.isArray(usersData) ? usersData : (usersData.users || usersData.data || []);
-                        if (userList.length > 0) {
-                            // Try email match again on fresh list
-                            const currentUser = await prisma.user.findUnique({ where: { id: req.user.userId } });
-                            const emailMatch = currentUser?.email ? userList.find(u => u.email?.toLowerCase() === currentUser.email.toLowerCase()) : null;
-                            
-                            targetUserId = emailMatch ? emailMatch.id : userList[0].id;
-                            console.log(`[Promp] User ID found via explicit userApiList: ${targetUserId}`);
-                        }
-                    }
-                } catch (e) {
-                    console.error('[Promp] Manual user list fetch failed:', e);
-                }
-            }
-
-            // Strategy 3: Admin/Owner Fallback
-            if (!targetUserId) {
-                targetUserId = targetTenant.adminId || targetTenant.userId || targetTenant.ownerId;
-            }
-
-            // Final Fallback (Try 1, but warn)
-            if (!targetUserId) {
-                console.warn('[Promp] WARNING: No explicit User ID found. Defaulting to 1.');
-                targetUserId = 1;
-            }
-        }
-
-        console.log(`[Promp] Creating API for Tenant: ${targetTenant.id} | User: ${targetUserId} | Session: ${finalSessionId}`);
-
         const createApiRes = await fetch(`${PROMP_BASE_URL}/tenantCreateApi`, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`,
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Authorization': `Bearer ${PROMP_ADMIN_TOKEN}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: apiName,
-                sessionId: finalSessionId,
-                userId: targetUserId,
+                sessionId: targetTenant.id, // Usando o proprio ID do tenant como sessionId global
+                userId: matchedUser.id,
                 authToken: Math.random().toString(36).substring(7),
                 tenant: targetTenant.id
             })
         });
 
-        let apiData = await createApiRes.json();
-
+        const apiData = await createApiRes.json();
         if (!createApiRes.ok || !apiData.id) {
-            console.error('[Promp] API Create Failed:', JSON.stringify(apiData));
-            // Return ACTUAL error from upstream + Context
-            return res.status(400).json({
-                message: `Falha na API Promp: ${apiData.error || apiData.message || JSON.stringify(apiData)}. (Tenant: ${targetTenant.id}, User Tentado: ${targetUserId})`
-            });
+            return res.status(400).json({ message: `Erro ao criar API na Promp: ${apiData.error || apiData.message || 'Erro desconhecido'}` });
         }
 
-        // SAVE TO DB (Global to Company)
+        // 5. Salvar na Empresa (Company)
         await prisma.company.update({
             where: { id: companyId },
             data: {
@@ -3662,7 +3539,7 @@ app.post('/api/promp/connect', authenticateToken, async (req, res) => {
             }
         });
 
-        res.json({ success: true, message: `Integração Global Conectada: ${targetTenant.name}` });
+        res.json({ success: true, message: `Conectado com sucesso ao Tenant: ${targetTenant.name}` });
 
     } catch (error) {
         console.error('Promp Connect Error:', error);
