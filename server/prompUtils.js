@@ -35,9 +35,10 @@ export const sendPrompMedia = async (config, number, fileBuffer, fileName, mimeT
 
         console.log(`[Promp] Uploading Multipart Media (${fileName}) to ${number}...`);
 
+        const cleanToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
         const response = await axios.post(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, form, {
             headers: {
-                'Authorization': `Bearer ${config.prompToken}`,
+                'Authorization': `Bearer ${cleanToken}`,
                 ...form.getHeaders()
             }
         });
@@ -57,14 +58,14 @@ export const sendPrompPresence = async (config, ticketId, state) => {
         return false;
     }
 
-    // Ensure prompUuid is clean
-    const uuid = config.prompUuid.trim();
+    // Ensure prompToken doesn't have duplicate Bearer
+    const cleanToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
 
     try {
         const response = await fetch(`${PROMP_BASE_URL}/v2/api/external/${uuid}/sendPresence`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${config.prompToken}`,
+                'Authorization': `Bearer ${cleanToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -103,17 +104,17 @@ export const sendPrompMessage = async (config, number, text, audioBase64, imageU
         }
     }
 
-    // Ensure prompUuid is clean (no spaces)
-    config.prompUuid = config.prompUuid.trim();
+    // Ensure prompToken doesn't have duplicate Bearer
+    const finalToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
 
     // 1. Send Text (Match Postman structure)
     if (text && text.trim().length > 0) {
-        console.log(`[Promp] Sending Text to ${number}. URL: ${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`);
+        console.log(`[Promp] Sending Text to ${number}. UUID=${config.prompUuid}, Token=${finalToken?.substring(0, 5)}...`);
         try {
             const textResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${config.prompToken}`,
+                    'Authorization': `Bearer ${finalToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
@@ -243,10 +244,11 @@ export const sendPrompMessage = async (config, number, text, audioBase64, imageU
 
     // Helper function for Base64 sending
     async function sendBase64Image(config, number, base64Data, mimeType, fileName, caption) {
+        const cleanToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
         const imgResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${config.prompToken}`,
+                'Authorization': `Bearer ${cleanToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -273,10 +275,11 @@ export const sendPrompMessage = async (config, number, text, audioBase64, imageU
     if (audioBase64) {
         try {
             console.log(`[Promp] Sending Audio to ${number}...`);
+            const cleanToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
             const audioResponse = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/base64`, {
                 method: 'POST',
                 headers: {
-                    'Authorization': `Bearer ${config.prompToken}`,
+                    'Authorization': `Bearer ${cleanToken}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({

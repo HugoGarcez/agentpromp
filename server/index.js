@@ -220,8 +220,11 @@ const handleWebhookRequest = async (req, res) => {
             }
 
             // 2. Heal UUID (Session ID)
-            // Se o payload trouxe um UUID novo, ele é a nossa melhor chance de bater a API de envio.
-            if (incomingUuid && matchedChannel.prompUuid !== incomingUuid) {
+            // CRITICAL: ONLY heal if the channel doesn't already have a valid specialized UUID.
+            // If the user manually set a UUID, we MUST protect it from being overwritten by the webhook payload (which might contain the global one).
+            const isManuallyConfigured = matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid);
+
+            if (incomingUuid && !isManuallyConfigured && matchedChannel.prompUuid !== incomingUuid) {
                 console.log(`[Webhook] Healing UUID for channel ${matchedChannel.name}: ${matchedChannel.prompUuid} -> ${incomingUuid}`);
                 matchedChannel.prompUuid = incomingUuid; // In-memory
                 updates.prompUuid = incomingUuid;
