@@ -18,6 +18,8 @@ const Integrations = () => {
     const [loadingChannels, setLoadingChannels] = useState(false);
     const [agents, setAgents] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState('');
+    const [configuringChannelId, setConfiguringChannelId] = useState(null);
+    const [channelCreds, setChannelCreds] = useState({ url: '', token: '' });
     const { user } = useAuth();
 
     const token = localStorage.getItem('token');
@@ -395,29 +397,96 @@ const Integrations = () => {
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "12px", marginBottom: '24px' }}>
                                     {prompChannels.map(ch => {
                                         const isLinked = ch.linkedAgents?.some(a => a.id === selectedAgentId);
-                                        const hasSpecificCreds = ch.dbId && !!prompChannels.find(pc => pc.dbId === ch.dbId)?.hasSpecificCreds; 
-                                        // Note: we'll need to update the API to return info about specific creds
-                                        
+                                        const needsConfig = !ch.hasSpecificCreds;
+                                        const isConfiguring = configuringChannelId === ch.id;
+
                                         return (
-                                            <div key={ch.id} style={{
-                                                background: "white", padding: "10px", borderRadius: "8px",
-                                                border: isLinked ? "2px solid #10B981" : "1px solid #E5E7EB",
-                                                display: "flex", justifyContent: "space-between", alignItems: "center",
-                                                position: 'relative'
-                                            }}>
-                                                <div style={{ overflow: "hidden" }}>
-                                                    <div style={{ fontWeight: 600, fontSize: "13px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ch.name}</div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                        <span style={{ fontSize: "10px", color: "#6B7280" }}>{ch.type?.toUpperCase()}</span>
-                                                        {ch.hasSpecificCreds && <span title="Credenciais Específicas Ativas" style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981' }}></span>}
+                                            <div key={ch.id} style={{ marginBottom: '12px' }}>
+                                                <div style={{
+                                                    background: "white", padding: "10px", borderRadius: "8px",
+                                                    border: isLinked ? "2px solid #10B981" : "1px solid #E5E7EB",
+                                                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                                                    position: 'relative'
+                                                }}>
+                                                    <div style={{ overflow: "hidden" }}>
+                                                        <div style={{ fontWeight: 600, fontSize: "13px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ch.name}</div>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <span style={{ fontSize: "10px", color: "#6B7280" }}>{ch.type?.toUpperCase()}</span>
+                                                            {!needsConfig && <span title="Credenciais Ativas" style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981' }}></span>}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                                        {needsConfig ? (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setConfiguringChannelId(isConfiguring ? null : ch.id);
+                                                                    setChannelCreds({ url: '', token: '' });
+                                                                }}
+                                                                style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "1px solid #10B981", background: isConfiguring ? "#10B981" : "transparent", color: isConfiguring ? "white" : "#065F46" }}
+                                                            >
+                                                                {isConfiguring ? "Cancelar" : "Configurar"}
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => toggleChannelLink(ch, isLinked)}
+                                                                style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "none", background: isLinked ? "#FEE2E2" : "#D1FAE5", color: isLinked ? "#B91C1C" : "#065F46" }}
+                                                            >
+                                                                {isLinked ? "Remover" : "Vincular"}
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
-                                                <button
-                                                    onClick={() => toggleChannelLink(ch, isLinked)}
-                                                    style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "none", background: isLinked ? "#FEE2E2" : "#D1FAE5", color: isLinked ? "#B91C1C" : "#065F46" }}
-                                                >
-                                                    {isLinked ? "Remover" : "Vincular"}
-                                                </button>
+
+                                                {/* Inline Config Form */}
+                                                {isConfiguring && (
+                                                    <div style={{ background: '#F9FAFB', padding: '12px', border: '1px solid #E5E7EB', borderTop: 'none', borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', display: 'grid', gap: '8px' }}>
+                                                        <input 
+                                                            type="text" 
+                                                            placeholder="Cole a URL da API deste canal" 
+                                                            value={channelCreds.url}
+                                                            onChange={e => setChannelCreds(prev => ({ ...prev, url: e.target.value }))}
+                                                            style={{ width: '100%', padding: '6px', fontSize: '11px', border: '1px solid #D1D5DB', borderRadius: '4px' }}
+                                                        />
+                                                        <input 
+                                                            type="password" 
+                                                            placeholder="Token do canal" 
+                                                            value={channelCreds.token}
+                                                            onChange={e => setChannelCreds(prev => ({ ...prev, token: e.target.value }))}
+                                                            style={{ width: '100%', padding: '6px', fontSize: '11px', border: '1px solid #D1D5DB', borderRadius: '4px' }}
+                                                        />
+                                                        <button 
+                                                            onClick={async () => {
+                                                                if (!channelCreds.url || !channelCreds.token) return alert("URL e Token são obrigatórios.");
+                                                                const uuidMatch = channelCreds.url.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+                                                                const pUuid = uuidMatch ? uuidMatch[0] : ch.id;
+
+                                                                try {
+                                                                    const res = await fetch('/api/promp/channels/link', {
+                                                                        method: 'POST',
+                                                                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                                                        body: JSON.stringify({
+                                                                            agentId: selectedAgentId,
+                                                                            channelObj: { ...ch, uuid: pUuid },
+                                                                            prompToken: channelCreds.token,
+                                                                            prompUuid: pUuid,
+                                                                            link: false // Just save credentials, don't link yet
+                                                                        })
+                                                                    });
+                                                                    if (res.ok) {
+                                                                        setConfiguringChannelId(null);
+                                                                        fetchChannels();
+                                                                    } else {
+                                                                        alert("Erro ao salvar credenciais.");
+                                                                    }
+                                                                } catch (e) { alert("Erro de conexão."); }
+                                                            }}
+                                                            style={{ background: '#10B981', color: 'white', border: 'none', padding: '6px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                                        >
+                                                            Ativar Canal
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}

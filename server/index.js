@@ -3797,6 +3797,14 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
 
         // 2. Link or Unlink agent
         if (link) {
+            // VERIFY CREDENTIALS (Mandatory Flow)
+            if (!prompToken && !channelRecord.prompToken) {
+                return res.status(400).json({ message: 'Este canal precisa de um Token específico antes de ser vinculado.' });
+            }
+            if (!prompUuid && !channelRecord.prompUuid) {
+                 return res.status(400).json({ message: 'Este canal precisa de uma URL de API válida antes de ser vinculado.' });
+            }
+
             await prisma.prompChannel.update({
                 where: { id: channelRecord.id },
                 data: { agents: { connect: { id: agentId } } }
