@@ -255,23 +255,24 @@ const handleWebhookRequest = async (req, res) => {
             const agentUuid = config.prompUuid; 
             const agentToken = config.prompToken;
 
-            // 1. UUID Priority: Agent/Company (Newest) > Channel > Webhook URL
-            if (agentUuid && uuidRegex.test(agentUuid)) {
+            // 1. UUID Priority: Channel (Specific) > Agent/Company > Webhook URL
+            if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
+                config.prompUuid = matchedChannel.prompUuid;
+                source = 'Channel (Specific)';
+            } else if (agentUuid && uuidRegex.test(agentUuid)) {
                 config.prompUuid = agentUuid;
                 source = 'Agent/Global Config (DB)';
-            } else if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
-                config.prompUuid = matchedChannel.prompUuid;
-                source = 'Channel fallback';
             } else if (uuidRegex.test(companyId)) {
                 config.prompUuid = companyId;
                 source = 'Webhook URL fallback';
             }
 
-            // 2. Token Priority: Agent/Company (Newest) > Channel
-            if (agentToken && agentToken.length > 10 && !uuidRegex.test(agentToken)) {
-                config.prompToken = agentToken;
-            } else if (matchedChannel.prompToken && matchedChannel.prompToken.length > 10 && !uuidRegex.test(matchedChannel.prompToken)) {
+            // 2. Token Priority: Channel (Specific) > Agent/Company
+            if (matchedChannel.prompToken && matchedChannel.prompToken.length > 10 && !uuidRegex.test(matchedChannel.prompToken)) {
                 config.prompToken = matchedChannel.prompToken;
+                if (source === 'Agent/Global Config (DB)') source = 'Mixed (Agent UUID + Channel Token)';
+            } else if (agentToken && agentToken.length > 10 && !uuidRegex.test(agentToken)) {
+                config.prompToken = agentToken;
             }
 
             console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: UUID=${config.prompUuid}, Token=${config.prompToken?.substring(0, 5)}... (Source: ${source})`);
@@ -3720,7 +3721,8 @@ app.get('/api/promp/channels', authenticateToken, async (req, res) => {
                 return {
                     ...ch,
                     dbId: dbMatch ? dbMatch.id : null,
-                    linkedAgents: dbMatch ? dbMatch.agents : []
+                    linkedAgents: dbMatch ? dbMatch.agents : [],
+                    hasSpecificCreds: dbMatch ? (!!dbMatch.prompUuid && !!dbMatch.prompToken && dbMatch.prompUuid !== company.prompUuid) : false
                 };
             });
         }
@@ -3746,8 +3748,8 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
         // CRITICAL FIX: Separate Token and UUID
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         
-        let prompToken = null; // We usually inherit the token from company, NOT from tokenAPI field
-        let prompUuid = channelObj.uuid || null;
+        let prompToken = req.body.prompToken || null; 
+        let prompUuid = req.body.prompUuid || channelObj.uuid || null;
 
         // Fallback for prompUuid
         if (!prompUuid) {
@@ -3780,11 +3782,15 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
                 }
             });
         } else {
-            // Update Token if it changed or was missing
-            if (prompToken && channelRecord.prompToken !== prompToken) {
+            // Update credentials if provided manually, or if they were missing
+            const updates = {};
+            if (prompToken && channelRecord.prompToken !== prompToken) updates.prompToken = prompToken;
+            if (prompUuid && channelRecord.prompUuid !== prompUuid) updates.prompUuid = prompUuid;
+
+            if (Object.keys(updates).length > 0) {
                 await prisma.prompChannel.update({
                     where: { id: channelRecord.id },
-                    data: { prompToken }
+                    data: updates
                 });
             }
         }

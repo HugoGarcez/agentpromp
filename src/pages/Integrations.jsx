@@ -314,22 +314,103 @@ const Integrations = () => {
                                 </button>
                             </div>
 
-                            <h4 style={{ fontSize: "14px", fontWeight: 600, color: "#059669", marginBottom: "12px" }}>Canais Disponíveis</h4>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                <h4 style={{ fontSize: "14px", fontWeight: 600, color: "#059669", margin: 0 }}>Canais Disponíveis</h4>
+                                <button 
+                                    onClick={() => document.getElementById('manualChannelForm').style.display = 'block'}
+                                    style={{ background: '#059669', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                    + Adicionar Canal Manual
+                                </button>
+                            </div>
+
+                            {/* Manual Channel Form (Hidden by default) */}
+                            <div id="manualChannelForm" style={{ display: 'none', background: '#F0FDF4', padding: '16px', borderRadius: '8px', border: '1px dashed #10B981', marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                    <h5 style={{ margin: 0, fontSize: '13px', color: '#047857' }}>Dados do Novo Canal</h5>
+                                    <button onClick={() => document.getElementById('manualChannelForm').style.display = 'none'} style={{ border: 'none', background: 'transparent', color: '#059669', cursor: 'pointer', fontSize: '12px' }}>Fechar</button>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '11px', color: '#047857', marginBottom: '4px' }}>Nome (Ex: WhatsApp Vendas)</label>
+                                        <input id="manName" type="text" style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #10B981', borderRadius: '4px' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '11px', color: '#047857', marginBottom: '4px' }}>Identificador (Fone ou ID)</label>
+                                        <input id="manIdent" type="text" placeholder="55119..." style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #10B981', borderRadius: '4px' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '11px', color: '#047857', marginBottom: '4px' }}>URL da API (Nova conta)</label>
+                                        <input id="manUrl" type="text" placeholder="https://..." style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #10B981', borderRadius: '4px' }} />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '11px', color: '#047857', marginBottom: '4px' }}>Token do Canal</label>
+                                        <input id="manToken" type="password" style={{ width: '100%', padding: '6px', fontSize: '12px', border: '1px solid #10B981', borderRadius: '4px' }} />
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={async () => {
+                                        const name = document.getElementById('manName').value;
+                                        const ident = document.getElementById('manIdent').value;
+                                        const url = document.getElementById('manUrl').value;
+                                        const tokenVal = document.getElementById('manToken').value;
+
+                                        if (!name || !ident || !url || !tokenVal) return alert("Todos os campos são obrigatórios.");
+                                        
+                                        // Simple UUID extractor from URL
+                                        const uuidMatch = url.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+                                        const prompUuid = uuidMatch ? uuidMatch[0] : ident;
+
+                                        try {
+                                            const res = await fetch('/api/promp/channels/link', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                                body: JSON.stringify({
+                                                    agentId: selectedAgentId,
+                                                    channelObj: { name, id: ident, number: ident, uuid: prompUuid },
+                                                    prompToken: tokenVal,
+                                                    prompUuid: prompUuid,
+                                                    link: true
+                                                })
+                                            });
+                                            if (res.ok) {
+                                                alert("Canal adicionado e vinculado!");
+                                                document.getElementById('manualChannelForm').style.display = 'none';
+                                                fetchChannels();
+                                            } else {
+                                                const d = await res.json();
+                                                alert(d.message || "Erro ao adicionar.");
+                                            }
+                                        } catch (e) { alert("Erro de conexão."); }
+                                    }}
+                                    style={{ width: '100%', background: '#10B981', color: 'white', border: 'none', padding: '8px', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                    Salvar e Vincular Novo Canal
+                                </button>
+                            </div>
+
                             {loadingChannels ? (
                                 <div style={{ textAlign: "center", padding: "20px", color: "#059669" }}><Loader2 size={20} className="animate-spin" /></div>
                             ) : (
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "12px", marginBottom: '24px' }}>
                                     {prompChannels.map(ch => {
                                         const isLinked = ch.linkedAgents?.some(a => a.id === selectedAgentId);
+                                        const hasSpecificCreds = ch.dbId && !!prompChannels.find(pc => pc.dbId === ch.dbId)?.hasSpecificCreds; 
+                                        // Note: we'll need to update the API to return info about specific creds
+                                        
                                         return (
                                             <div key={ch.id} style={{
                                                 background: "white", padding: "10px", borderRadius: "8px",
                                                 border: isLinked ? "2px solid #10B981" : "1px solid #E5E7EB",
-                                                display: "flex", justifyContent: "space-between", alignItems: "center"
+                                                display: "flex", justifyContent: "space-between", alignItems: "center",
+                                                position: 'relative'
                                             }}>
                                                 <div style={{ overflow: "hidden" }}>
                                                     <div style={{ fontWeight: 600, fontSize: "13px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ch.name}</div>
-                                                    <div style={{ fontSize: "10px", color: "#6B7280" }}>{ch.type.toUpperCase()}</div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        <span style={{ fontSize: "10px", color: "#6B7280" }}>{ch.type?.toUpperCase()}</span>
+                                                        {ch.hasSpecificCreds && <span title="Credenciais Específicas Ativas" style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981' }}></span>}
+                                                    </div>
                                                 </div>
                                                 <button
                                                     onClick={() => toggleChannelLink(ch, isLinked)}
