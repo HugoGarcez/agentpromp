@@ -119,7 +119,7 @@ export const sendPrompMessage = async (config, number, text, audioBase64, imageU
                 body: JSON.stringify({
                     number: number,
                     body: text, // Send full text as in Postman
-                    externalKey: `ai_key_${Date.now()}`,
+                    externalKey: `ext_${Date.now()}`,
                     isClosed: false
                 })
             });

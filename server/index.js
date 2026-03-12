@@ -255,19 +255,19 @@ const handleWebhookRequest = async (req, res) => {
             const agentUuid = config.prompUuid; 
             const agentToken = config.prompToken;
 
-            // 1. UUID Priority: Channel (Healed) > Agent/Company > Webhook URL
-            if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
-                config.prompUuid = matchedChannel.prompUuid;
-                source = 'Channel (Healed)';
-            } else if (agentUuid && uuidRegex.test(agentUuid)) {
+            // 1. UUID Priority: Agent/Company (Newest) > Channel > Webhook URL
+            if (agentUuid && uuidRegex.test(agentUuid)) {
                 config.prompUuid = agentUuid;
-                source = 'Agent/Global DB';
+                source = 'Agent/Global Config (DB)';
+            } else if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
+                config.prompUuid = matchedChannel.prompUuid;
+                source = 'Channel fallback';
             } else if (uuidRegex.test(companyId)) {
                 config.prompUuid = companyId;
-                source = 'Webhook URL ID';
+                source = 'Webhook URL fallback';
             }
 
-            // 2. Token Priority: Agent/Company > Channel
+            // 2. Token Priority: Agent/Company (Newest) > Channel
             if (agentToken && agentToken.length > 10 && !uuidRegex.test(agentToken)) {
                 config.prompToken = agentToken;
             } else if (matchedChannel.prompToken && matchedChannel.prompToken.length > 10 && !uuidRegex.test(matchedChannel.prompToken)) {
