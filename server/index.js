@@ -3722,7 +3722,9 @@ app.get('/api/promp/channels', authenticateToken, async (req, res) => {
                     ...ch,
                     dbId: dbMatch ? dbMatch.id : null,
                     linkedAgents: dbMatch ? dbMatch.agents : [],
-                    hasSpecificCreds: dbMatch ? (!!dbMatch.prompUuid && !!dbMatch.prompToken) : false
+                    hasSpecificCreds: dbMatch ? (!!dbMatch.prompUuid && !!dbMatch.prompToken && dbMatch.prompUuid !== company.prompUuid) : false,
+                    prompUuid: dbMatch ? dbMatch.prompUuid : null,
+                    prompToken: dbMatch ? dbMatch.prompToken : null
                 };
             });
         }

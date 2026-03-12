@@ -421,19 +421,36 @@ const Integrations = () => {
                                                             <button
                                                                 onClick={() => {
                                                                     setConfiguringChannelId(isConfiguring ? null : ch.id);
-                                                                    setChannelCreds({ url: '', token: '' });
+                                                                    setChannelCreds({ 
+                                                                        url: ch.prompUuid ? `https://api.promp.com.br/v2/api/external/${ch.prompUuid}` : '', 
+                                                                        token: ch.prompToken || '' 
+                                                                    });
                                                                 }}
                                                                 style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "1px solid #10B981", background: isConfiguring ? "#10B981" : "transparent", color: isConfiguring ? "white" : "#065F46" }}
                                                             >
                                                                 {isConfiguring ? "Cancelar" : "Configurar"}
                                                             </button>
                                                         ) : (
-                                                            <button
-                                                                onClick={() => toggleChannelLink(ch, isLinked)}
-                                                                style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "none", background: isLinked ? "#FEE2E2" : "#D1FAE5", color: isLinked ? "#B91C1C" : "#065F46" }}
-                                                            >
-                                                                {isLinked ? "Remover" : "Vincular"}
-                                                            </button>
+                                                            <div style={{ display: 'flex', gap: '4px' }}>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setConfiguringChannelId(isConfiguring ? null : ch.id);
+                                                                        setChannelCreds({ 
+                                                                            url: ch.prompUuid ? `https://api.promp.com.br/v2/api/external/${ch.prompUuid}` : '', 
+                                                                            token: ch.prompToken || '' 
+                                                                        });
+                                                                    }}
+                                                                    style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "1px solid #D1D5DB", background: isConfiguring ? "#9CA3AF" : "transparent", color: "#374151" }}
+                                                                >
+                                                                    {isConfiguring ? "Cancelar" : "Editar"}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => toggleChannelLink(ch, isLinked)}
+                                                                    style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "none", background: isLinked ? "#FEE2E2" : "#D1FAE5", color: isLinked ? "#B91C1C" : "#065F46" }}
+                                                                >
+                                                                    {isLinked ? "Remover" : "Vincular"}
+                                                                </button>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 </div>
