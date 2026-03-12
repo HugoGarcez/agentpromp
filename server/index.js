@@ -3753,17 +3753,11 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
         // CRITICAL FIX: Separate Token and UUID
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         
-        let prompToken = req.body.prompToken || null; 
-        let prompUuid = req.body.prompUuid || channelObj.uuid || null;
+        // 1. Resolve Credentials (Priority: Explicit Body > Incoming Object)
+        let prompToken = req.body.prompToken || null;
+        let prompUuid = req.body.prompUuid || null;
 
-        // Fallback for prompUuid
-        if (!prompUuid) {
-            if (uuidRegex.test(connectionId)) prompUuid = connectionId;
-            else if (uuidRegex.test(channelObj.id)) prompUuid = String(channelObj.id);
-        }
-        if (!prompUuid) prompUuid = connectionId;
-
-        // 1. Ensure channel exists in DB
+        // 2. Ensure channel exists in DB
         let channelRecord = await prisma.prompChannel.findFirst({
             where: { 
                 companyId, 
@@ -3775,25 +3769,37 @@ app.post('/api/promp/channels/link', authenticateToken, async (req, res) => {
         });
 
         if (!channelRecord) {
-            // First time linking this specific channel
+            // --- NEW CHANNEL CREATION FLOW ---
+            // If creation, we NEED a UUID, so resolve with fallbacks
+            if (!prompUuid) prompUuid = channelObj.prompUuid || channelObj.uuid || null;
+            
+            // Fallback for prompUuid if still missing
+            if (!prompUuid) {
+                if (uuidRegex.test(connectionId)) prompUuid = connectionId;
+                else if (uuidRegex.test(channelObj.id)) prompUuid = String(channelObj.id);
+            }
+            if (!prompUuid) prompUuid = connectionId;
+
             channelRecord = await prisma.prompChannel.create({
                 data: {
                     companyId,
                     name: channelObj.name || `Canal ${connectionId}`,
                     prompConnectionId: connectionId,
-                    prompIdentity: String(channelObj.number || channelObj.id).replace(/\D/g, ''), // Store phone number for Webhook matching
+                    prompIdentity: String(channelObj.number || channelObj.id).replace(/\D/g, ''),
                     prompUuid: prompUuid, 
                     prompToken: prompToken
                 }
             });
         } else {
-            // Update credentials if provided manually, or if they were missing
+            // --- EXISTING CHANNEL UPDATE FLOW ---
+            // Update credentials ONLY if they were EXPLICITLY provided in the request body
+            // This prevents the 'r96' fallback from overwriting a valid UUID during simple linking.
             const updates = {};
             if (prompToken && channelRecord.prompToken !== prompToken) updates.prompToken = prompToken;
             if (prompUuid && channelRecord.prompUuid !== prompUuid) updates.prompUuid = prompUuid;
 
             if (Object.keys(updates).length > 0) {
-                await prisma.prompChannel.update({
+                channelRecord = await prisma.prompChannel.update({
                     where: { id: channelRecord.id },
                     data: updates
                 });

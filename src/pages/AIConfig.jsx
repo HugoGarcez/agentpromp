@@ -604,7 +604,8 @@ const AIConfig = () => {
                                                                         onClick={async () => {
                                                                             if (!channelCreds.url || !channelCreds.token) return alert("URL e Token são obrigatórios.");
                                                                             const uuidMatch = channelCreds.url.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-                                                                            const pUuid = uuidMatch ? uuidMatch[0] : ch.id;
+                                                                            if (!uuidMatch) return alert("Não foi possível encontrar um ID de sessão (UUID) válido na URL informada.");
+                                                                            const pUuid = uuidMatch[0];
 
                                                                             try {
                                                                                 const res = await fetch('/api/promp/channels/link', {
