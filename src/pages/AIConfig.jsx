@@ -189,6 +189,8 @@ const AIConfig = () => {
 
     // Catalog State
     const [catalogConfig, setCatalogConfig] = useState({ showProducts: true, showServices: true });
+    const [configuringChannelId, setConfiguringChannelId] = useState(null);
+    const [channelCreds, setChannelCreds] = useState({ url: '', token: '' });
 
     const [showToast, setShowToast] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -513,32 +515,124 @@ const AIConfig = () => {
                                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "16px" }}>
                                                 {prompChannels.map(ch => {
                                                     const isLinked = ch.linkedAgents?.some(a => a.id === selectedAgentId);
+                                                    const needsConfig = !ch.hasSpecificCreds;
+                                                    const isConfiguring = configuringChannelId === ch.id;
+
                                                     return (
-                                                        <div key={ch.id} style={{
-                                                            background: "white", padding: "16px", borderRadius: "12px",
-                                                            border: isLinked ? "2px solid #10B981" : "1px solid var(--border-color)",
-                                                            display: "flex", justifyContent: "space-between", alignItems: "center",
-                                                            boxShadow: isLinked ? '0 4px 6px -1px rgba(16, 185, 129, 0.1)' : 'none',
-                                                            transition: 'all 0.2s'
-                                                        }}>
-                                                            <div style={{ overflow: "hidden" }}>
-                                                                <div style={{ fontWeight: 600, fontSize: "14px", color: 'var(--text-dark)' }}>{ch.name}</div>
-                                                                <div style={{ fontSize: "11px", color: "var(--text-medium)", textTransform: 'uppercase' }}>{ch.type || 'Padrão'}</div>
+                                                        <div key={ch.id} style={{ marginBottom: '12px' }}>
+                                                            <div style={{
+                                                                background: "white", padding: "16px", borderRadius: "12px",
+                                                                border: isLinked ? "2px solid #10B981" : "1px solid var(--border-color)",
+                                                                display: "flex", justifyContent: "space-between", alignItems: "center",
+                                                                boxShadow: isLinked ? '0 4px 6px -1px rgba(16, 185, 129, 0.1)' : 'none',
+                                                                transition: 'all 0.2s',
+                                                                position: 'relative'
+                                                            }}>
+                                                                <div style={{ overflow: "hidden" }}>
+                                                                    <div style={{ fontWeight: 600, fontSize: "14px", color: 'var(--text-dark)' }}>{ch.name}</div>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                        <span style={{ fontSize: "11px", color: "var(--text-medium)", textTransform: 'uppercase' }}>{ch.type || 'Padrão'}</span>
+                                                                        {!needsConfig && <span title="Credenciais Ativas" style={{ width: 6, height: 6, borderRadius: '50%', background: '#10B981' }}></span>}
+                                                                    </div>
+                                                                </div>
+
+                                                                <div style={{ display: 'flex', gap: '6px' }}>
+                                                                    {needsConfig ? (
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setConfiguringChannelId(isConfiguring ? null : ch.id);
+                                                                                setChannelCreds({ 
+                                                                                    url: ch.prompUuid ? `https://api.promp.com.br/v2/api/external/${ch.prompUuid}` : '', 
+                                                                                    token: ch.prompToken || '' 
+                                                                                });
+                                                                            }}
+                                                                            style={{ padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, cursor: "pointer", border: "1px solid #10B981", background: isConfiguring ? "#10B981" : "transparent", color: isConfiguring ? "white" : "#065F46" }}
+                                                                        >
+                                                                            {isConfiguring ? "Cancelar" : "Configurar"}
+                                                                        </button>
+                                                                    ) : (
+                                                                        <div style={{ display: 'flex', gap: '4px' }}>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setConfiguringChannelId(isConfiguring ? null : ch.id);
+                                                                                    setChannelCreds({ 
+                                                                                        url: ch.prompUuid ? `https://api.promp.com.br/v2/api/external/${ch.prompUuid}` : '', 
+                                                                                        token: ch.prompToken || '' 
+                                                                                    });
+                                                                                }}
+                                                                                style={{ padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, cursor: "pointer", border: "1px solid #D1D5DB", background: isConfiguring ? "#9CA3AF" : "transparent", color: "#374151" }}
+                                                                            >
+                                                                                {isConfiguring ? "Cancelar" : "Editar"}
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => toggleChannelLink(ch, isLinked)}
+                                                                                style={{ 
+                                                                                    padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, 
+                                                                                    cursor: "pointer", border: "none", 
+                                                                                    background: isLinked ? "#FEE2E2" : "#D1FAE5", 
+                                                                                    color: isLinked ? "#B91C1C" : "#065F46",
+                                                                                    transition: 'opacity 0.2s'
+                                                                                }}
+                                                                                onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
+                                                                                onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+                                                                            >
+                                                                                {isLinked ? "Remover" : "Vincular"}
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                            <button
-                                                                onClick={() => toggleChannelLink(ch, isLinked)}
-                                                                style={{ 
-                                                                    padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, 
-                                                                    cursor: "pointer", border: "none", 
-                                                                    background: isLinked ? "#FEE2E2" : "#D1FAE5", 
-                                                                    color: isLinked ? "#B91C1C" : "#065F46",
-                                                                    transition: 'opacity 0.2s'
-                                                                }}
-                                                                onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
-                                                                onMouseLeave={e => e.currentTarget.style.opacity = '1'}
-                                                            >
-                                                                {isLinked ? "Remover" : "Vincular"}
-                                                            </button>
+
+                                                            {/* Inline Config Form for Agent View */}
+                                                            {isConfiguring && (
+                                                                <div style={{ background: '#F9FAFB', padding: '16px', border: '1px solid #E5E7EB', borderTop: 'none', borderBottomLeftRadius: '12px', borderBottomRightRadius: '12px', display: 'grid', gap: '10px' }}>
+                                                                    <input 
+                                                                        type="text" 
+                                                                        placeholder="Cole a URL da API deste canal" 
+                                                                        value={channelCreds.url}
+                                                                        onChange={e => setChannelCreds(prev => ({ ...prev, url: e.target.value }))}
+                                                                        style={{ width: '100%', padding: '8px', fontSize: '12px', border: '1px solid #D1D5DB', borderRadius: '6px' }}
+                                                                    />
+                                                                    <input 
+                                                                        type="password" 
+                                                                        placeholder="Token do canal" 
+                                                                        value={channelCreds.token}
+                                                                        onChange={e => setChannelCreds(prev => ({ ...prev, token: e.target.value }))}
+                                                                        style={{ width: '100%', padding: '8px', fontSize: '12px', border: '1px solid #D1D5DB', borderRadius: '6px' }}
+                                                                    />
+                                                                    <button 
+                                                                        onClick={async () => {
+                                                                            if (!channelCreds.url || !channelCreds.token) return alert("URL e Token são obrigatórios.");
+                                                                            const uuidMatch = channelCreds.url.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+                                                                            const pUuid = uuidMatch ? uuidMatch[0] : ch.id;
+
+                                                                            try {
+                                                                                const res = await fetch('/api/promp/channels/link', {
+                                                                                    method: 'POST',
+                                                                                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                                                                    body: JSON.stringify({
+                                                                                        agentId: selectedAgentId,
+                                                                                        channelObj: { ...ch, uuid: pUuid },
+                                                                                        prompToken: channelCreds.token,
+                                                                                        prompUuid: pUuid,
+                                                                                        link: false
+                                                                                    })
+                                                                                });
+                                                                                if (res.ok) {
+                                                                                    setConfiguringChannelId(null);
+                                                                                    fetchChannels();
+                                                                                } else {
+                                                                                    const d = await res.json();
+                                                                                    alert(d.message || "Erro ao salvar credenciais.");
+                                                                                }
+                                                                            } catch (e) { alert("Erro de conexão."); }
+                                                                        }}
+                                                                        style={{ background: '#10B981', color: 'white', border: 'none', padding: '10px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                                                                    >
+                                                                        Ativar Canal
+                                                                    </button>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     );
                                                 })}
