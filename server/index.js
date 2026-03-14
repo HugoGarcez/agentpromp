@@ -1254,8 +1254,9 @@ app.post('/api/auth/reset-password', async (req, res) => {
 // List tags directly from Promp API
 app.get('/api/tags/promp', authenticateToken, async (req, res) => {
     try {
-        const config = await prisma.agentConfig.findFirst({
-            where: { companyId: req.user.companyId }
+        const config = await prisma.company.findUnique({
+            where: { id: req.user.companyId },
+            select: { prompUuid: true, prompToken: true }
         });
 
         if (!config || !config.prompUuid || !config.prompToken) {

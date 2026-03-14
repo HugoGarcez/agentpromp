@@ -17,6 +17,7 @@ const logFlow = (msg) => {
 const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
 
 // --- MULTIPART MEDIA SENDER ---
+// ESPERA: Credenciais do CANAL (prompUuid do canal, prompToken do canal)
 export const sendPrompMedia = async (config, number, fileBuffer, fileName, mimeType, caption) => {
     if (!config.prompUuid || !config.prompToken) return false;
 
@@ -52,6 +53,7 @@ export const sendPrompMedia = async (config, number, fileBuffer, fileName, mimeT
 };
 
 // --- PRESENCE STATE (Typing/Recording) ---
+// ESPERA: Credenciais do CANAL
 export const sendPrompPresence = async (config, ticketId, state) => {
     if (!config.prompUuid || !config.prompToken || !ticketId) {
         console.log(`[Promp] Skipping Presence: Missing prompUuid, Token or ticketId.`);
@@ -88,6 +90,8 @@ export const sendPrompPresence = async (config, ticketId, state) => {
     }
 };
 
+// --- MESSAGE SENDER ---
+// ESPERA: Credenciais do CANAL (Override dinâmico ocorre no Webhook do index.js)
 export const sendPrompMessage = async (config, number, text, audioBase64, imageUrl, caption, pdfBase64 = null) => {
     if (!config.prompUuid || !config.prompToken) {
         // Check legacy integration object (JSON) if columns are missing
@@ -308,6 +312,7 @@ export const sendPrompMessage = async (config, number, text, audioBase64, imageU
 
 // --- TAGS MANAGEMENT (IA Autotagging) ---
 
+// ESPERA: Credenciais GLOBAIS (Ativação/Empresa)
 export const getPrompTags = async (config) => {
     if (!config.prompUuid || !config.prompToken) return [];
 
@@ -325,6 +330,7 @@ export const getPrompTags = async (config) => {
     }
 };
 
+// ESPERA: Credenciais GLOBAIS (Ativação/Empresa)
 export const applyPrompTag = async (config, ticketId, tagId) => {
     if (!config.prompUuid || !config.prompToken || !ticketId || !tagId) return false;
 
