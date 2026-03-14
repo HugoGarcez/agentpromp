@@ -12,6 +12,12 @@ const Integrations = () => {
         apiPassword: ''
     });
 
+    const [lojaintegradaConfig, setLojaintegradaConfig] = useState({
+        enabled: false,
+        apiKey: '',
+        appKey: ''
+    });
+
     const [webhookUrl, setWebhookUrl] = useState('');
     const [isPrompConnected, setIsPrompConnected] = useState(false);
     const [prompChannels, setPrompChannels] = useState([]);
@@ -102,6 +108,9 @@ const Integrations = () => {
                             if (parsedIntegrations && parsedIntegrations.wbuy) {
                                 setWbuyConfig(parsedIntegrations.wbuy);
                             }
+                            if (parsedIntegrations && parsedIntegrations.lojaintegrada) {
+                                setLojaintegradaConfig(parsedIntegrations.lojaintegrada);
+                            }
                         } catch (e) {
                             console.error("Erro ao parsear integrações", e);
                         }
@@ -146,7 +155,8 @@ const Integrations = () => {
                 ...config,
                 integrations: JSON.stringify({
                     ...currentIntegrations,
-                    wbuy: wbuyConfig
+                    wbuy: wbuyConfig,
+                    lojaintegrada: lojaintegradaConfig
                 })
             };
 
@@ -201,6 +211,41 @@ const Integrations = () => {
         } catch (error) {
             console.error("Erro ao sincronizar:", error);
             alert("Erro ao sincronizar produtos com a Wbuy.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleSyncLojaIntegrada = async () => {
+        if (!lojaintegradaConfig.enabled) {
+            alert("Ative e salve a integração antes de sincronizar.");
+            return;
+        }
+        if (!lojaintegradaConfig.apiKey || !lojaintegradaConfig.appKey) {
+            alert("Preencha a Chave API e Chave Aplicação.");
+            return;
+        }
+
+        setSaving(true);
+        try {
+            const response = await fetch('/api/integrations/lojaintegrada/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                alert(`Sincronização concluída! Foram importados/atualizados produtos da Loja Integrada.`);
+            } else {
+                alert(`Erro na sincronização: ${data.message}`);
+            }
+
+        } catch (error) {
+            console.error("Erro ao sincronizar Loja Integrada:", error);
+            alert("Erro ao sincronizar produtos com a Loja Integrada.");
         } finally {
             setSaving(false);
         }
@@ -626,7 +671,110 @@ const Integrations = () => {
                 </div>
             </div>
 
+            {/* Loja Integrada Card */}
+            <div style={{ background: 'var(--bg-white)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden', border: '1px solid var(--border-color)', marginTop: '24px' }}>
+                {/* Header */}
+                <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fafafa' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 8, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                            <img src="https://ajuda.lojaintegrada.com.br/pt-BR/assets/images/favicon.ico" alt="Loja Integrada" style={{ width: '24px' }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+                            <span style={{ display: 'none', fontWeight: 'bold', color: '#666' }}>LI</span>
+                        </div>
+                        <div>
+                            <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0, color: '#333' }}>Loja Integrada</h3>
+                            <p style={{ margin: 0, fontSize: '12px', color: '#666' }}>E-commerce / Catálogo</p>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '6px' }}>
+                            <span style={{ fontSize: '13px', fontWeight: 500, color: lojaintegradaConfig.enabled ? '#10B981' : '#6B7280' }}>
+                                {lojaintegradaConfig.enabled ? 'Ativo' : 'Inativo'}
+                            </span>
+                            <div style={{
+                                width: '40px', height: '20px', background: lojaintegradaConfig.enabled ? '#10B981' : '#D1D5DB',
+                                borderRadius: '10px', position: 'relative', transition: 'background 0.2s'
+                            }}>
+                                <div style={{
+                                    width: '16px', height: '16px', background: 'white', borderRadius: '50%',
+                                    position: 'absolute', top: '2px', left: lojaintegradaConfig.enabled ? '22px' : '2px',
+                                    transition: 'left 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                }} />
+                            </div>
+                            <input
+                                type="checkbox"
+                                name="enabled"
+                                checked={lojaintegradaConfig.enabled}
+                                onChange={(e) => setLojaintegradaConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                                style={{ display: 'none' }}
+                            />
+                        </label>
+                    </div>
+                </div>
+
+                {/* Body */}
+                <div style={{ padding: '20px' }}>
+                    <p style={{ fontSize: '14px', color: '#4B5563', marginBottom: '20px' }}>
+                        Importe automaticamente seus produtos e categorias da Loja Integrada.
+                    </p>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px', opacity: lojaintegradaConfig.enabled ? 1 : 0.5, pointerEvents: lojaintegradaConfig.enabled ? 'auto' : 'none' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#374151', marginBottom: '6px' }}>Chave API (Loja)</label>
+                            <input
+                                type="text"
+                                name="apiKey"
+                                value={lojaintegradaConfig.apiKey || ''}
+                                onChange={(e) => setLojaintegradaConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                                placeholder="Sua Chave API da Loja"
+                                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', fontSize: '14px' }}
+                            />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#374151', marginBottom: '6px' }}>Chave Aplicação (Integrador)</label>
+                            <input
+                                type="text" 
+                                name="appKey"
+                                value={lojaintegradaConfig.appKey || ''}
+                                onChange={(e) => setLojaintegradaConfig(prev => ({ ...prev, appKey: e.target.value }))}
+                                placeholder="Sua Chave de Aplicação"
+                                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', fontSize: '14px' }}
+                            />
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                        <button
+                            onClick={handleSyncLojaIntegrada}
+                            disabled={!lojaintegradaConfig.enabled || saving}
+                            style={{
+                                padding: '10px 16px', borderRadius: '6px', fontSize: '14px', fontWeight: 500,
+                                background: 'white', color: 'var(--primary-blue)', border: '1px solid var(--primary-blue)',
+                                display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                                opacity: (!lojaintegradaConfig.enabled || saving) ? 0.5 : 1
+                            }}
+                        >
+                            {saving ? <Loader2 size={16} className="animate-spin" /> : <LinkIcon size={16} />}
+                            Sincronizar Loja Integrada
+                        </button>
+                        <button
+                            onClick={handleSave}
+                            disabled={saving}
+                            style={{
+                                padding: '10px 16px', borderRadius: '6px', fontSize: '14px', fontWeight: 500,
+                                background: 'var(--primary-blue)', color: 'white', border: 'none',
+                                display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer',
+                                opacity: saving ? 0.5 : 1
+                            }}
+                        >
+                            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                            Salvar Configurações
+                        </button>
+                    </div>
+                </div>
+            </div>
+
         </div>
+
     );
 };
 

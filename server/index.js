@@ -1089,14 +1089,199 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
 
         return res.json({ success: true, count: rawProducts.length, categoriesCount: updatedCategoriesList.length });
 
-
     } catch (error) {
         console.error('Erro Wbuy Sync:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
 
+// --- INTEGRATIONS: LOJA INTEGRADA ---
+app.post('/api/integrations/lojaintegrada/sync', authenticateToken, async (req, res) => {
+    try {
+        const companyId = req.user.companyId;
+
+        // 1. Fetch current config
+        const config = await prisma.agentConfig.findFirst({ where: { companyId } });
+
+        if (!config || !config.integrations) {
+            return res.status(400).json({ success: false, message: 'Nenhuma integração configurada.' });
+        }
+
+        const integrations = typeof config.integrations === 'string' ? JSON.parse(config.integrations) : config.integrations;
+        const liConfig = integrations.lojaintegrada;
+
+        if (!liConfig || !liConfig.enabled || !liConfig.apiKey || !liConfig.appKey) {
+            return res.status(400).json({ success: false, message: 'A integração com a Loja Integrada não está ativa ou faltam credenciais.' });
+        }
+
+        const headers = {
+            'Authorization': `chave_api ${liConfig.apiKey} aplicacao ${liConfig.appKey}`,
+            'Content-Type': 'application/json'
+        };
+
+        const baseUrl = 'https://api.awsli.com.br/v1';
+
+        // 1. Fetch Categories
+        let liCatMap = new Map(); // Map liId -> internalCategoryId
+        let updatedCategoriesList = [];
+
+        try {
+            const catRes = await fetch(`${baseUrl}/categoria?limit=50`, { headers });
+            if (catRes.ok) {
+                const catData = await catRes.json();
+                const rawCategories = catData.objects || [];
+
+                if (Array.isArray(rawCategories)) {
+                    const existingCategories = config.categories ? JSON.parse(config.categories) : [];
+                    let catMap = new Map(); // name -> cat
+                    
+                    existingCategories.forEach(c => {
+                        catMap.set(c.name.trim().toLowerCase(), c);
+                        if (c.lojaintegradaId) liCatMap.set(String(c.lojaintegradaId), c.id);
+                    });
+
+                    rawCategories.forEach(wc => {
+                        const catName = wc.nome;
+                        if (!catName) return;
+
+                        const catId = String(wc.id);
+                        const existingCat = catMap.get(catName.trim().toLowerCase());
+
+                        if (existingCat) {
+                            existingCat.lojaintegradaId = catId;
+                            liCatMap.set(catId, existingCat.id);
+                        } else {
+                            const newCat = {
+                                id: `cat_li_${catId}_${Date.now()}`,
+                                name: catName.trim(),
+                                lojaintegradaId: catId
+                            };
+                            existingCategories.push(newCat);
+                            liCatMap.set(catId, newCat.id);
+                            catMap.set(catName.trim().toLowerCase(), newCat);
+                        }
+                    });
+
+                    updatedCategoriesList = existingCategories;
+                }
+            }
+        } catch (catError) {
+            console.error('Erro ao buscar categorias Loja Integrada:', catError);
+        }
+
+        // 2. Fetch Products
+        const prodRes = await fetch(`${baseUrl}/produto?limit=50`, { headers });
+
+        if (!prodRes.ok) {
+            console.error(`Status HTTP LI: ${prodRes.status}`);
+            return res.status(500).json({ success: false, message: `Erro ao comunicar com API da Loja Integrada (Status ${prodRes.status}).` });
+        }
+
+        const prodData = await prodRes.json();
+        const rawProducts = prodData.objects || [];
+
+        if (!Array.isArray(rawProducts)) {
+            return res.status(500).json({ success: false, message: 'Formato de resposta inesperado da Loja Integrada.' });
+        }
+
+        // 3. Transform to Promp Format
+        let productsMap = new Map();
+        const existingProducts = config.products ? JSON.parse(config.products) : [];
+        existingProducts.forEach(p => {
+            productsMap.set(p.name.trim().toLowerCase(), p);
+        });
+
+        for (const wp of rawProducts) {
+            const productName = wp.nome || 'Produto Loja Integrada';
+            const prodId = String(wp.id);
+            const existing = productsMap.get(productName.trim().toLowerCase());
+
+            let price = 0;
+            let imageUrl = null;
+
+            // Fetch Price (N+1 call)
+            try {
+                const priceRes = await fetch(`${baseUrl}/produto_preco/${prodId}`, { headers });
+                if (priceRes.ok) {
+                    const priceData = await priceRes.json();
+                    price = parseFloat(priceData.preco_venda || priceData.preco_cheio || 0);
+                }
+            } catch (e) {
+                console.error(`Erro ao buscar preço para produto ${prodId}:`, e);
+            }
+
+            // Fetch Image (N+1 call)
+            try {
+                // Tentando query param ?produto=ID conforme padrão
+                const imgRes = await fetch(`${baseUrl}/produto_imagem?produto=${prodId}`, { headers });
+                if (imgRes.ok) {
+                    const imgData = await imgRes.json();
+                    if (imgData.objects && imgData.objects.length > 0) {
+                        // Geralmente imagem_url ou caminho. Vamos tentar ambos.
+                        const imgObj = imgData.objects[0];
+                        imageUrl = imgObj.imagem_url || imgObj.caminho;
+                        if (imageUrl && !imageUrl.startsWith('http')) {
+                            imageUrl = `https:${imageUrl}`; // Garantir protocolo
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error(`Erro ao buscar imagem para produto ${prodId}:`, e);
+            }
+
+            // Category Linking
+            let categoryId = existing ? existing.categoryId : null;
+            if (wp.categorias && wp.categorias.length > 0) {
+                const catUrl = wp.categorias[0]; // ex: /api/v1/categoria/123
+                const match = catUrl.match(/\/categoria\/(\d+)/);
+                if (match && match[1]) {
+                    const liCatId = match[1];
+                    if (liCatMap.has(liCatId)) {
+                        categoryId = liCatMap.get(liCatId);
+                    }
+                }
+            }
+
+            let internalProduct = {
+                id: existing ? existing.id : `li_${prodId}_${Date.now()}`,
+                type: 'product',
+                name: productName,
+                price: price.toFixed(2),
+                description: wp.descricao_completa || '',
+                image: imageUrl || (existing ? existing.image : null),
+                active: wp.ativo === true,
+                unit: 'Unidade',
+                stock: 0, 
+                hasPaymentLink: !!wp.url,
+                paymentLink: wp.url || '',
+                categoryId: categoryId,
+                variantItems: existing ? existing.variantItems || [] : []
+            };
+
+            productsMap.set(productName.trim().toLowerCase(), internalProduct);
+        }
+
+        const mergedProductsList = Array.from(productsMap.values());
+
+        // 4. Save back to the DB
+        await prisma.agentConfig.update({
+            where: { id: config.id },
+            data: { 
+                products: JSON.stringify(mergedProductsList),
+                categories: updatedCategoriesList.length > 0 ? JSON.stringify(updatedCategoriesList) : undefined
+            }
+        });
+
+        return res.json({ success: true, count: rawProducts.length, categoriesCount: updatedCategoriesList.length });
+
+    } catch (error) {
+        console.error('Erro Loja Integrada Sync:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // Startup Check
+
 if (process.env.OPENAI_API_KEY) {
     console.log('[Startup] Global OpenAI Key detected in ENV.');
 } else {
