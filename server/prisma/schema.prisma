@@ -47,6 +47,7 @@ model AgentConfig {
   persona           String?
   integrations      String?
   products          String?
+  categories        String?
   knowledgeBase     String?
   prompIdentity     String?
   prompConnectionId String?

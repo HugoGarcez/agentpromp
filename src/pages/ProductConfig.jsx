@@ -21,6 +21,12 @@ const ProductConfig = () => {
     // Bulk Actions State
     const [selectedItems, setSelectedItems] = useState(new Set());
 
+    // Category State
+    const [categories, setCategories] = useState([]);
+    const [showCategoryModal, setShowCategoryModal] = useState(false);
+    const [newCategoryName, setNewCategoryName] = useState('');
+    const [batchCategoryId, setBatchCategoryId] = useState('');
+
     const token = localStorage.getItem('token');
 
     // Fetch Sources when Modal Opens
@@ -85,7 +91,22 @@ const ProductConfig = () => {
             }
         };
 
+        const fetchCategories = async () => {
+            try {
+                const response = await fetch('/api/categories', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    setCategories(data);
+                }
+            } catch (error) {
+                console.error("Error loading categories:", error);
+            }
+        };
+
         fetchConfig();
+        fetchCategories();
     }, [token]);
 
     const saveItemsToApi = async (newItems, currentConfig = config) => {
@@ -126,6 +147,7 @@ const ProductConfig = () => {
         description: '',
         image: null,
         variantItems: [], // Only for Products
+        categoryId: '', // New: Category ID
 
         // Service Specific
         paymentConditions: '',
@@ -188,6 +210,81 @@ const ProductConfig = () => {
         const newItems = products.map(p => selectedItems.has(p.id) ? { ...p, active: status } : p);
         if (await saveItemsToApi(newItems)) {
             setSelectedItems(new Set());
+        }
+    };
+
+    // --- CATEGORY ACTIONS ---
+    const handleCreateCategory = async (e) => {
+        e.preventDefault();
+        if (!newCategoryName.trim()) return;
+
+        try {
+            const res = await fetch('/api/categories', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ name: newCategoryName })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setCategories(prev => [...prev, data]);
+                setNewCategoryName('');
+            }
+        } catch (error) {
+            console.error("Error creating category:", error);
+        }
+    };
+
+    const handleDeleteCategory = async (id) => {
+        if (!confirm("Remover esta categoria? Os produtos vinculados a ela ficarão sem categoria.")) return;
+
+        try {
+            const res = await fetch(`/api/categories/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                setCategories(prev => prev.filter(c => c.id !== id));
+                // Update products locally as well
+                setProducts(prev => prev.map(p => p.categoryId === id ? { ...p, categoryId: null } : p));
+            }
+        } catch (error) {
+            console.error("Error deleting category:", error);
+        }
+    };
+
+    const handleBatchLinkCategory = async () => {
+        if (selectedItems.size === 0) return;
+        
+        try {
+            const res = await fetch('/api/products/batch-category', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    productIds: Array.from(selectedItems),
+                    categoryId: batchCategoryId === '' ? null : batchCategoryId // '' means "Sem Categoria"
+                })
+            });
+
+            if (res.ok) {
+                // Update local state
+                setProducts(prev => prev.map(p => {
+                    if (selectedItems.has(p.id) || selectedItems.has(String(p.id))) {
+                        return { ...p, categoryId: batchCategoryId === '' ? null : batchCategoryId };
+                    }
+                    return p;
+                }));
+                setSelectedItems(new Set());
+                setBatchCategoryId('');
+                alert("Categorias atualizadas!");
+            }
+        } catch (error) {
+            console.error("Error batch linking category:", error);
         }
     };
 
@@ -451,6 +548,15 @@ const ProductConfig = () => {
                 {!showForm && (
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <button
+                            onClick={() => setShowCategoryModal(true)}
+                            style={{
+                                backgroundColor: '#10B981', margin: 0, color: 'white', padding: '10px 16px', borderRadius: 'var(--radius-sm)', fontSize: '14px',
+                                display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: 'none'
+                            }}
+                        >
+                            <Package size={18} /> Categorias
+                        </button>
+                        <button
                             onClick={() => setShowImportModal(true)}
                             style={{
                                 backgroundColor: '#8B5CF6', margin: 0, color: 'white', padding: '10px 16px', borderRadius: 'var(--radius-sm)', fontSize: '14px',
@@ -487,7 +593,17 @@ const ProductConfig = () => {
             {selectedItems.size > 0 && !showForm && (
                 <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#EFF6FF', padding: '12px 16px', border: '1px solid #BFDBFE', borderRadius: '8px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontWeight: 600, color: '#1E40AF' }}>{selectedItems.size} itens selecionados</span>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <select value={batchCategoryId} onChange={e => setBatchCategoryId(e.target.value)} style={{ padding: '6px', fontSize: '13px', borderRadius: '4px', border: '1px solid #D1D5DB' }}>
+                            <option value="">Trocar p/ Sem Categoria</option>
+                            {categories.map(cat => (
+                                <option key={cat.id} value={cat.id}>Mover p/ {cat.name}</option>
+                            ))}
+                        </select>
+                        <button onClick={handleBatchLinkCategory} style={{ background: '#3B82F6', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer' }}>Aplicar</button>
+                        
+                        <div style={{ width: '1px', background: '#D1D5DB', height: '24px', margin: '0 4px' }}></div>
+
                         <button onClick={() => handleBulkToggle(false)} disabled={saving} style={{ background: 'white', color: '#6B7280', border: '1px solid #D1D5DB', padding: '6px 12px', borderRadius: '4px', fontSize: '13px', cursor: 'pointer', display: 'flex', gap: '6px', alignItems: 'center' }}>
                             <ToggleLeft size={16} /> Desativar
                         </button>
@@ -598,11 +714,21 @@ const ProductConfig = () => {
                         </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '16px' }}>
                         <div>
                             <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Nome</label>
                             <input type="text" name="name" value={formData.name} onChange={handleInputChange} required
                                 style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }} />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Categoria</label>
+                            <select name="categoryId" value={formData.categoryId || ''} onChange={handleInputChange}
+                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB', background: 'white' }}>
+                                <option value="">Sem Categoria</option>
+                                {categories.map(cat => (
+                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                ))}
+                            </select>
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <div style={{ flex: 1 }}>
@@ -811,7 +937,14 @@ const ProductConfig = () => {
                                                     {item.type === 'service' ? 'Serviço' : 'Produto'}
                                                 </span>
                                             </div>
-                                            <p style={{ color: '#6B7280', fontSize: '14px' }}>R$ {item.price}</p>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                                                <p style={{ color: '#6B7280', fontSize: '14px' }}>R$ {item.price}</p>
+                                                {item.categoryId && (
+                                                    <span style={{ fontSize: '11px', color: '#047857', background: '#D1FAE5', padding: '1px 6px', borderRadius: '4px', fontWeight: 500 }}>
+                                                        {categories.find(c => c.id === item.categoryId)?.name || 'Cat'}
+                                                    </span>
+                                                )}
+                                            </div>
 
                                             {/* Meta Data Badges */}
                                             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
@@ -841,8 +974,45 @@ const ProductConfig = () => {
                     )}
                 </div>
             )}
+
+            {/* CATEGORY MODAL */}
+            {showCategoryModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                    <div style={{ background: 'white', padding: '24px', borderRadius: '8px', width: '500px', maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <h3 style={{ fontSize: '18px', fontWeight: 600 }}>Gerenciar Categorias</h3>
+                            <button onClick={() => setShowCategoryModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>Fechar</button>
+                        </div>
+
+                        <form onSubmit={handleCreateCategory} style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                            <input
+                                type="text"
+                                placeholder="Nova Categoria"
+                                value={newCategoryName}
+                                onChange={e => setNewCategoryName(e.target.value)}
+                                style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                            />
+                            <button type="submit" style={{ padding: '8px 16px', background: 'var(--primary-blue)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Criar</button>
+                        </form>
+
+                        <div style={{ display: 'grid', gap: '8px', maxHeight: '300px', overflowY: 'auto', padding: '4px', border: '1px solid #E5E7EB', borderRadius: '6px' }}>
+                            {categories.length === 0 ? (
+                                <p style={{ textAlign: 'center', color: '#9CA3AF', padding: '16px', fontSize: '13px' }}>Nenhuma categoria criada.</p>
+                            ) : (
+                                categories.map(cat => (
+                                    <div key={cat.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#F9FAFB', borderRadius: '4px' }}>
+                                        <span style={{ fontSize: '14px', fontWeight: 500 }}>{cat.name}</span>
+                                        <button onClick={() => handleDeleteCategory(cat.id)} style={{ color: '#EF4444', background: 'none', border: 'none', cursor: 'pointer' }}><Trash2 size={16} /></button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
 export default ProductConfig;
+

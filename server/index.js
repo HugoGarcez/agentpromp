@@ -926,8 +926,58 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
             'Content-Type': 'application/json'
         };
 
+        // 2.5 Fetch Categories from Wbuy
+        let wbuyCatMap = new Map(); // Map wbuyId -> internalCategoryId
+        let updatedCategoriesList = [];
+
+        try {
+            const catRes = await fetch('https://sistema.sistemawbuy.com.br/api/v1/category', { headers });
+            if (catRes.ok) {
+                const catData = await catRes.json();
+                const rawCategories = catData.data || catData;
+
+                if (Array.isArray(rawCategories)) {
+                    const existingCategories = config.categories ? JSON.parse(config.categories) : [];
+                    let catMap = new Map(); // name -> cat
+                    
+                    existingCategories.forEach(c => {
+                        catMap.set(c.name.trim().toLowerCase(), c);
+                        if (c.wbuyId) wbuyCatMap.set(String(c.wbuyId), c.id);
+                    });
+
+                    rawCategories.forEach(wc => {
+                        const catName = wc.nome || wc.name;
+                        if (!catName) return;
+
+                        const wcatId = String(wc.id);
+                        const existingCat = catMap.get(catName.trim().toLowerCase());
+
+                        if (existingCat) {
+                            // Update wbuyId if missing
+                            existingCat.wbuyId = wcatId;
+                            wbuyCatMap.set(wcatId, existingCat.id);
+                        } else {
+                            // Create New
+                            const newCat = {
+                                id: `cat_wbuy_${wcatId}_${Date.now()}`,
+                                name: catName.trim(),
+                                wbuyId: wcatId
+                            };
+                            existingCategories.push(newCat);
+                            wbuyCatMap.set(wcatId, newCat.id);
+                            catMap.set(catName.trim().toLowerCase(), newCat);
+                        }
+                    });
+
+                    updatedCategoriesList = existingCategories;
+                }
+            }
+        } catch (catError) {
+            console.error('Erro ao buscar categorias Wbuy:', catError);
+            // Non-blocking: continue to products
+        }
+
         // 3. Fetch Products from Wbuy
-        // Paginating to get all could be needed, assuming one page limits for now (adjust as required)
         const wbuyRes = await fetch('https://sistema.sistemawbuy.com.br/api/v1/product', { headers });
 
         if (!wbuyRes.ok) {
@@ -936,23 +986,16 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
         }
 
         const wbuyData = await wbuyRes.json();
-
-        // Data format check. Usually { data: [...] } 
         let rawProducts = wbuyData.data || wbuyData;
 
         if (!Array.isArray(rawProducts)) {
-            // Se pagination, the items could be in inside 'data'
             return res.status(500).json({ success: false, message: 'Formato de resposta inesperado da Wbuy.' });
         }
 
         // 4. Transform to Promp Format
         let productsMap = new Map();
-
-        // Carregar produtos que já existem para fazer merge em vez de sobrescrever puramente
         const existingProducts = config.products ? JSON.parse(config.products) : [];
         existingProducts.forEach(p => {
-            // Let's use name as key if wbuy ID is not available in our DB, but we should prefer wbuy ID if we had a field. 
-            // We'll trust the wbuy Name uniqueness roughly, or create our own id `wbuy_${p.id}`
             productsMap.set(p.name.trim().toLowerCase(), p);
         });
 
@@ -966,14 +1009,29 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
             const hasVariations = Array.isArray(wp.estoque) && wp.estoque.length > 0;
             const stock = parseFloat(wp.quantidade_total_em_estoque) || 0;
 
-            // O preço base na Wbuy fica atrelado à variação primária se houver, ou buscamos do primeiro item de estoque
             let price = 0;
             if (hasVariations && wp.estoque[0].valores && wp.estoque[0].valores.length > 0) {
                 price = parseFloat(wp.estoque[0].valores[0].valor) || 0;
             }
 
-            // Generate standard PaymentLink
             const paymentLink = wbuyUrl;
+
+            // --- CATEGORY LINKING ---
+            let categoryId = existing ? existing.categoryId : null;
+            
+            // Tentativas de ler ID da categoria da Wbuy
+            const wbuyCategoryId = wp.id_categoria || wp.categoria_id || wp.id_subcategoria; 
+            
+            if (wbuyCategoryId && wbuyCatMap.has(String(wbuyCategoryId))) {
+                categoryId = wbuyCatMap.get(String(wbuyCategoryId));
+            } else if (wp.categoria) {
+                // Se vier o nome da categoria como string
+                const catName = typeof wp.categoria === 'string' ? wp.categoria : wp.categoria.nome;
+                if (catName) {
+                    const foundCat = updatedCategoriesList.find(c => c.name.trim().toLowerCase() === catName.trim().toLowerCase());
+                    if (foundCat) categoryId = foundCat.id;
+                }
+            }
 
             let internalProduct = {
                 id: existing ? existing.id : `wbuy_${wbuyId}_${Date.now()}`,
@@ -987,23 +1045,21 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
                 stock: stock,
                 hasPaymentLink: !!paymentLink,
                 paymentLink: paymentLink,
+                categoryId: categoryId, // <--- Link Category
                 variantItems: existing ? existing.variantItems || [] : []
             };
 
-            // Process Variations if present
+            // Process Variations
             if (hasVariations) {
                 internalProduct.variantItems = wp.estoque.map(v => {
-                    // Wbuy armazena variação em escopos 'cor' e 'variacao'.
                     let vNameInfo = [];
                     if (v.cor && v.cor.nome) vNameInfo.push(v.cor.nome);
                     if (v.variacao && v.variacao.valor) vNameInfo.push(v.variacao.valor);
 
                     let varPrice = 0;
                     if (v.valores && v.valores.length > 0) {
-                        varPrice = parseFloat(v.valores[0].valor) || price; // fallback pro base
+                        varPrice = parseFloat(v.valores[0].valor) || price;
                     }
-
-                    let skuInfo = v.sku || String(v.id);
 
                     return {
                         id: `var_${wbuyId}_${v.id}_${Date.now()}`,
@@ -1012,7 +1068,7 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
                         price: varPrice.toFixed(2),
                         stock: parseFloat(v.quantidade_em_estoque) || 0,
                         image: v.cor?.img || null,
-                        sku: skuInfo
+                        sku: v.sku || String(v.id)
                     };
                 });
             }
@@ -1023,11 +1079,16 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
         const mergedProductsList = Array.from(productsMap.values());
 
         // 5. Save back to the DB
-        await prisma.agentConfig.updateMany({ where: { companyId },
-            data: { products: JSON.stringify(mergedProductsList) }
+        await prisma.agentConfig.update({ // Changed from updateMany to update for single config
+            where: { id: config.id },
+            data: { 
+                products: JSON.stringify(mergedProductsList),
+                categories: updatedCategoriesList.length > 0 ? JSON.stringify(updatedCategoriesList) : undefined
+            }
         });
 
-        return res.json({ success: true, count: rawProducts.length });
+        return res.json({ success: true, count: rawProducts.length, categoriesCount: updatedCategoriesList.length });
+
 
     } catch (error) {
         console.error('Erro Wbuy Sync:', error);
@@ -1249,7 +1310,135 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 });
 
+// --- CATEGORIES Routes ---
+
+// List Categories
+app.get('/api/categories', authenticateToken, async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        const config = await prisma.agentConfig.findFirst({
+            where: { companyId },
+            select: { categories: true }
+        });
+
+        const categories = config?.categories ? JSON.parse(config.categories) : [];
+        res.json(categories);
+    } catch (error) {
+        console.error('Error fetching categories:', error);
+        res.status(500).json({ message: 'Erro ao buscar categorias.' });
+    }
+});
+
+// Create Category
+app.post('/api/categories', authenticateToken, async (req, res) => {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ message: 'Nome é obrigatório.' });
+
+    try {
+        const { companyId } = req.user;
+        const config = await prisma.agentConfig.findFirst({
+            where: { companyId },
+            select: { id: true, categories: true }
+        });
+
+        if (!config) return res.status(404).json({ message: 'Configuração não encontrada.' });
+
+        let categories = config.categories ? JSON.parse(config.categories) : [];
+        const newCategory = {
+            id: `cat_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            name: name.trim()
+        };
+
+        categories.push(newCategory);
+
+        await prisma.agentConfig.update({
+            where: { id: config.id },
+            data: { categories: JSON.stringify(categories) }
+        });
+
+        res.json(newCategory);
+    } catch (error) {
+        console.error('Error creating category:', error);
+        res.status(500).json({ message: 'Erro ao criar categoria.' });
+    }
+});
+
+// Delete Category
+app.delete('/api/categories/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const { companyId } = req.user;
+        const config = await prisma.agentConfig.findFirst({
+            where: { companyId },
+            select: { id: true, categories: true, products: true }
+        });
+
+        if (!config) return res.status(404).json({ message: 'Configuração não encontrada.' });
+
+        let categories = config.categories ? JSON.parse(config.categories) : [];
+        categories = categories.filter(c => c.id !== id);
+
+        // Optional: Remove category from products that use it
+        let products = config.products ? JSON.parse(config.products) : [];
+        products = products.map(p => p.categoryId === id ? { ...p, categoryId: null } : p);
+
+        await prisma.agentConfig.update({
+            where: { id: config.id },
+            data: { 
+                categories: JSON.stringify(categories),
+                products: JSON.stringify(products)
+            }
+        });
+
+        res.json({ success: true, message: 'Categoria removida.' });
+    } catch (error) {
+        console.error('Error deleting category:', error);
+        res.status(500).json({ message: 'Erro ao remover categoria.' });
+    }
+});
+
+// Batch Update Product Category
+app.post('/api/products/batch-category', authenticateToken, async (req, res) => {
+    const { productIds, categoryId } = req.body; // categoryId can be string or null
+
+    if (!Array.isArray(productIds)) {
+        return res.status(400).json({ message: 'productIds deve ser um array.' });
+    }
+
+    try {
+        const { companyId } = req.user;
+        const config = await prisma.agentConfig.findFirst({
+            where: { companyId },
+            select: { id: true, products: true }
+        });
+
+        if (!config) return res.status(404).json({ message: 'Configuração não encontrada.' });
+
+        let products = config.products ? JSON.parse(config.products) : [];
+        
+        products = products.map(p => {
+            // Conversão de ID para string para comparar com segurança
+            if (productIds.includes(p.id) || productIds.includes(String(p.id))) {
+                return { ...p, categoryId: categoryId || null };
+            }
+            return p;
+        });
+
+        await prisma.agentConfig.update({
+            where: { id: config.id },
+            data: { products: JSON.stringify(products) }
+        });
+
+        res.json({ success: true, message: `${productIds.length} produtos atualizados.` });
+    } catch (error) {
+        console.error('Error batch updating products:', error);
+        res.status(500).json({ message: 'Erro ao atualizar produtos em lote.' });
+    }
+});
+
 // --- TAGS (Autotagging) Routes ---
+
 
 // List tags directly from Promp API
 app.get('/api/tags/promp', authenticateToken, async (req, res) => {
