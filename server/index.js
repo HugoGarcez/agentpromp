@@ -3718,7 +3718,9 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
         }
 
         // --- INJECT PRESENTATION PHRASE FOR NEW CHATS ---
-        if ((!history || history.length === 0) && config.persona) {
+        const hasUserMessage = history && Array.isArray(history) && history.some(m => m.role === 'user');
+        
+        if (!hasUserMessage && config.persona) {
             let personaData = {};
             try {
                 personaData = typeof config.persona === 'string' ? JSON.parse(config.persona) : config.persona;
@@ -3728,6 +3730,13 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                 console.log('[Chat] Injetando Frase de apresentação como primeira mensagem.');
                 // Prepend the greeting message as the first chunk
                 messageChunks.unshift({ type: 'text', content: personaData.greetingMessage });
+                
+                // Also prepend to aiResponse for APIs that only use aiResponse (like TestAI)
+                if (aiResponse) {
+                    aiResponse = personaData.greetingMessage + '\n\n' + aiResponse;
+                } else {
+                    aiResponse = personaData.greetingMessage;
+                }
             }
         }
 
