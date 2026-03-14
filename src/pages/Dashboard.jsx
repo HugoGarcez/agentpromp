@@ -1,6 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { Bot, Package, Zap, ExternalLink, ArrowRight, Activity, AlertCircle, ShoppingCart, Heart, Users, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { 
+    ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, 
+    CartesianGrid, Tooltip, Legend 
+} from 'recharts';
+
+const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+        return (
+            <div style={{ 
+                backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                padding: '16px', 
+                border: '1px solid var(--border-color)', 
+                borderRadius: '12px',
+                boxShadow: 'var(--shadow-md)',
+                backdropFilter: 'blur(4px)'
+            }}>
+                <p style={{ fontWeight: '700', marginBottom: '8px', color: 'var(--text-dark)' }}>{label}</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <p style={{ color: 'var(--primary-blue)', fontSize: '13px', fontWeight: '600' }}>
+                        Mensagens: <span style={{ fontWeight: '800' }}>{payload[0].value}</span>
+                    </p>
+                    <p style={{ color: '#10B981', fontSize: '13px', fontWeight: '600' }}>
+                        Contatos: <span style={{ fontWeight: '800' }}>{payload[1].value}</span>
+                    </p>
+                </div>
+            </div>
+        );
+    }
+    return null;
+};
 
 const Dashboard = () => {
     const navigate = useNavigate();
@@ -174,6 +204,82 @@ const Dashboard = () => {
                     </button>
                 </div>
 
+            </div>
+
+            {/* Performance Chart Section */}
+            <div style={{ 
+                background: 'var(--bg-white)', 
+                padding: '32px', 
+                borderRadius: 'var(--radius-md)', 
+                boxShadow: 'var(--shadow-sm)', 
+                border: '1px solid var(--border-color)',
+                marginBottom: '32px',
+                width: '100%',
+                boxSizing: 'border-box'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                    <div>
+                        <h3 style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-dark)' }}>Desempenho Diário</h3>
+                        <p style={{ fontSize: '13px', color: 'var(--text-medium)' }}>Mensagens automáticas x Contatos individuais</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '16px', fontSize: '12px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ width: 12, height: 12, borderRadius: '3px', background: 'var(--primary-blue)' }}></div>
+                            <span style={{ color: 'var(--text-medium)' }}>Mensagens</span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ width: 12, height: 3, borderRadius: '2px', background: '#10B981' }}></div>
+                            <span style={{ color: 'var(--text-medium)' }}>Contatos</span>
+                        </div>
+                    </div>
+                </div>
+                <div style={{ width: '100%', height: 400 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={stats?.dailyStats || []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <defs>
+                                <linearGradient id="colorMessages" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="var(--primary-blue)" stopOpacity={0.8}/>
+                                    <stop offset="95%" stopColor="var(--primary-blue)" stopOpacity={0.1}/>
+                                </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                            <XAxis 
+                                dataKey="date" 
+                                axisLine={false} 
+                                tickLine={false} 
+                                tick={{ fontSize: 11, fill: 'var(--text-medium)' }} 
+                                dy={10}
+                                tickFormatter={(str) => {
+                                    if (!str || str === 'Desconhecido') return str;
+                                    const [year, month, day] = str.split('-');
+                                    return `${day}/${month}`;
+                                }}
+                            />
+                            <YAxis 
+                                axisLine={false} 
+                                tickLine={false} 
+                                tick={{ fontSize: 11, fill: 'var(--text-medium)' }} 
+                            />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Bar 
+                                dataKey="messages" 
+                                name="Mensagens Enviadas" 
+                                fill="url(#colorMessages)" 
+                                radius={[6, 6, 0, 0]} 
+                                barSize={40}
+                            />
+                            <Line 
+                                type="monotone" 
+                                dataKey="contacts" 
+                                name="Contatos Atendidos" 
+                                stroke="#10B981" 
+                                strokeWidth={4} 
+                                dot={{ r: 6, fill: '#10B981', strokeWidth: 3, stroke: '#fff' }}
+                                activeDot={{ r: 8, strokeWidth: 0 }}
+                            />
+                        </ComposedChart>
+                    </ResponsiveContainer>
+                </div>
             </div>
 
             {/* Stats Grid - Novas Métricas */}

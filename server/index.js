@@ -1462,9 +1462,26 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
         const soldProducts = {};    // { name: count } (using link as proxy)
         const activeCustomers = {}; // { sessionId: count }
         const customerNames = {};   // { sessionId: name }
+        const dailyStats = {};      // { 'YYYY-MM-DD': { messages: 0, contacts: Set } }
         let aiMessagesCount = 0;
 
         messages.forEach(msg => {
+            // Agrupar por dia para o gráfico
+            try {
+                const dateStr = msg.createdAt ? new Date(msg.createdAt).toISOString().split('T')[0] : 'Desconhecido';
+                if (dateStr !== 'Desconhecido') {
+                    if (!dailyStats[dateStr]) {
+                        dailyStats[dateStr] = { messages: 0, contacts: new Set() };
+                    }
+                    if (msg.sender === 'ai') {
+                        dailyStats[dateStr].messages++;
+                    }
+                    if (msg.sessionId) {
+                        dailyStats[dateStr].contacts.add(msg.sessionId);
+                    }
+                }
+            } catch (e) { }
+
             if (msg.sender === 'ai') {
                 aiMessagesCount++;
 
@@ -1560,12 +1577,20 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
         const minutes = totalMinutesSaved % 60;
         const timeSavedFormatted = `${hours}h ${minutes}min`;
 
+        // Format daily stats
+        const formattedDailyStats = Object.entries(dailyStats).map(([date, data]) => ({
+            date: date,
+            messages: data.messages,
+            contacts: data.contacts.size
+        })).sort((a, b) => a.date.localeCompare(b.date));
+
         res.json({
             desiredProducts: sortedDesired,
             soldProducts: sortedSold,
             activeCustomers: sortedCustomers,
             timeSaved: timeSavedFormatted,
-            totalAiMessages: aiMessagesCount
+            totalAiMessages: aiMessagesCount,
+            dailyStats: formattedDailyStats
         });
 
     } catch (error) {
