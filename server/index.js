@@ -2922,7 +2922,9 @@ Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
                 }
 
                 // Item Header with Enhanced Price info
-                productList += `- [${typeLabel}] ID: ${p.id} | Nome: ${p.name} | Preço: ${priceDisplay} / ${unitLabel}${priceDetails}. ${pdfTag} ${paymentLinkCtx}\n`;
+                const fileTag = p.attachedFile ? `[TEM_ARQUIVO]` : '';
+                const videoTag = p.attachedVideo ? `[TEM_VIDEO]` : '';
+                productList += `- [${typeLabel}] ID: ${p.id} | Nome: ${p.name} | Preço: ${priceDisplay} / ${unitLabel}${priceDetails}. ${pdfTag} ${paymentLinkCtx} ${fileTag} ${videoTag}\n`;
 
                 if (p.description) productList += `  Descrição: ${p.description}\n`;
                 if (p.paymentConditions) productList += `  Condições: ${p.paymentConditions}\n`;
@@ -3056,7 +3058,9 @@ Resposta: "Aqui está a foto! 👕 [SHOW_IMAGE: 1770083712009]"
             systemPrompt += `3. PAGAMENTO: Se o cliente quiser comprar/contratar e o item tiver [TEM_LINK_PAGAMENTO], envie o link: "[LINK: URL_DO_PAGAMENTO] Clique aqui para finalizar.".\n`;
             systemPrompt += `4. PREÇO/CONDIÇÕES: Use as informações de preço e condições (se houver) para negociar.\n`;
             systemPrompt += `5. UNIDADES DE MEDIDA (CRÍTICO): Cada produto tem sua própria unidade (Unidade, Kg, Rolo, Metro, etc.). JAMAIS GENERALIZE. Se o Produto A é "Rolo" e o Produto B é "Kg", fale exatamente assim. Nunca diga que "todos são vendidos por rolo". Verifique item por item.\n`;
-            systemPrompt += `6. PREÇOS OCULTOS [PREÇO_OCULTO: Motivo]: Se um produto estiver marcado com isso, NÃO INVENTE UM PREÇO. Responda ao cliente explicando o motivo (ex: "O valor é sob consulta", "Preciso verificar com o vendedor"). Se o motivo for "Preço com vendedor", diga que vai chamar um atendente humano.`;
+            systemPrompt += `6. PREÇOS OCULTOS [PREÇO_OCULTO: Motivo]: Se um produto estiver marcado com isso, NÃO INVENTE UM PREÇO. Responda ao cliente explicando o motivo (ex: "O valor é sob consulta", "Preciso verificar com o vendedor"). Se o motivo for "Preço com vendedor", diga que vai chamar um atendente humano.\n`;
+            systemPrompt += `7. ARQUIVOS VINCULADOS [TEM_ARQUIVO]: Se o item tem esse marcador, NÃO envie o arquivo imediatamente. Pergunte: "Gostaria de receber o material do produto?". Se o cliente confirmar, responda: "[SEND_FILE: ID] Enviando o material...".\n`;
+            systemPrompt += `8. VÍDEOS VINCULADOS [TEM_VIDEO]: Se o item tem esse marcador, NÃO envie o vídeo imediatamente. Pergunte: "Gostaria de ver um vídeo do produto?". Se o cliente confirmar, responda: "[SEND_VIDEO: ID] Aqui está o vídeo!".`;
         }
 
         // Humanization & Memory Control
@@ -3761,6 +3765,43 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
             } else {
                 console.log(`[Chat] PDF requested for ID ${targetId} but not found.`);
                 aiResponse = aiResponse.replace(new RegExp(`\\[SEND_PDF:\\s*['"]?${targetId}['"]?\\s*\\]`, 'gi'), `(❌ PDF não encontrado: ${targetId})`);
+            }
+        }
+
+        // --- Attached File & Video Command Parsing ---
+        const fileTagRegex = /\[SEND_FILE:\s*['"]?([^\]]+?)['"]?\s*\]/i;
+        const videoTagRegex = /\[SEND_VIDEO:\s*['"]?([^\]]+?)['"]?\s*\]/i;
+
+        const fileMatch = aiResponse.match(fileTagRegex);
+        const videoMatch = aiResponse.match(videoTagRegex);
+
+        if (fileMatch) {
+            const targetId = fileMatch[1];
+            let foundUrl = null;
+            if (config.products) {
+                let products = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
+                const p = products.find(p => String(p.id) === String(targetId));
+                if (p && p.attachedFile) foundUrl = p.attachedFile;
+            }
+            if (foundUrl) {
+                aiResponse = aiResponse.replace(fileTagRegex, `\n\n🔗 *Material de Apoio:* ${foundUrl}`).trim();
+            } else {
+                aiResponse = aiResponse.replace(fileTagRegex, `(❌ Arquivo não encontrado: ${targetId})`);
+            }
+        }
+
+        if (videoMatch) {
+            const targetId = videoMatch[1];
+            let foundUrl = null;
+            if (config.products) {
+                let products = typeof config.products === 'string' ? JSON.parse(config.products) : config.products;
+                const p = products.find(p => String(p.id) === String(targetId));
+                if (p && p.attachedVideo) foundUrl = p.attachedVideo;
+            }
+            if (foundUrl) {
+                aiResponse = aiResponse.replace(videoTagRegex, `\n\n🎥 *Vídeo do Produto:* ${foundUrl}`).trim();
+            } else {
+                aiResponse = aiResponse.replace(videoTagRegex, `(❌ Vídeo não encontrado: ${targetId})`);
             }
         }
 

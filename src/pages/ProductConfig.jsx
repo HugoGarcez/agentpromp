@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Package, Image as ImageIcon, Save, Loader2, FileText, CreditCard, Briefcase, Link as LinkIcon, ToggleLeft, ToggleRight, Bot } from 'lucide-react';
+import { Plus, Edit2, Trash2, Package, Image as ImageIcon, Save, Loader2, FileText, CreditCard, Briefcase, Link as LinkIcon, ToggleLeft, ToggleRight, Bot, Video } from 'lucide-react';
 
 const ProductConfig = () => {
     const [showForm, setShowForm] = useState(false);
@@ -168,7 +168,11 @@ const ProductConfig = () => {
             { id: 'card', label: 'Cartão', active: false, price: '' },
             { id: 'check', label: 'Cheque', active: false, price: '' },
             { id: 'presential', label: 'Presencial', active: false, price: '' }
-        ]
+        ],
+
+        // --- ATTACHMENTS (File & Video) ---
+        attachedFile: null, // URL from upload
+        attachedVideo: ''   // URL string
     };
 
     const [formData, setFormData] = useState(initialFormState);
@@ -367,6 +371,20 @@ const ProductConfig = () => {
             const reader = new FileReader();
             reader.onloadend = () => setFormData(prev => ({ ...prev, pdf: reader.result }));
             reader.readAsDataURL(file);
+        }
+    };
+
+    // Generic file upload for Attachments
+    const handleAttachedFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.size > 5 * 1024 * 1024) { alert('Arquivo muito grande (Max 5MB)'); return; }
+            setSaving(true);
+            const url = await uploadImageFile(file); // Generic upload endpoint
+            if (url) {
+                setFormData(prev => ({ ...prev, attachedFile: url }));
+            }
+            setSaving(false);
         }
     };
 
@@ -831,6 +849,39 @@ const ProductConfig = () => {
                         )}
                     </div>
 
+                    {/* ATTACHMENTS SECTION (File & Video) */}
+                    <div style={{ marginBottom: '16px', padding: '16px', background: '#F0FDF4', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
+                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 600, color: '#166534' }}>Material e Vídeo Explicativo (Usado pela IA)</label>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 500 }}>Arquivo / Material</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', border: '1px dashed #D1D5DB', borderRadius: 'var(--radius-md)', background: 'white', flex: 1, fontSize: '13px' }}>
+                                        <FileText size={16} color="#10B981" />
+                                        <span>{formData.attachedFile ? 'Arquivo Carregado' : 'Upload Arquivo'}</span>
+                                        <input type="file" onChange={handleAttachedFileChange} style={{ display: 'none' }} />
+                                    </label>
+                                    {formData.attachedFile && (
+                                        <button type="button" onClick={() => setFormData(prev => ({ ...prev, attachedFile: null }))} style={{ color: '#EF4444', background: 'none', border: 'none', cursor: 'pointer' }}>
+                                            <Trash2 size={16} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '4px', fontSize: '13px', fontWeight: 500 }}>Link do Vídeo</label>
+                                <input
+                                    type="text"
+                                    name="attachedVideo"
+                                    placeholder="https://youtube.com/..."
+                                    value={formData.attachedVideo || ''}
+                                    onChange={handleInputChange}
+                                    style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB', fontSize: '13px' }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
                     {/* SERVICE SPECIFIC FIELDS */}
                     {formData.type === 'service' && (
                         <div style={{ marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -958,6 +1009,16 @@ const ProductConfig = () => {
                                                         <FileText size={10} /> PDF
                                                     </span>
                                                 )}
+                                                 {item.attachedFile && (
+                                                     <span style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', color: '#10B981' }}>
+                                                         <FileText size={10} /> Material
+                                                     </span>
+                                                 )}
+                                                 {item.attachedVideo && (
+                                                     <span style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '2px', color: '#8B5CF6' }}>
+                                                         <Video size={10} /> Vídeo
+                                                     </span>
+                                                 )}
                                             </div>
                                         </div>
                                     </div>
