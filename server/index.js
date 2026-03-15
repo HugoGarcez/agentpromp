@@ -1890,6 +1890,80 @@ app.delete('/api/admin/notifications/:id', authenticateAdmin, async (req, res) =
     }
 });
 
+// --- GitHub Webhook Route (AI-generated Notifications) ---
+app.post('/api/webhooks/github', async (req, res) => {
+    const payload = req.body;
+    
+    // 1. Validar se é um push event
+    const commits = payload.commits || [];
+    const repository = payload.repository?.name || 'Projeto';
+    
+    if (commits.length === 0) {
+        return res.json({ status: 'ignored_no_commits' });
+    }
+    
+    // 2. Coletar mensagens dos commits
+    // Extraindo apenas mensagens úteis (ignorando merge commits se preferir, mas vamos pegar todos)
+    const commitMessages = commits.map(c => `- ${c.message} (por ${c.author?.name || 'Dev'})`).join('\n');
+    
+    try {
+        // 3. Buscar Chave de IA (OpenAI)
+        const globalConfig = await prisma.globalConfig.findFirst();
+        const openaiKey = globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
+        
+        let title = `Atualização no ${repository}`;
+        let content = `Novas alterações foram enviadas para o repositório.`;
+        
+        if (openaiKey) {
+            // OpenAI já importado no topo
+            const openai = new OpenAI({ apiKey: openaiKey });
+            
+            const prompt = `Você é um assistente de comunicação para uma equipe de desenvolvimento. Recebemos atualizações no GitHub no repositório ${repository}.
+            
+Aqui estão os commits recebidos:
+${commitMessages}
+
+**Sua missão**: Gerar uma notificação amigável, entusiasmada e fácil de ler para os usuários do sistema Agente Promp. Foque no benefício ou no que mudou.
+A linguagem deve ser em Português do Brasil, profissional mas calorosa.
+Retorne um JSON com:
+{
+  "title": "Um título curto e atrativo (máx 50 caracteres)",
+  "content": "A descrição amigável das alterações (pode usar quebras de linha e emojis), com um tom de novidade ou melhoria."
+}`;
+
+            const response = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                response_format: { type: 'json_object' }
+            });
+            
+            const aiData = JSON.parse(response.choices[0]?.message?.content || '{}');
+            title = aiData.title || title;
+            content = aiData.content || content;
+        } else {
+            console.warn('[Github Webhook] Chave OpenAI não encontrada. Usando texto padrão.');
+        }
+        
+        // 4. Salvar Notificação no Banco de Dados como RASCUNHO
+        // Usamos status: 'DRAFT' para aprovação humana
+        const notification = await prisma.notification.create({
+            data: {
+                title: String(title).substring(0, 100), // Prevenir estouro
+                content: content,
+                type: 'NEWS',
+                status: 'DRAFT'
+            }
+        });
+        
+        console.log(`[Github Webhook] Notificação criada: ID ${notification.id} (${notification.title})`);
+        res.json({ success: true, notificationId: notification.id });
+    } catch (error) {
+        console.error('[Github Webhook] Erro ao processar:', error);
+        res.status(500).json({ message: 'Erro ao processar webhook', error: error.message });
+    }
+});
+
+
 // --- User Stats Route (Dashboard) ---
 app.get('/api/stats', authenticateToken, async (req, res) => {
     const { companyId } = req.user;
