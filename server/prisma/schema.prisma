@@ -57,6 +57,7 @@ model AgentConfig {
   updatedAt         DateTime        @updatedAt
   followUpConfig    String?
   catalogConfig     String?
+  transferConfig    String?
   company           Company         @relation("CompanyAgents", fields: [companyId], references: [id])
   history           PromptHistory[]
   prompChannels     PrompChannel[]  @relation("AgentConfigToPrompChannel")

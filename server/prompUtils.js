@@ -407,3 +407,91 @@ export const downloadAndDecryptWhatsAppMedia = async (url, mediaKeyBase64, media
         return null;
     }
 };
+
+// --- USERS & QUEUES (Transferencia) ---
+
+export const getPrompUsers = async (config) => {
+    if (!config.prompUuid || !config.prompToken) return [];
+
+    const finalToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
+
+    try {
+        const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/listUsers?pageNumber=1`;
+        const response = await axios.get(url, {
+            headers: { 'Authorization': `Bearer ${finalToken}` }
+        });
+        return response.data?.users || [];
+    } catch (error) {
+        console.error('[Promp] Failed to List Users:', error.response?.data || error.message);
+        return [];
+    }
+};
+
+export const getPrompQueues = async (config) => {
+    if (!config.prompUuid || !config.prompToken) return [];
+
+    const finalToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
+
+    try {
+        const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/listQueues`;
+        const response = await axios.get(url, {
+            headers: { 'Authorization': `Bearer ${finalToken}` }
+        });
+        return response.data?.queues || response.data || [];
+    } catch (error) {
+        console.error('[Promp] Failed to List Queues:', error.response?.data || error.message);
+        return [];
+    }
+};
+
+export const setTicketInfo = async (config, ticketId, data) => {
+    if (!config.prompUuid || !config.prompToken || !ticketId) return false;
+
+    const finalToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
+
+    try {
+        const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/updateticketinfo`;
+        const payload = {
+            ticketId: Number(ticketId),
+            ...data
+        };
+
+        const response = await axios.post(url, payload, {
+            headers: {
+                'Authorization': `Bearer ${finalToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        return true;
+    } catch (error) {
+        console.error('[Promp] Failed to Set Ticket Info:', error.response?.data || error.message);
+        return false;
+    }
+};
+
+export const createTicketNote = async (config, ticketId, notes) => {
+    if (!config.prompUuid || !config.prompToken || !ticketId) return false;
+
+    const finalToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
+
+    try {
+        const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/createNotes`;
+        const payload = {
+            notes: notes,
+            ticketId: Number(ticketId)
+        };
+
+        const response = await axios.post(url, payload, {
+            headers: {
+                'Authorization': `Bearer ${finalToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        return true;
+    } catch (error) {
+        console.error('[Promp] Failed to Create Note:', error.response?.data || error.message);
+        return false;
+    }
+};

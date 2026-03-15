@@ -33,7 +33,7 @@ import {
     checkAvailability,
     createCalendarEvent
 } from './googleCalendar.js';
-import { sendPrompMessage, getPrompTags, applyPrompTag, sendPrompPresence, downloadAndDecryptWhatsAppMedia } from './prompUtils.js';
+import { sendPrompMessage, getPrompTags, applyPrompTag, sendPrompPresence, downloadAndDecryptWhatsAppMedia, getPrompUsers, getPrompQueues, setTicketInfo, createTicketNote } from './prompUtils.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -684,6 +684,76 @@ const handleWebhookRequest = async (req, res) => {
         }
 
         const currentTicketId = payload.ticket?.id || null;
+
+        // --- CHECK TRANSFER TRIGGER ---
+        const transferConfig = config.transferConfig;
+        if (transferConfig && transferConfig.triggerText && userMessage) {
+            const trigger = transferConfig.triggerText.toLowerCase().trim();
+            const msg = userMessage.toLowerCase().trim();
+            
+            if (msg.includes(trigger)) {
+                console.log(`[Webhook] Transfer Trigger MATCHED: "${trigger}"`);
+                
+                if (currentTicketId) {
+                    try {
+                        const globalConfig = await getGlobalConfig();
+                        const openaiKey = globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
+                        
+                        let summary = "Resumo indisponível (Erro na API).";
+                        
+                        if (openaiKey) {
+                            const openai = new OpenAI({ apiKey: openaiKey });
+                            
+                            const summaryMessages = history.map(m => ({
+                                role: m.role,
+                                content: m.content
+                            }));
+                            
+                            summaryMessages.push({ role: 'user', content: userMessage });
+                            summaryMessages.push({
+                                role: 'system',
+                                content: `Você é um assistente de atendimento. Um cliente acionou a transferência para um humano.
+**RESUMA A CONVERSA** acima em até 1 parágrafo curto para o atendente ler. 
+Foque no PROBLEMA ou DÚVIDA do cliente e o que foi resolvido até agora.
+NÃO fale com o cliente. Responda APENAS com o resumo.`
+                            });
+                            
+                            console.log('[Webhook] Generating conversation summary...');
+                            const summaryResponse = await openai.chat.completions.create({
+                                model: 'gpt-4o-mini',
+                                messages: summaryMessages,
+                                max_tokens: 300
+                            });
+                            
+                            summary = summaryResponse.choices[0]?.message?.content || "Resumo não gerado.";
+                            console.log(`[Webhook] Summary: ${summary}`);
+                        }
+                        
+                        // 2. Create Note
+                        await createTicketNote(config, currentTicketId, `Resumo da IA: ${summary}`);
+                        
+                        // 3. Update Ticket Info
+                        const updateData = { status: 'open' };
+                        if (transferConfig.targetType === 'user' && transferConfig.targetId) {
+                            updateData.userId = Number(transferConfig.targetId);
+                        } else if (transferConfig.targetType === 'queue' && transferConfig.targetId) {
+                            updateData.queueId = Number(transferConfig.targetId);
+                        }
+                        
+                        const successNode = await setTicketInfo(config, currentTicketId, updateData);
+                        console.log(`[Webhook] Ticket ${currentTicketId} transferred successfully: ${successNode}`);
+                        
+                        // Reply to client about transfer
+                        const feedbackMsg = "Estou transferindo seu atendimento para um de nossos especialistas. Por favor, aguarde um momento.";
+                        await sendPrompMessage(config, cleanNumber, feedbackMsg, null, null, null);
+                        
+                        return res.json({ status: 'transferred' });
+                    } catch (err) {
+                        console.error('[Webhook] Transfer Error:', err);
+                    }
+                }
+            }
+        }
 
         // 3. Process AI Response
         // Pass isAudioInput flag so AI can decide to reply with audio
@@ -2144,6 +2214,7 @@ const getCompanyConfig = async (companyId, agentId = null) => {
             knowledgeBase: safeParse(config.knowledgeBase),
             followUpConfig: safeParse(config.followUpConfig),
             catalogConfig: safeParse(config.catalogConfig),
+            transferConfig: safeParse(config.transferConfig),
             specialists: config.company?.specialists || [],
             appointmentTypes: config.company?.appointmentTypes || [],
             googleConfig: config.company?.googleConfig || null,
@@ -2293,7 +2364,8 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             products: productsToSave ? JSON.stringify(productsToSave) : undefined,
             knowledgeBase: finalKB ? JSON.stringify(finalKB) : undefined,
             followUpConfig: newConfig.followUpConfig ? (typeof newConfig.followUpConfig === 'object' ? JSON.stringify(newConfig.followUpConfig) : newConfig.followUpConfig) : undefined,
-            catalogConfig: newConfig.catalogConfig ? (typeof newConfig.catalogConfig === 'object' ? JSON.stringify(newConfig.catalogConfig) : newConfig.catalogConfig) : undefined
+            catalogConfig: newConfig.catalogConfig ? (typeof newConfig.catalogConfig === 'object' ? JSON.stringify(newConfig.catalogConfig) : newConfig.catalogConfig) : undefined,
+            transferConfig: newConfig.transferConfig ? (typeof newConfig.transferConfig === 'object' ? JSON.stringify(newConfig.transferConfig) : newConfig.transferConfig) : undefined
         };
 
         
@@ -2333,6 +2405,31 @@ app.get('/api/config', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Error fetching config:', error);
         res.status(500).json({ message: 'Error fetching config' });
+    }
+});
+
+// --- PROMP EXTERNAL LISTINGS (FOR FRONTEND) ---
+app.get('/api/promp/users', authenticateToken, async (req, res) => {
+    const companyId = req.user.companyId;
+    try {
+        const config = await getCompanyConfig(companyId);
+        if (!config || (!config.prompUuid && !config.prompIdentity)) return res.status(404).json({ error: 'Configuração do Promp incompleta' });
+        const users = await getPrompUsers(config);
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch Promp users' });
+    }
+});
+
+app.get('/api/promp/queues', authenticateToken, async (req, res) => {
+    const companyId = req.user.companyId;
+    try {
+        const config = await getCompanyConfig(companyId);
+        if (!config || (!config.prompUuid && !config.prompIdentity)) return res.status(404).json({ error: 'Configuração do Promp incompleta' });
+        const queues = await getPrompQueues(config);
+        res.json(queues);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch Promp queues' });
     }
 });
 

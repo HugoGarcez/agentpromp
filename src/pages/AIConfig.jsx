@@ -192,6 +192,12 @@ const AIConfig = () => {
     const [configuringChannelId, setConfiguringChannelId] = useState(null);
     const [channelCreds, setChannelCreds] = useState({ url: '', token: '' });
 
+    // Transfer Config State
+    const [transferConfig, setTransferConfig] = useState({ triggerText: '', targetType: 'user', targetId: '' });
+    const [prompUsers, setPrompUsers] = useState([]);
+    const [prompQueues, setPrompQueues] = useState([]);
+    const [loadingListings, setLoadingListings] = useState(false);
+
     const [showToast, setShowToast] = useState(false);
     const [loading, setLoading] = useState(false);
 
@@ -209,6 +215,27 @@ const AIConfig = () => {
             if (isPrompConnected) fetchChannels();
         }
     }, [selectedAgentId, isPrompConnected]);
+
+    useEffect(() => {
+        const fetchListings = async () => {
+            setLoadingListings(true);
+            try {
+                const resUsers = await fetch('/api/promp/users', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (resUsers.ok) setPrompUsers(await resUsers.json());
+
+                const resQueues = await fetch('/api/promp/queues', { headers: { 'Authorization': `Bearer ${token}` } });
+                if (resQueues.ok) setPrompQueues(await resQueues.json());
+            } catch (e) {
+                console.error("Failed to fetch listings:", e);
+            } finally {
+                setLoadingListings(false);
+            }
+        };
+
+        if (activeTab === 'transfer' && selectedAgentId) {
+            fetchListings();
+        }
+    }, [activeTab, selectedAgentId]);
 
     const fetchPrompStatus = async () => {
         try {
@@ -323,6 +350,12 @@ const AIConfig = () => {
                 } else {
                     setCatalogConfig({ showProducts: true, showServices: true });
                 }
+
+                if (data.transferConfig) {
+                    setTransferConfig(data.transferConfig);
+                } else {
+                    setTransferConfig({ triggerText: '', targetType: 'user', targetId: '' });
+                }
             }
         } catch (e) {
             console.error("Failed to load AI Config:", e);
@@ -339,7 +372,8 @@ const AIConfig = () => {
                 systemPrompt,
                 persona,
                 knowledgeBase: { files, links, qa },
-                catalogConfig
+                catalogConfig,
+                transferConfig
             };
 
             const res = await fetch('/api/config', {
@@ -458,6 +492,7 @@ const AIConfig = () => {
                     { id: 'prompt', label: 'Persona', icon: Bot },
                     { id: 'channels', label: 'Canais de Atendimento', icon: MessageSquare },
                     { id: 'catalog', label: 'Catálogo', icon: Package },
+                    { id: 'transfer', label: 'Transferência', icon: ArrowRight },
                     { id: 'files', label: 'Arquivos', icon: FileText },
                     { id: 'links', label: 'Links', icon: Globe },
                     { id: 'qa', label: 'Q&A', icon: HelpCircle }
@@ -694,6 +729,91 @@ const AIConfig = () => {
                                             <div style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Serviços cadastrados e integração com Agenda</div>
                                         </div>
                                     </label>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'transfer' && (
+                            <div style={{ padding: '8px' }}>
+                                <div style={{ marginBottom: '24px' }}>
+                                    <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Configuração de Transferência</h3>
+                                    <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Configure quando e para quem a IA deve transferir o atendimento.</p>
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '500px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-dark)', marginBottom: '8px' }}>
+                                            Gatilho de Texto (Cliente diz...)
+                                        </label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Ex: falar com humano, atendente, suporte" 
+                                            value={transferConfig.triggerText || ''}
+                                            onChange={(e) => setTransferConfig(prev => ({ ...prev, triggerText: e.target.value }))}
+                                            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '14px' }}
+                                        />
+                                        <span style={{ fontSize: '12px', color: 'var(--text-light)', marginTop: '4px', display: 'block' }}>
+                                            Se a mensagem do cliente contiver este texto, a transferência será acionada.
+                                        </span>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-dark)', marginBottom: '8px' }}>
+                                            Destino da Transferência
+                                        </label>
+                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                            <button 
+                                                onClick={() => setTransferConfig(prev => ({ ...prev, targetType: 'user', targetId: '' }))}
+                                                style={{
+                                                    flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid',
+                                                    borderColor: transferConfig.targetType === 'user' ? 'var(--primary-blue)' : 'var(--border-color)',
+                                                    background: transferConfig.targetType === 'user' ? '#EFF6FF' : 'white',
+                                                    color: transferConfig.targetType === 'user' ? 'var(--primary-blue)' : 'var(--text-dark)',
+                                                    fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'
+                                                }}
+                                            >
+                                                Usuário
+                                            </button>
+                                            <button 
+                                                onClick={() => setTransferConfig(prev => ({ ...prev, targetType: 'queue', targetId: '' }))}
+                                                style={{
+                                                    flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid',
+                                                    borderColor: transferConfig.targetType === 'queue' ? 'var(--primary-blue)' : 'var(--border-color)',
+                                                    background: transferConfig.targetType === 'queue' ? '#EFF6FF' : 'white',
+                                                    color: transferConfig.targetType === 'queue' ? 'var(--primary-blue)' : 'var(--text-dark)',
+                                                    fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'
+                                                }}
+                                            >
+                                                Fila / Setor
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {loadingListings ? (
+                                        <div style={{ textAlign: 'center', padding: '20px' }}><Loader2 className="animate-spin" /></div>
+                                    ) : (
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-dark)', marginBottom: '8px' }}>
+                                                {transferConfig.targetType === 'user' ? 'Selecionar Usuário' : 'Selecionar Fila'}
+                                            </label>
+                                            <select 
+                                                value={transferConfig.targetId || ''}
+                                                onChange={(e) => setTransferConfig(prev => ({ ...prev, targetId: e.target.value }))}
+                                                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '14px', background: 'white' }}
+                                            >
+                                                <option value="">Selecione...</option>
+                                                {transferConfig.targetType === 'user' ? (
+                                                    prompUsers.map(u => (
+                                                        <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                                    ))
+                                                ) : (
+                                                    prompQueues.map(q => (
+                                                        <option key={q.id} value={q.id}>{q.name}</option>
+                                                    ))
+                                                )}
+                                            </select>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
