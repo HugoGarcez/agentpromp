@@ -686,71 +686,79 @@ const handleWebhookRequest = async (req, res) => {
         const currentTicketId = payload.ticket?.id || null;
 
         // --- CHECK TRANSFER TRIGGER ---
-        const transferConfig = config.transferConfig;
-        if (transferConfig && transferConfig.triggerText && userMessage) {
-            const trigger = transferConfig.triggerText.toLowerCase().trim();
-            const msg = userMessage.toLowerCase().trim();
-            
-            if (msg.includes(trigger)) {
-                console.log(`[Webhook] Transfer Trigger MATCHED: "${trigger}"`);
+        let transferConfigs = config.transferConfig;
+        if (transferConfigs && !Array.isArray(transferConfigs)) {
+            transferConfigs = [transferConfigs]; // Compatibilidade
+        }
+
+        if (Array.isArray(transferConfigs) && userMessage) {
+            let matched = false;
+            for (const rule of transferConfigs) {
+                if (!rule.triggerText) continue;
+                const trigger = rule.triggerText.toLowerCase().trim();
+                const msg = userMessage.toLowerCase().trim();
                 
-                if (currentTicketId) {
-                    try {
-                        const globalConfig = await getGlobalConfig();
-                        const openaiKey = globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
-                        
-                        let summary = "Resumo indisponível (Erro na API).";
-                        
-                        if (openaiKey) {
-                            const openai = new OpenAI({ apiKey: openaiKey });
+                if (msg.includes(trigger)) {
+                    console.log(`[Webhook] Transfer Trigger MATCHED: "${trigger}"`);
+                    matched = true;
+                    
+                    if (currentTicketId) {
+                        try {
+                            const globalConfig = await getGlobalConfig();
+                            const openaiKey = globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
                             
-                            const summaryMessages = history.map(m => ({
-                                role: m.role,
-                                content: m.content
-                            }));
+                            let summary = "Resumo indisponível (Erro na API).";
                             
-                            summaryMessages.push({ role: 'user', content: userMessage });
-                            summaryMessages.push({
-                                role: 'system',
-                                content: `Você é um assistente de atendimento. Um cliente acionou a transferência para um humano.
+                            if (openaiKey) {
+                                const openai = new OpenAI({ apiKey: openaiKey });
+                                
+                                const summaryMessages = history.map(m => ({
+                                    role: m.role,
+                                    content: m.content
+                                }));
+                                
+                                summaryMessages.push({ role: 'user', content: userMessage });
+                                summaryMessages.push({
+                                    role: 'system',
+                                    content: `Você é um assistente de atendimento. Um cliente acionou a transferência para um humano.
 **RESUMA A CONVERSA** acima em até 1 parágrafo curto para o atendente ler. 
 Foque no PROBLEMA ou DÚVIDA do cliente e o que foi resolvido até agora.
 NÃO fale com o cliente. Responda APENAS com o resumo.`
-                            });
+                                });
+                                
+                                console.log('[Webhook] Generating conversation summary...');
+                                const summaryResponse = await openai.chat.completions.create({
+                                    model: 'gpt-4o-mini',
+                                    messages: summaryMessages,
+                                    max_tokens: 300
+                                });
+                                
+                                summary = summaryResponse.choices[0]?.message?.content || "Resumo não gerado.";
+                            }
                             
-                            console.log('[Webhook] Generating conversation summary...');
-                            const summaryResponse = await openai.chat.completions.create({
-                                model: 'gpt-4o-mini',
-                                messages: summaryMessages,
-                                max_tokens: 300
-                            });
+                            // 2. Create Note
+                            await createTicketNote(config, currentTicketId, `Resumo da IA: ${summary}`);
                             
-                            summary = summaryResponse.choices[0]?.message?.content || "Resumo não gerado.";
-                            console.log(`[Webhook] Summary: ${summary}`);
+                            // 3. Update Ticket Info
+                            const updateData = { status: 'open' };
+                            if (rule.targetType === 'user' && rule.targetId) {
+                                updateData.userId = Number(rule.targetId);
+                            } else if (rule.targetType === 'queue' && rule.targetId) {
+                                updateData.queueId = Number(rule.targetId);
+                            }
+                            
+                            await setTicketInfo(config, currentTicketId, updateData);
+                            
+                            // Reply to client about transfer
+                            const feedbackMsg = "Estou transferindo seu atendimento para um de nossos especialistas. Por favor, aguarde um momento.";
+                            await sendPrompMessage(config, cleanNumber, feedbackMsg, null, null, null);
+                            
+                            return res.json({ status: 'transferred' });
+                        } catch (err) {
+                            console.error('[Webhook] Transfer Error:', err);
                         }
-                        
-                        // 2. Create Note
-                        await createTicketNote(config, currentTicketId, `Resumo da IA: ${summary}`);
-                        
-                        // 3. Update Ticket Info
-                        const updateData = { status: 'open' };
-                        if (transferConfig.targetType === 'user' && transferConfig.targetId) {
-                            updateData.userId = Number(transferConfig.targetId);
-                        } else if (transferConfig.targetType === 'queue' && transferConfig.targetId) {
-                            updateData.queueId = Number(transferConfig.targetId);
-                        }
-                        
-                        const successNode = await setTicketInfo(config, currentTicketId, updateData);
-                        console.log(`[Webhook] Ticket ${currentTicketId} transferred successfully: ${successNode}`);
-                        
-                        // Reply to client about transfer
-                        const feedbackMsg = "Estou transferindo seu atendimento para um de nossos especialistas. Por favor, aguarde um momento.";
-                        await sendPrompMessage(config, cleanNumber, feedbackMsg, null, null, null);
-                        
-                        return res.json({ status: 'transferred' });
-                    } catch (err) {
-                        console.error('[Webhook] Transfer Error:', err);
                     }
+                    break; // Sai do loop para não processar múltiplos matchings numa mesma mensagem
                 }
             }
         }

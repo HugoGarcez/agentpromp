@@ -193,7 +193,7 @@ const AIConfig = () => {
     const [channelCreds, setChannelCreds] = useState({ url: '', token: '' });
 
     // Transfer Config State
-    const [transferConfig, setTransferConfig] = useState({ triggerText: '', targetType: 'user', targetId: '' });
+    const [transferConfigs, setTransferConfigs] = useState([]);
     const [prompUsers, setPrompUsers] = useState([]);
     const [prompQueues, setPrompQueues] = useState([]);
     const [loadingListings, setLoadingListings] = useState(false);
@@ -352,9 +352,10 @@ const AIConfig = () => {
                 }
 
                 if (data.transferConfig) {
-                    setTransferConfig(data.transferConfig);
+                    const parsed = data.transferConfig;
+                    setTransferConfigs(Array.isArray(parsed) ? parsed : [parsed]);
                 } else {
-                    setTransferConfig({ triggerText: '', targetType: 'user', targetId: '' });
+                    setTransferConfigs([]);
                 }
             }
         } catch (e) {
@@ -373,7 +374,7 @@ const AIConfig = () => {
                 persona,
                 knowledgeBase: { files, links, qa },
                 catalogConfig,
-                transferConfig
+                transferConfig: transferConfigs
             };
 
             const res = await fetch('/api/config', {
@@ -735,88 +736,130 @@ const AIConfig = () => {
 
                         {activeTab === 'transfer' && (
                             <div style={{ padding: '8px' }}>
-                                <div style={{ marginBottom: '24px' }}>
-                                    <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Configuração de Transferência</h3>
-                                    <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Configure quando e para quem a IA deve transferir o atendimento.</p>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                    <div>
+                                        <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '8px' }}>Configuração de Transferência</h3>
+                                        <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Configure quando e para quem a IA deve transferir o atendimento.</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => setTransferConfigs(prev => [...prev, { triggerText: '', targetType: 'user', targetId: '' }])}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--primary-blue)', color: 'white', padding: '10px 16px', borderRadius: '8px', border: 'none', fontWeight: '600', cursor: 'pointer' }}
+                                    >
+                                        <Plus size={16} /> Nova Regra
+                                    </button>
                                 </div>
 
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', maxWidth: '500px' }}>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-dark)', marginBottom: '8px' }}>
-                                            Gatilho de Texto (Cliente diz...)
-                                        </label>
-                                        <input 
-                                            type="text" 
-                                            placeholder="Ex: falar com humano, atendente, suporte" 
-                                            value={transferConfig.triggerText || ''}
-                                            onChange={(e) => setTransferConfig(prev => ({ ...prev, triggerText: e.target.value }))}
-                                            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '14px' }}
-                                        />
-                                        <span style={{ fontSize: '12px', color: 'var(--text-light)', marginTop: '4px', display: 'block' }}>
-                                            Se a mensagem do cliente contiver este texto, a transferência será acionada.
-                                        </span>
-                                    </div>
-
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-dark)', marginBottom: '8px' }}>
-                                            Destino da Transferência
-                                        </label>
-                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                                    {transferConfigs.map((config, index) => (
+                                        <div key={index} style={{ background: '#F9FAFB', padding: '20px', borderRadius: '12px', border: '1px solid var(--border-color)', position: 'relative' }}>
                                             <button 
-                                                onClick={() => setTransferConfig(prev => ({ ...prev, targetType: 'user', targetId: '' }))}
-                                                style={{
-                                                    flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid',
-                                                    borderColor: transferConfig.targetType === 'user' ? 'var(--primary-blue)' : 'var(--border-color)',
-                                                    background: transferConfig.targetType === 'user' ? '#EFF6FF' : 'white',
-                                                    color: transferConfig.targetType === 'user' ? 'var(--primary-blue)' : 'var(--text-dark)',
-                                                    fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'
-                                                }}
+                                                onClick={() => setTransferConfigs(prev => prev.filter((_, i) => i !== index))}
+                                                style={{ position: 'absolute', top: '16px', right: '16px', background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', padding: '4px', fontSize: '13px', fontWeight: '600' }}
                                             >
-                                                Usuário
+                                                Remover
                                             </button>
-                                            <button 
-                                                onClick={() => setTransferConfig(prev => ({ ...prev, targetType: 'queue', targetId: '' }))}
-                                                style={{
-                                                    flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid',
-                                                    borderColor: transferConfig.targetType === 'queue' ? 'var(--primary-blue)' : 'var(--border-color)',
-                                                    background: transferConfig.targetType === 'queue' ? '#EFF6FF' : 'white',
-                                                    color: transferConfig.targetType === 'queue' ? 'var(--primary-blue)' : 'var(--text-dark)',
-                                                    fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'
-                                                }}
-                                            >
-                                                Fila / Setor
-                                            </button>
-                                        </div>
-                                    </div>
 
-                                    {loadingListings ? (
-                                        <div style={{ textAlign: 'center', padding: '20px' }}><Loader2 className="animate-spin" /></div>
-                                    ) : (
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-dark)', marginBottom: '8px' }}>
-                                                {transferConfig.targetType === 'user' ? 'Selecionar Usuário' : 'Selecionar Fila'}
-                                            </label>
-                                            <select 
-                                                value={transferConfig.targetId || ''}
-                                                onChange={(e) => setTransferConfig(prev => ({ ...prev, targetId: e.target.value }))}
-                                                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '14px', background: 'white' }}
-                                            >
-                                                <option value="">Selecione...</option>
-                                                {transferConfig.targetType === 'user' ? (
-                                                    prompUsers.map(u => (
-                                                        <option key={u.id} value={u.id}>{u.name || u.email}</option>
-                                                    ))
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '500px' }}>
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-dark)', marginBottom: '8px' }}>
+                                                        Gatilho de Texto (Cliente diz...)
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="Ex: falar com humano, atendente, suporte" 
+                                                        value={config.triggerText || ''}
+                                                        onChange={(e) => {
+                                                            const updated = [...transferConfigs];
+                                                            updated[index].triggerText = e.target.value;
+                                                            setTransferConfigs(updated);
+                                                        }}
+                                                        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '14px' }}
+                                                    />
+                                                </div>
+
+                                                <div>
+                                                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-dark)', marginBottom: '8px' }}>
+                                                        Destino da Transferência
+                                                    </label>
+                                                    <div style={{ display: 'flex', gap: '12px' }}>
+                                                        <button 
+                                                            onClick={() => {
+                                                                const updated = [...transferConfigs];
+                                                                updated[index].targetType = 'user';
+                                                                updated[index].targetId = '';
+                                                                setTransferConfigs(updated);
+                                                            }}
+                                                            style={{
+                                                                flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid',
+                                                                borderColor: config.targetType === 'user' ? 'var(--primary-blue)' : 'var(--border-color)',
+                                                                background: config.targetType === 'user' ? '#EFF6FF' : 'white',
+                                                                color: config.targetType === 'user' ? 'var(--primary-blue)' : 'var(--text-dark)',
+                                                                fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'
+                                                            }}
+                                                        >
+                                                            Usuário
+                                                        </button>
+                                                        <button 
+                                                            onClick={() => {
+                                                                const updated = [...transferConfigs];
+                                                                updated[index].targetType = 'queue';
+                                                                updated[index].targetId = '';
+                                                                setTransferConfigs(updated);
+                                                            }}
+                                                            style={{
+                                                                flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid',
+                                                                borderColor: config.targetType === 'queue' ? 'var(--primary-blue)' : 'var(--border-color)',
+                                                                background: config.targetType === 'queue' ? '#EFF6FF' : 'white',
+                                                                color: config.targetType === 'queue' ? 'var(--primary-blue)' : 'var(--text-dark)',
+                                                                fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s'
+                                                            }}
+                                                        >
+                                                            Fila / Setor
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {loadingListings ? (
+                                                    <div style={{ textAlign: 'center', padding: '10px' }}><Loader2 className="animate-spin" /></div>
                                                 ) : (
-                                                    prompQueues.map(q => (
-                                                        <option key={q.id} value={q.id}>{q.queue || q.name}</option>
-                                                    ))
+                                                    <div>
+                                                        <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: 'var(--text-dark)', marginBottom: '8px' }}>
+                                                            {config.targetType === 'user' ? 'Selecionar Usuário' : 'Selecionar Fila'}
+                                                        </label>
+                                                        <select 
+                                                            value={config.targetId || ''}
+                                                            onChange={(e) => {
+                                                                const updated = [...transferConfigs];
+                                                                updated[index].targetId = e.target.value;
+                                                                setTransferConfigs(updated);
+                                                            }}
+                                                            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '14px', background: 'white' }}
+                                                        >
+                                                            <option value="">Selecione...</option>
+                                                            {config.targetType === 'user' ? (
+                                                                prompUsers.map(u => (
+                                                                    <option key={u.id} value={u.id}>{u.name || u.email}</option>
+                                                                ))
+                                                            ) : (
+                                                                prompQueues.map(q => (
+                                                                    <option key={q.id} value={q.id}>{q.queue || q.name}</option>
+                                                                ))
+                                                            )}
+                                                        </select>
+                                                    </div>
                                                 )}
-                                            </select>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {transferConfigs.length === 0 && (
+                                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-medium)', background: '#F9FAFB', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                                            Nenhuma regra de transferência configurada. Clique em "Nova Regra" para adicionar.
                                         </div>
                                     )}
                                 </div>
                             </div>
-                        )}
+                        ) }
 
                         {activeTab === 'files' && <FilesTab files={files} onUpdate={setFiles} />}
                         {activeTab === 'links' && <LinksTab links={links} onUpdate={setLinks} />}
