@@ -3,7 +3,7 @@ import FilesTab from '../components/AIConfig/FilesTab';
 import LinksTab from '../components/AIConfig/LinksTab';
 import QATab from '../components/AIConfig/QATab';
 import PromptTab from '../components/AIConfig/PromptTab';
-import { Save, Plus, ArrowLeft, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2, Package } from 'lucide-react';
+import { Save, Plus, ArrowLeft, ArrowRight, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2, Package } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const AgentCard = ({ agent, onClick }) => {
