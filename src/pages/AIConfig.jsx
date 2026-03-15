@@ -808,7 +808,7 @@ const AIConfig = () => {
                                                     ))
                                                 ) : (
                                                     prompQueues.map(q => (
-                                                        <option key={q.id} value={q.id}>{q.name}</option>
+                                                        <option key={q.id} value={q.id}>{q.queue || q.name}</option>
                                                     ))
                                                 )}
                                             </select>
