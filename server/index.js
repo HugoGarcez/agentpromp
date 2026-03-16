@@ -311,12 +311,15 @@ const handleWebhookRequest = async (req, res) => {
         payload.ticket?.uniqueId;
 
     if (msgId) {
-        if (processedMessages.has(msgId)) {
-            console.log(`[Webhook] Duplicate Message ID ${msgId}. Ignoring.`);
-            return res.json({ status: 'ignored_duplicate' });
+        // SCOPE DEDUPLICATION BY CHANNEL ID AND MESSAGE ID (Prevent sender/receiver collisions)
+        const dupKey = `${matchedChannel ? matchedChannel.id : companyId}_${msgId}`;
+
+        if (processedMessages.has(dupKey)) {
+            console.log(`[Webhook] Duplicate Message ID ${dupKey}. Ignoring.`);
+            return res.json({ status: 'ignored_duplicate_scoped' });
         }
-        processedMessages.add(msgId);
-        setTimeout(() => processedMessages.delete(msgId), 15000);
+        processedMessages.add(dupKey);
+        setTimeout(() => processedMessages.delete(dupKey), 15000);
     }
 
     // ------------------------------------------------------------------
