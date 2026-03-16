@@ -205,13 +205,15 @@ const handleWebhookRequest = async (req, res) => {
         let destNumber = payload.msg?.from || payload.ticket?.contact?.number || null;
         if (destNumber) destNumber = String(destNumber).replace(/\D/g, '');
 
-        // 3. MATCHING GLOBAL
-        matchedChannel = allChannels.find(ch => 
+        // 3. MATCHING GLOBAL (Prioritize Destination for Cross-Channel Support)
+        const matchedByDest = (destNumber && destNumber !== cleanOwner) ? allChannels.find(ch => ch.prompIdentity && String(ch.prompIdentity).replace(/\D/g, '') === destNumber) : null;
+        const matchedByOwner = allChannels.find(ch => 
             (ch.prompIdentity && String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner) ||
-            (ch.prompIdentity && destNumber && String(ch.prompIdentity).replace(/\D/g, '') === destNumber) ||
             incomingConnectionIdArr.includes(String(ch.prompConnectionId).trim()) ||
             (ch.prompUuid && incomingConnectionIdArr.includes(String(ch.prompUuid).trim()))
         );
+
+        matchedChannel = matchedByDest || matchedByOwner;
 
         // 4. BYPASS NATIVO (Se o canal for o DESTINATÁRIO)
         let isCrossChannelSend = false;
