@@ -120,13 +120,6 @@ const handleWebhookRequest = async (req, res) => {
         console.log(`[Webhook] FULL PAYLOAD (${companyId}):`, JSON.stringify(payload, null, 2));
     }
 
-    // --- IGNORE OUTBOUND MESSAGES (CRITICAL) ---
-    // Se o método for 'message_send...', significa que é uma NOTIFICAÇÃO de mensagem enviada.
-    // A IA só deve responder a mensagens RECEBIDAS (Inbound).
-    if (payload.method && payload.method.toLowerCase().includes('_send')) {
-        console.log(`[Webhook] Ignoring outbound method: ${payload.method}`);
-        return res.json({ status: 'ignored_outbound' });
-    }
 
     // Load Config EARLY (needed for Identity check)
     let followUpCfg = null;
@@ -134,15 +127,15 @@ const handleWebhookRequest = async (req, res) => {
     let matchedChannel = null;
 
     // 2. Identify Sender and Owner Early
-    const rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || 
+    let rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || 
                       payload.number || payload.data?.key?.remoteJid || payload.msg?.from || payload.msg?.sender ||
                       payload.ticket?.contact?.number || payload.sender?.number;
-    const cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
+    let cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
     
-    const rawOwner = payload.msg?.owner || payload.owner || payload.to || payload.msg?.to || 
+    let rawOwner = payload.msg?.owner || payload.owner || payload.to || payload.msg?.to || 
                       payload.ticket?.owner || payload.ticket?.destination || payload.ticket?.whatsappId ||
                       payload.data?.to || payload.data?.owner || payload.destination;
-    const cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+    let cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
     console.log(`[Webhook] Identified Owner: ${cleanOwner} (Raw: ${rawOwner})`);
 
     // --- REAL-TIME DIAGNOSTIC RECURSIVE ID FINDER ---
@@ -198,6 +191,44 @@ const handleWebhookRequest = async (req, res) => {
         // Match by Owner (Fallback)
         if (!matchedChannel && cleanOwner) {
             matchedChannel = channels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner);
+        }
+
+        // --- CROSS-CHANNEL BYPASS ---
+        let isCrossChannelSend = false;
+        let targetChannel = null;
+
+        if (payload.method && payload.method.toLowerCase().includes('_send')) {
+            const destNumber = payload.ticket?.contact?.number ? String(payload.ticket.contact.number).replace(/\D/g, '') : null;
+            
+            if (destNumber) {
+                targetChannel = channels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === destNumber);
+                if (targetChannel && targetChannel.agents.length > 0) {
+                    console.log(`[Webhook] CROSS-CHANNEL DETECTED: Destination ${destNumber} is local channel ${targetChannel.name}. Bypassing outbound ignore.`);
+                    isCrossChannelSend = true;
+                }
+            }
+
+            if (!isCrossChannelSend) {
+                console.log(`[Webhook] Ignoring outbound method: ${payload.method}`);
+                return res.json({ status: 'ignored_outbound' });
+            }
+        }
+
+        if (isCrossChannelSend) {
+            const senderChannel = matchedChannel; // Channel A (Sender)
+            matchedChannel = targetChannel; // Channel B (Receiver)
+            
+            // Re-map roles: For Channel B, the sender is Channel A's number
+            if (senderChannel && senderChannel.prompIdentity) {
+                rawSender = senderChannel.prompIdentity;
+                cleanSender = String(senderChannel.prompIdentity).replace(/\D/g, '');
+            }
+            
+            // Re-map owner: The owner is now Channel B's number
+            rawOwner = targetChannel.prompIdentity;
+            cleanOwner = String(targetChannel.prompIdentity).replace(/\D/g, '');
+            
+            console.log(`[Webhook] Flipped roles for Cross-Channel. New Sender: ${cleanSender}, New Owner: ${cleanOwner}`);
         }
 
         // --- DIAGNOSTICS: NO CHANNEL MATCHED ---
