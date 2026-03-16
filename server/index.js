@@ -103,7 +103,7 @@ app.get('/api/health', (req, res) => {
 
 // --- WEBHOOK ROUTES (Moved to TOP for Priority) ---
 const handleWebhookRequest = async (req, res) => {
-    const { companyId } = req.params;
+    let companyId = req.params.companyId;
     console.log(`[Webhook] HEADERS Content-Type: ${req.get('Content-Type')}`);
     console.log(`[Webhook] Handler Reached for Company: ${companyId}`);
 
@@ -201,9 +201,12 @@ const handleWebhookRequest = async (req, res) => {
             const destNumber = payload.ticket?.contact?.number ? String(payload.ticket.contact.number).replace(/\D/g, '') : null;
             
             if (destNumber) {
-                targetChannel = channels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === destNumber);
+                // Search across ALL companies in the DB (Cross-Company Support)
+                const allChannels = await prisma.prompChannel.findMany({ include: { agents: true } });
+                targetChannel = allChannels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === destNumber);
+                
                 if (targetChannel && targetChannel.agents.length > 0) {
-                    console.log(`[Webhook] CROSS-CHANNEL DETECTED: Destination ${destNumber} is local channel ${targetChannel.name}. Bypassing outbound ignore.`);
+                    console.log(`[Webhook] CROSS-CHANNEL DETECTED: Destination ${destNumber} is local channel ${targetChannel.name} (Company: ${targetChannel.companyId}). Bypassing outbound ignore.`);
                     isCrossChannelSend = true;
                 }
             }
@@ -217,6 +220,7 @@ const handleWebhookRequest = async (req, res) => {
         if (isCrossChannelSend) {
             const senderChannel = matchedChannel; // Channel A (Sender)
             matchedChannel = targetChannel; // Channel B (Receiver)
+            companyId = targetChannel.companyId; // OVERRIDE Company ID for rest of execution!
             
             // Re-map roles: For Channel B, the sender is Channel A's number
             if (senderChannel && senderChannel.prompIdentity) {
@@ -228,7 +232,7 @@ const handleWebhookRequest = async (req, res) => {
             rawOwner = targetChannel.prompIdentity;
             cleanOwner = String(targetChannel.prompIdentity).replace(/\D/g, '');
             
-            console.log(`[Webhook] Flipped roles for Cross-Channel. New Sender: ${cleanSender}, New Owner: ${cleanOwner}`);
+            console.log(`[Webhook] Flipped roles for Cross-Channel. New Company: ${companyId}, New Sender: ${cleanSender}, New Owner: ${cleanOwner}`);
         }
 
         // --- DIAGNOSTICS: NO CHANNEL MATCHED ---
