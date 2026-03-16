@@ -50,6 +50,27 @@ const processedMessages = new Set();
 // NUMBER VALIDATION CACHE (Token_Number -> isValid)
 const validNumbersCache = new Map();
 
+// --- PROMP CHANNELS CACHE ---
+let globalChannelsCache = [];
+let lastChannelsCacheTime = 0;
+const CHANNELS_CACHE_TTL = 30000; // 30 seconds
+
+async function getGlobalChannels() {
+    const now = Date.now();
+    if (globalChannelsCache.length > 0 && (now - lastChannelsCacheTime < CHANNELS_CACHE_TTL)) {
+        return globalChannelsCache;
+    }
+    try {
+        const channels = await prisma.prompChannel.findMany({ include: { agents: true } });
+        globalChannelsCache = channels;
+        lastChannelsCacheTime = now;
+        return channels;
+    } catch (e) {
+        console.error('[Cache] Failed to load channels:', e);
+        return globalChannelsCache; // Fallback to stale
+    }
+}
+
 const app = express();
 
 const PORT = 3001;
@@ -177,63 +198,61 @@ const handleWebhookRequest = async (req, res) => {
 
     try {
         // MULTIPLE AGENTS RESOLUTION
-        const channels = await prisma.prompChannel.findMany({
-            where: { companyId },
-            include: { agents: true }
-        });
+        // 1. CARREGAR CANAIS GLOBALMENTE (Com Cache)
+        const allChannels = await getGlobalChannels();
 
-        // Match by Connection ID or UUID
-        matchedChannel = channels.find(ch => 
+        // 2. IDENTIFICAR DESTINATÁRIO
+        let destNumber = payload.msg?.from || payload.ticket?.contact?.number || null;
+        if (destNumber) destNumber = String(destNumber).replace(/\D/g, '');
+
+        // 3. MATCHING GLOBAL
+        matchedChannel = allChannels.find(ch => 
+            (ch.prompIdentity && String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner) ||
+            (ch.prompIdentity && destNumber && String(ch.prompIdentity).replace(/\D/g, '') === destNumber) ||
             incomingConnectionIdArr.includes(String(ch.prompConnectionId).trim()) ||
             (ch.prompUuid && incomingConnectionIdArr.includes(String(ch.prompUuid).trim()))
         );
-        
-        // Match by Owner (Fallback)
-        if (!matchedChannel && cleanOwner) {
-            matchedChannel = channels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner);
-        }
 
-        // --- CROSS-CHANNEL BYPASS ---
+        // 4. BYPASS NATIVO (Se o canal for o DESTINATÁRIO)
         let isCrossChannelSend = false;
         let targetChannel = null;
 
-        if (payload.method && payload.method.toLowerCase().includes('_send')) {
-            const destNumber = payload.ticket?.contact?.number ? String(payload.ticket.contact.number).replace(/\D/g, '') : null;
+        if (matchedChannel && destNumber && String(matchedChannel.prompIdentity).replace(/\D/g, '') === destNumber) {
+            targetChannel = matchedChannel; // Salva o canal B
+            isCrossChannelSend = true;
+            console.log(`[Webhook] CROSS-CHANNEL DETECTED: Dest ${destNumber} is local channel ${targetChannel.name}.`);
             
-            if (destNumber) {
-                // Search across ALL companies in the DB (Cross-Company Support)
-                const allChannels = await prisma.prompChannel.findMany({ include: { agents: true } });
-                targetChannel = allChannels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === destNumber);
-                
-                if (targetChannel && targetChannel.agents.length > 0) {
-                    console.log(`[Webhook] CROSS-CHANNEL DETECTED: Destination ${destNumber} is local channel ${targetChannel.name} (Company: ${targetChannel.companyId}). Bypassing outbound ignore.`);
-                    isCrossChannelSend = true;
-                }
-            }
+            // Forçar fromMe = false para responder em inbound
+            if (payload.msg) payload.msg.fromMe = false;
 
-            if (!isCrossChannelSend) {
-                console.log(`[Webhook] Ignoring outbound method: ${payload.method}`);
-                return res.json({ status: 'ignored_outbound' });
-            }
-        }
+            // Inverter papéis: Encontrar o canal remetente (Canal A)
+            const senderChannel = allChannels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner);
 
-        if (isCrossChannelSend) {
-            const senderChannel = matchedChannel; // Channel A (Sender)
-            matchedChannel = targetChannel; // Channel B (Receiver)
-            companyId = targetChannel.companyId; // OVERRIDE Company ID for rest of execution!
-            
-            // Re-map roles: For Channel B, the sender is Channel A's number
+            companyId = targetChannel.companyId; // Override Company ID!
+
             if (senderChannel && senderChannel.prompIdentity) {
                 rawSender = senderChannel.prompIdentity;
                 cleanSender = String(senderChannel.prompIdentity).replace(/\D/g, '');
             }
-            
-            // Re-map owner: The owner is now Channel B's number
             rawOwner = targetChannel.prompIdentity;
             cleanOwner = String(targetChannel.prompIdentity).replace(/\D/g, '');
-            
+
             console.log(`[Webhook] Flipped roles for Cross-Channel. New Company: ${companyId}, New Sender: ${cleanSender}, New Owner: ${cleanOwner}`);
+        } else {
+            // Se NÃO for resposta cruzada e for um método de envio, tratar ignore
+            const isSendMethod = payload.method && payload.method.toLowerCase().includes('_send');
+            const isFromMeMsg = payload.method === 'message' && payload.msg?.fromMe === true;
+
+            if (isSendMethod || isFromMeMsg) {
+                if (isSendMethod) {
+                    console.log(`[Webhook] Ignoring outbound method: ${payload.method}`);
+                    return res.json({ status: 'ignored_outbound' });
+                }
+            }
         }
+
+        // Variável 'channels' para compatibilidade com logs de diagnósticos subsequentes
+        const channels = allChannels;
 
         // --- DIAGNOSTICS: NO CHANNEL MATCHED ---
         if (!matchedChannel && channels.length > 0) {
