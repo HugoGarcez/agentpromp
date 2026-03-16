@@ -189,8 +189,11 @@ const handleWebhookRequest = async (req, res) => {
             include: { agents: true }
         });
 
-        // Match by Connection ID
-        matchedChannel = channels.find(ch => incomingConnectionIdArr.includes(String(ch.prompConnectionId).trim()));
+        // Match by Connection ID or UUID
+        matchedChannel = channels.find(ch => 
+            incomingConnectionIdArr.includes(String(ch.prompConnectionId).trim()) ||
+            (ch.prompUuid && incomingConnectionIdArr.includes(String(ch.prompUuid).trim()))
+        );
         
         // Match by Owner (Fallback)
         if (!matchedChannel && cleanOwner) {
@@ -242,6 +245,14 @@ const handleWebhookRequest = async (req, res) => {
         if (matchedChannel && matchedChannel.agents.length > 0) {
             agentId = matchedChannel.agents[0].id; // Take FIRST agent linked to this channel
             console.log(`[Webhook] Routed to Channel ${matchedChannel.name}, Agent ID: ${agentId}`);
+        } else if (matchedChannel) {
+            console.log(`[Webhook] Channel ${matchedChannel.name} found but has no agents linked.`);
+        }
+
+        // PREVENT FALLBACK: In multi-agent setup, if no agent linked, ignore to prevent cross-talk
+        if (!agentId) {
+            console.log(`[Webhook] WARNING: No agent resolved for message. Ignoring to prevent cross-talk.`);
+            return res.json({ status: 'ignored_unlinked_channel' });
         }
 
         // LOAD FULL CONFIG (Global Tokens + JSON Parsed)
