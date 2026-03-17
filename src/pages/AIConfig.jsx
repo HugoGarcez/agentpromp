@@ -3,10 +3,10 @@ import FilesTab from '../components/AIConfig/FilesTab';
 import LinksTab from '../components/AIConfig/LinksTab';
 import QATab from '../components/AIConfig/QATab';
 import PromptTab from '../components/AIConfig/PromptTab';
-import { Save, Plus, ArrowLeft, ArrowRight, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2, Package } from 'lucide-react';
+import { Save, Plus, ArrowLeft, ArrowRight, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2, Package, Trash } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-const AgentCard = ({ agent, onClick }) => {
+const AgentCard = ({ agent, onClick, onDelete }) => {
     let persona = {};
     try {
         persona = agent.persona ? (typeof agent.persona === 'string' ? JSON.parse(agent.persona) : agent.persona) : {};
@@ -76,10 +76,35 @@ const AgentCard = ({ agent, onClick }) => {
                 <div style={{ padding: '10px', borderRadius: '12px', backgroundColor: '#F3F4F6', color: 'var(--primary-blue)' }}>
                     <Bot size={24} />
                 </div>
+                <button 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Tem certeza que deseja excluir o agente "${persona.name || agent.name}"?`)) {
+                            onDelete(agent.id);
+                        }
+                    }}
+                    style={{
+                        padding: '8px',
+                        borderRadius: '8px',
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        color: '#EF4444',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.backgroundColor = '#FEE2E2'}
+                    onMouseLeave={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                    title="Excluir Agente"
+                >
+                    <Trash size={18} />
+                </button>
             </div>
 
             <div>
-                <h3 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '8px', color: 'var(--text-dark)' }}>{agent.name}</h3>
+                <h3 style={{ fontSize: '20px', fontWeight: '600', marginBottom: '8px', color: 'var(--text-dark)' }}>{persona.name || agent.name}</h3>
                 <div style={{ fontSize: '14px', color: 'var(--text-medium)' }}>
                     <div style={{ marginBottom: '4px' }}>Função: <span style={{ fontWeight: 500, color: 'var(--text-dark)' }}>{roleLabels[persona.role] || 'Assistente'}</span></div>
                     <div>Tom: <span style={{ fontWeight: 500, color: 'var(--text-dark)' }}>{toneLabels[persona.tone] || 'Natural'}</span></div>
@@ -420,6 +445,24 @@ const AIConfig = () => {
             console.error("error creating agent", e);
         }
     };
+    
+    const handleDeleteAgent = async (agentId) => {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`/api/agents/${agentId}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                setAgents(prev => prev.filter(a => a.id !== agentId));
+            } else {
+                alert('Erro ao excluir agente.');
+            }
+        } catch (e) {
+            console.error("error deleting agent", e);
+            alert('Erro de conexão.');
+        }
+    };
 
     const handleSelectAgent = (id) => {
         setSelectedAgentId(id);
@@ -441,7 +484,7 @@ const AIConfig = () => {
                     gap: '24px' 
                 }}>
                     {agents.map(agent => (
-                        <AgentCard key={agent.id} agent={agent} onClick={handleSelectAgent} />
+                        <AgentCard key={agent.id} agent={agent} onClick={handleSelectAgent} onDelete={handleDeleteAgent} />
                     ))}
                     <NewAgentCard onClick={handleCreateAgent} />
                 </div>
@@ -467,7 +510,7 @@ const AIConfig = () => {
                         <ArrowLeft size={18} /> Painel
                     </button>
                     <div>
-                        <h2 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-dark)' }}>{agents.find(a => a.id === selectedAgentId)?.name}</h2>
+                        <h2 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-dark)' }}>{persona?.name || agents.find(a => a.id === selectedAgentId)?.name}</h2>
                         <span style={{ fontSize: '13px', color: 'var(--text-medium)' }}>Configuração de Agente</span>
                     </div>
                 </div>

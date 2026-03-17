@@ -4663,9 +4663,8 @@ app.post('/api/agents', authenticateToken, async (req, res) => {
 
 app.delete('/api/agents/:id', authenticateToken, async (req, res) => {
     try {
-        await prisma.agentConfig.delete({
-            where: { id: req.params.id, companyId: req.user.companyId } // companyId is not @unique but checking is safe, but prisma delete requires unique fields only in where!
-            // Wait, deleting by id is enough. id is unique.
+        await prisma.agentConfig.deleteMany({
+            where: { id: req.params.id, companyId: req.user.companyId }
         });
         res.json({ success: true });
     } catch (e) {
