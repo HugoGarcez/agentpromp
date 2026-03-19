@@ -24,6 +24,15 @@ cd ..
 echo "🗄️  4. Atualizando Schema do Banco de Dados..."
 cd server
 npx prisma generate
+
+# Resolve qualquer migration com falha antes de aplicar novas
+echo "🔧  4a. Verificando migrations com falha..."
+FAILED=$(npx prisma migrate status --schema ./prisma/schema.prisma 2>&1 | grep -oP '(?<=migration `)[^`]+(?=` failed)')
+if [ -n "$FAILED" ]; then
+  echo "⚠️  Migration com falha detectada: $FAILED — marcando como rolled-back..."
+  npx prisma migrate resolve --rolled-back "$FAILED" --schema ./prisma/schema.prisma
+fi
+
 npx prisma migrate deploy
 cd ..
 
