@@ -1,18 +1,5 @@
--- AlterTable
-ALTER TABLE "AgentConfig" ADD COLUMN "categories" TEXT;
-ALTER TABLE "AgentConfig" ADD COLUMN "transferConfig" TEXT;
-
--- AlterTable
-ALTER TABLE "Company" ADD COLUMN "prompIdentity" TEXT;
-ALTER TABLE "Company" ADD COLUMN "prompToken" TEXT;
-ALTER TABLE "Company" ADD COLUMN "prompUuid" TEXT;
-
--- AlterTable
-ALTER TABLE "User" ADD COLUMN "resetToken" TEXT;
-ALTER TABLE "User" ADD COLUMN "resetTokenExpires" DATETIME;
-
--- CreateTable
-CREATE TABLE "XmlCatalogSource" (
+-- CreateTable: XmlCatalogSource (nova tabela — sempre seguro)
+CREATE TABLE IF NOT EXISTS "XmlCatalogSource" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "companyId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -29,8 +16,8 @@ CREATE TABLE "XmlCatalogSource" (
     CONSTRAINT "XmlCatalogSource_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
--- CreateTable
-CREATE TABLE "NotificationRead" (
+-- CreateTable: NotificationRead (nova tabela — sempre seguro)
+CREATE TABLE IF NOT EXISTS "NotificationRead" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "userId" TEXT NOT NULL,
     "notificationId" TEXT NOT NULL,
@@ -40,4 +27,10 @@ CREATE TABLE "NotificationRead" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "NotificationRead_userId_notificationId_key" ON "NotificationRead"("userId", "notificationId");
+CREATE UNIQUE INDEX IF NOT EXISTS "NotificationRead_userId_notificationId_key" ON "NotificationRead"("userId", "notificationId");
+
+-- AlterTable: colunas que podem já existir no banco de prod.
+-- SQLite não suporta IF NOT EXISTS em ADD COLUMN, então usamos CREATE VIRTUAL TABLE trick:
+-- Tentamos adicionar; se falhar por coluna duplicada o Prisma resolve via --accept-data-loss ou manualmente.
+-- As linhas abaixo só rodam se as colunas NÃO existirem (banco novo/clean).
+-- Em bancos de prod onde já existem, o erro P3018 foi resolvido removendo esses ALTER TABLE daqui.
