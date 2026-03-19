@@ -1186,7 +1186,7 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
                 type: 'product',
                 name: productName,
                 price: price.toFixed(2),
-                description: wp.descricao || '',
+                description: wp.descricao_completa || wp.descricao_longa || wp.descricao_detalhada || wp.descricao_html || wp.descricao || wp.caracteristicas || wp.resumo || '',
                 image: (wp.fotos && wp.fotos.length > 0) ? wp.fotos[0].foto : (existing ? existing.image : null),
                 active: wp.ativo === "1" || wp.ativo === 1,
                 unit: 'Unidade',
@@ -1200,9 +1200,8 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
             // Process Variations
             if (hasVariations) {
                 internalProduct.variantItems = wp.estoque.map(v => {
-                    let vNameInfo = [];
-                    if (v.cor && v.cor.nome) vNameInfo.push(v.cor.nome);
-                    if (v.variacao && v.variacao.valor) vNameInfo.push(v.variacao.valor);
+                    const colorVal = v.cor?.nome ? v.cor.nome.replace(productName, '').replace(/^[\s\-\|]+/, '').trim() : '';
+                    const sizeVal = v.variacao?.valor ? v.variacao.valor.replace(productName, '').replace(/^[\s\-\|]+/, '').trim() : '';
 
                     let varPrice = 0;
                     if (v.valores && v.valores.length > 0) {
@@ -1211,11 +1210,11 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
 
                     return {
                         id: `var_${wbuyId}_${v.id}_${Date.now()}`,
-                        color: v.cor?.nome || '',
-                        size: vNameInfo.join(' '),
+                        color: colorVal,
+                        size: sizeVal,
                         price: varPrice.toFixed(2),
                         stock: parseFloat(v.quantidade_em_estoque) || 0,
-                        image: v.cor?.img || null,
+                        image: v.cor?.img || v.imagem || v.foto || v.cor?.foto || v.cor?.imagem || null,
                         sku: v.sku || String(v.id)
                     };
                 });
