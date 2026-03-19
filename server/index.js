@@ -16,6 +16,7 @@ import FormData from 'form-data';
 import multer from 'multer'; // Multer para File Uploads
 import { transcribeAudio, generateAudio, resolveVoiceFromAgent } from './audioActions.js';
 import fsCommon from 'fs'; // For synchronous appendFileSync
+import { XMLParser } from 'fast-xml-parser'; // XML Catalog Integration
 
 // Helper for file logging
 const logFlow = (msg) => {
@@ -1428,8 +1429,7 @@ app.post('/api/integrations/lojaintegrada/sync', authenticateToken, async (req, 
 });
 
 // --- INTEGRATIONS: XML CATALOG ---
-
-const { XMLParser } = require('fast-xml-parser');
+// Note: XMLParser is imported at top of file via ES module import
 
 /**
  * Parse XML content and return a flat array of product objects + detected field keys

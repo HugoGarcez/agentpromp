@@ -17,7 +17,8 @@ npm install
 # 3. Instalar dependências (Server)
 echo "📦 3. Instalando dependências (Server)..."
 cd server
-npm install
+npm install --include=dev
+npm install fast-xml-parser 2>/dev/null || true   # garante dep crítica
 cd ..
 
 # 4. Atualizar Schema do Banco de Dados (Prisma)
