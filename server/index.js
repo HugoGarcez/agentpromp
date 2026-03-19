@@ -1427,6 +1427,332 @@ app.post('/api/integrations/lojaintegrada/sync', authenticateToken, async (req, 
     }
 });
 
+// --- INTEGRATIONS: XML CATALOG ---
+
+const { XMLParser } = require('fast-xml-parser');
+
+/**
+ * Parse XML content and return a flat array of product objects + detected field keys
+ */
+function parseXmlToProducts(xmlContent) {
+    const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '@_',
+        isArray: (name, jpath) => false,
+        parseTagValue: true,
+        trimValues: true,
+    });
+    const parsed = parser.parse(xmlContent);
+
+    // Try common XML feed structures
+    let items = [];
+    const findItems = (obj, depth = 0) => {
+        if (depth > 6 || !obj || typeof obj !== 'object') return;
+        // Common list element names
+        const listKeys = ['item', 'product', 'produto', 'entry', 'record', 'offer', 'oferta', 'Product', 'Item'];
+        for (const key of Object.keys(obj)) {
+            if (listKeys.includes(key)) {
+                const val = obj[key];
+                items = Array.isArray(val) ? val : [val];
+                return;
+            }
+            findItems(obj[key], depth + 1);
+            if (items.length > 0) return;
+        }
+    };
+    findItems(parsed);
+
+    if (items.length === 0) return { items: [], fields: [] };
+
+    // Collect all field names
+    const fieldSet = new Set();
+    items.slice(0, 20).forEach(item => {
+        if (item && typeof item === 'object') {
+            Object.keys(item).forEach(k => {
+                if (!k.startsWith('@_')) fieldSet.add(k);
+            });
+        }
+    });
+
+    return { items, fields: Array.from(fieldSet) };
+}
+
+/**
+ * Apply field mapping to a raw XML item and return a normalized product
+ */
+function applyXmlMapping(item, fieldMapping) {
+    const get = (key) => {
+        if (!key || !item) return '';
+        const val = item[key];
+        if (val === undefined || val === null) return '';
+        return String(val).trim();
+    };
+
+    return {
+        title: get(fieldMapping.title),
+        description: get(fieldMapping.description),
+        imageUrl: get(fieldMapping.imageUrl),
+        size: get(fieldMapping.size),
+        price: get(fieldMapping.price),
+        stock: get(fieldMapping.stock),
+        productUrl: get(fieldMapping.productUrl),
+        category: get(fieldMapping.category),
+        material: get(fieldMapping.material),
+        extraRules: get(fieldMapping.extraRules),
+    };
+}
+
+/**
+ * Core sync worker for a single XmlCatalogSource record
+ */
+async function xmlCatalogSyncWorker(source) {
+    console.log(`[XML Catalog] Syncing source: ${source.name} (${source.id})`);
+    try {
+        const response = await fetch(source.xmlUrl, {
+            headers: { 'User-Agent': 'PrompIA-XmlCatalog/1.0' },
+            signal: AbortSignal.timeout(30000)
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const xmlContent = await response.text();
+        const fieldMapping = typeof source.fieldMapping === 'string'
+            ? JSON.parse(source.fieldMapping)
+            : source.fieldMapping;
+
+        const { items } = parseXmlToProducts(xmlContent);
+
+        // Get first agent config for this company (products are company-wide)
+        const config = await prisma.agentConfig.findFirst({ where: { companyId: source.companyId } });
+        if (!config) throw new Error('No agent config found for company');
+
+        let productsMap = new Map();
+        const existing = config.products ? JSON.parse(config.products) : [];
+        existing.forEach(p => { if (p.name) productsMap.set(p.name.trim().toLowerCase(), p); });
+
+        // Clear existing XML-sourced products from this source before re-import
+        const filtered = existing.filter(p => p.xmlSourceId !== source.id);
+        filtered.forEach(p => { if (p.name) productsMap.set(p.name.trim().toLowerCase(), p); });
+
+        let count = 0;
+        for (const item of items) {
+            const mapped = applyXmlMapping(item, fieldMapping);
+            if (!mapped.title) continue;
+
+            const key = mapped.title.trim().toLowerCase();
+            const prev = productsMap.get(key);
+
+            productsMap.set(key, {
+                id: prev?.id || `xml_${source.id}_${Date.now()}_${count}`,
+                type: 'product',
+                name: mapped.title,
+                description: mapped.description || prev?.description || '',
+                image: mapped.imageUrl || prev?.image || null,
+                size: mapped.size || prev?.size || '',
+                price: mapped.price || prev?.price || '0.00',
+                stock: parseFloat(mapped.stock) || prev?.stock || 0,
+                hasPaymentLink: !!mapped.productUrl,
+                paymentLink: mapped.productUrl || prev?.paymentLink || '',
+                category: mapped.category || prev?.category || '',
+                material: mapped.material || prev?.material || '',
+                extraRules: mapped.extraRules || prev?.extraRules || '',
+                active: true,
+                unit: 'Unidade',
+                xmlSourceId: source.id,
+            });
+            count++;
+        }
+
+        const mergedList = Array.from(productsMap.values());
+        await prisma.agentConfig.update({
+            where: { id: config.id },
+            data: { products: JSON.stringify(mergedList) }
+        });
+
+        const nextRun = new Date(Date.now() + source.refreshMinutes * 60 * 1000);
+        await prisma.xmlCatalogSource.update({
+            where: { id: source.id },
+            data: {
+                lastSyncAt: new Date(),
+                lastSyncStatus: 'ok',
+                lastSyncMessage: `${count} produtos importados`,
+                productCount: count,
+            }
+        });
+
+        console.log(`[XML Catalog] Done: ${count} products synced for ${source.name}`);
+        return { success: true, count };
+    } catch (err) {
+        console.error(`[XML Catalog] Error syncing ${source.id}:`, err.message);
+        await prisma.xmlCatalogSource.update({
+            where: { id: source.id },
+            data: {
+                lastSyncAt: new Date(),
+                lastSyncStatus: 'error',
+                lastSyncMessage: err.message,
+            }
+        });
+        return { success: false, error: err.message };
+    }
+}
+
+// POST /api/integrations/xml/preview — fetch XML and return detected fields + sample items
+app.post('/api/integrations/xml/preview', authenticateToken, async (req, res) => {
+    try {
+        const { xmlUrl } = req.body;
+        if (!xmlUrl) return res.status(400).json({ success: false, message: 'xmlUrl é obrigatório.' });
+
+        const response = await fetch(xmlUrl, {
+            headers: { 'User-Agent': 'PrompIA-XmlCatalog/1.0' },
+            signal: AbortSignal.timeout(15000)
+        });
+        if (!response.ok) {
+            return res.status(400).json({ success: false, message: `Não foi possível acessar o XML (HTTP ${response.status}).` });
+        }
+
+        const xmlContent = await response.text();
+        const { items, fields } = parseXmlToProducts(xmlContent);
+
+        if (items.length === 0) {
+            return res.status(400).json({ success: false, message: 'Nenhum produto encontrado no XML. Verifique a estrutura do arquivo.' });
+        }
+
+        // Return fields + first 3 items as preview
+        res.json({
+            success: true,
+            fields,
+            sampleItems: items.slice(0, 3),
+            totalItems: items.length,
+        });
+    } catch (err) {
+        console.error('[XML Preview] Error:', err);
+        res.status(500).json({ success: false, message: err.message || 'Erro ao processar XML.' });
+    }
+});
+
+// POST /api/integrations/xml/save — create or update an XML catalog source
+app.post('/api/integrations/xml/save', authenticateToken, async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        const { id, name, xmlUrl, fieldMapping, refreshMinutes } = req.body;
+        if (!xmlUrl || !name || !fieldMapping) {
+            return res.status(400).json({ success: false, message: 'name, xmlUrl e fieldMapping são obrigatórios.' });
+        }
+
+        const data = {
+            name,
+            xmlUrl,
+            fieldMapping: typeof fieldMapping === 'string' ? fieldMapping : JSON.stringify(fieldMapping),
+            refreshMinutes: parseInt(refreshMinutes) || 60,
+            enabled: true,
+        };
+
+        let source;
+        if (id) {
+            source = await prisma.xmlCatalogSource.updateMany({
+                where: { id, companyId },
+                data,
+            });
+            source = await prisma.xmlCatalogSource.findFirst({ where: { id, companyId } });
+        } else {
+            source = await prisma.xmlCatalogSource.create({
+                data: { ...data, companyId },
+            });
+        }
+
+        // Trigger immediate sync
+        xmlCatalogSyncWorker(source).catch(console.error);
+
+        res.json({ success: true, source });
+    } catch (err) {
+        console.error('[XML Save] Error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// GET /api/integrations/xml — list all XML sources for the company
+app.get('/api/integrations/xml', authenticateToken, async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        const sources = await prisma.xmlCatalogSource.findMany({
+            where: { companyId },
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json({ success: true, sources });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// DELETE /api/integrations/xml/:id
+app.delete('/api/integrations/xml/:id', authenticateToken, async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        const { id } = req.params;
+        await prisma.xmlCatalogSource.deleteMany({ where: { id, companyId } });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// PUT /api/integrations/xml/:id/toggle — enable or disable a source
+app.put('/api/integrations/xml/:id/toggle', authenticateToken, async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        const { id } = req.params;
+        const source = await prisma.xmlCatalogSource.findFirst({ where: { id, companyId } });
+        if (!source) return res.status(404).json({ success: false, message: 'Fonte não encontrada.' });
+        const updated = await prisma.xmlCatalogSource.update({
+            where: { id },
+            data: { enabled: !source.enabled }
+        });
+        res.json({ success: true, source: updated });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// POST /api/integrations/xml/:id/sync — force immediate sync
+app.post('/api/integrations/xml/:id/sync', authenticateToken, async (req, res) => {
+    try {
+        const { companyId } = req.user;
+        const { id } = req.params;
+        const source = await prisma.xmlCatalogSource.findFirst({ where: { id, companyId } });
+        if (!source) return res.status(404).json({ success: false, message: 'Fonte não encontrada.' });
+        const result = await xmlCatalogSyncWorker(source);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// --- XML Catalog Scheduler (runs every minute) ---
+setInterval(async () => {
+    try {
+        const sources = await prisma.xmlCatalogSource.findMany({
+            where: {
+                enabled: true,
+                OR: [
+                    { lastSyncAt: null },
+                    { lastSyncAt: { lt: new Date(Date.now() - 60000) } } // at least 1 minute ago
+                ]
+            }
+        });
+
+        for (const source of sources) {
+            const minutesSinceLastSync = source.lastSyncAt
+                ? (Date.now() - new Date(source.lastSyncAt).getTime()) / 60000
+                : Infinity;
+
+            if (minutesSinceLastSync >= (source.refreshMinutes || 60)) {
+                xmlCatalogSyncWorker(source).catch(console.error);
+            }
+        }
+    } catch (err) {
+        console.error('[XML Scheduler] Error:', err.message);
+    }
+}, 60000); // Check every minute
+
 // Startup Check
 
 if (process.env.OPENAI_API_KEY) {

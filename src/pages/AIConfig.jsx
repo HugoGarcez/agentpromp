@@ -3,7 +3,7 @@ import FilesTab from '../components/AIConfig/FilesTab';
 import LinksTab from '../components/AIConfig/LinksTab';
 import QATab from '../components/AIConfig/QATab';
 import PromptTab from '../components/AIConfig/PromptTab';
-import { Save, Plus, ArrowLeft, ArrowRight, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2, Package, Trash } from 'lucide-react';
+import { Save, Plus, ArrowLeft, ArrowRight, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2, Package, Trash, FileCode2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const AgentCard = ({ agent, onClick, onDelete }) => {
@@ -216,6 +216,9 @@ const AIConfig = () => {
     const [catalogConfig, setCatalogConfig] = useState({ showProducts: true, showServices: true });
     const [configuringChannelId, setConfiguringChannelId] = useState(null);
     const [channelCreds, setChannelCreds] = useState({ url: '', token: '' });
+    // XML Sources state
+    const [xmlSources, setXmlSources] = useState([]);
+    const [loadingXmlSources, setLoadingXmlSources] = useState(false);
 
     // Transfer Config State
     const [transferConfigs, setTransferConfigs] = useState([]);
@@ -260,7 +263,33 @@ const AIConfig = () => {
         if (activeTab === 'transfer' && selectedAgentId) {
             fetchListings();
         }
+
+        if (activeTab === 'catalog' && selectedAgentId) {
+            fetchXmlSourcesForAgent();
+        }
     }, [activeTab, selectedAgentId]);
+
+    const fetchXmlSourcesForAgent = async () => {
+        setLoadingXmlSources(true);
+        try {
+            const res = await fetch('/api/integrations/xml', { headers: { 'Authorization': `Bearer ${token}` } });
+            if (res.ok) { const data = await res.json(); setXmlSources(data.sources || []); }
+        } catch (e) { console.error('Failed to fetch XML sources:', e); }
+        finally { setLoadingXmlSources(false); }
+    };
+
+    const handleXmlSourceToggleForAgent = (sourceId) => {
+        setCatalogConfig(prev => {
+            const activeXmlSources = Array.isArray(prev.xmlSources) ? prev.xmlSources : [];
+            const isActive = activeXmlSources.includes(sourceId);
+            return {
+                ...prev,
+                xmlSources: isActive
+                    ? activeXmlSources.filter(id => id !== sourceId)
+                    : [...activeXmlSources, sourceId]
+            };
+        });
+    };
 
     const fetchPrompStatus = async () => {
         try {
@@ -773,6 +802,51 @@ const AIConfig = () => {
                                             <div style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Serviços cadastrados e integração com Agenda</div>
                                         </div>
                                     </label>
+                                </div>
+
+                                {/* XML Catalog Sources Section */}
+                                <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid #E5E7EB' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                                        <div style={{ width: 32, height: 32, borderRadius: '8px', background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <FileCode2 size={16} color="white" />
+                                        </div>
+                                        <div>
+                                            <h4 style={{ fontWeight: 700, fontSize: '15px', margin: 0, color: '#1F2937' }}>Fontes XML de Catálogo</h4>
+                                            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-medium)' }}>Habilite quais feeds XML este agente deve usar como catálogo de produtos</p>
+                                        </div>
+                                    </div>
+
+                                    {loadingXmlSources ? (
+                                        <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-medium)' }}><Loader2 className="animate-spin" /></div>
+                                    ) : xmlSources.length === 0 ? (
+                                        <div style={{ padding: '16px', background: '#F9FAFB', borderRadius: '10px', border: '1px solid #E5E7EB', textAlign: 'center', fontSize: '13px', color: '#6B7280' }}>
+                                            Nenhuma fonte XML cadastrada. Acesse <strong>Integrações → Link Catálogo XML</strong> para adicionar.
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            {xmlSources.map(source => {
+                                                const activeXmlSources = Array.isArray(catalogConfig.xmlSources) ? catalogConfig.xmlSources : [];
+                                                const isActive = activeXmlSources.includes(source.id);
+                                                return (
+                                                    <div key={source.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px', borderRadius: '12px', border: `1px solid ${isActive ? '#A78BFA' : 'var(--border-color)'}`, background: isActive ? '#F5F3FF' : 'white', transition: 'all 0.2s', cursor: 'pointer' }} onClick={() => handleXmlSourceToggleForAgent(source.id)}>
+                                                        <div style={{ width: 36, height: 36, borderRadius: '8px', background: isActive ? 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)' : '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                            <FileCode2 size={16} color={isActive ? 'white' : '#9CA3AF'} />
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontWeight: 600, fontSize: '14px', color: '#1F2937' }}>{source.name}</div>
+                                                            <div style={{ fontSize: '11px', color: '#6B7280' }}>
+                                                                {source.productCount > 0 ? `${source.productCount} produtos` : 'Ainda não sincronizado'}
+                                                                {!source.enabled ? ' · Fonte desativada globalmente' : ''}
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ color: isActive ? '#6D28D9' : '#9CA3AF', flexShrink: 0 }}>
+                                                            {isActive ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
