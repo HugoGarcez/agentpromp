@@ -3010,7 +3010,7 @@ app.post('/api/leads/test-connection', authenticateToken, async (req, res) => {
     }
 });
 
-// Search Leads via Google Places API
+// Search Leads via Google Places API (New)
 app.post('/api/leads/search', authenticateToken, async (req, res) => {
     try {
         const { segment, region, radius, maxResults } = req.body;
@@ -3052,42 +3052,76 @@ app.post('/api/leads/search', authenticateToken, async (req, res) => {
         const { lat, lng } = geocodeRes.data.results[0].geometry.location;
         console.log(`[LeadFinder] Geocoded "${region}" -> lat=${lat}, lng=${lng}`);
 
-        // Step 2: Places Nearby Search (with pagination)
+        // Step 2: Places Text Search (New API) — returns details in one call!
+        // The new API uses POST with JSON body and headers instead of query params
+        const fieldMask = [
+            'places.id',
+            'places.displayName',
+            'places.formattedAddress',
+            'places.nationalPhoneNumber',
+            'places.internationalPhoneNumber',
+            'places.websiteUri',
+            'places.rating',
+            'places.userRatingCount',
+            'places.businessStatus',
+            'places.currentOpeningHours',
+            'places.googleMapsUri'
+        ].join(',');
+
         let allPlaces = [];
-        let nextPageToken = null;
+        let pageToken = null;
+        let pageCount = 0;
 
         do {
-            let placesUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${searchRadius}&keyword=${encodeURIComponent(segment)}&key=${apiKey}&language=pt-BR`;
-            if (nextPageToken) {
-                placesUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?pagetoken=${nextPageToken}&key=${apiKey}`;
+            const requestBody = {
+                textQuery: `${segment} em ${region}`,
+                languageCode: 'pt-BR',
+                maxResultCount: Math.min(maxLeads - allPlaces.length, 20), // Max 20 per request
+                locationBias: {
+                    circle: {
+                        center: { latitude: lat, longitude: lng },
+                        radius: searchRadius * 1.0
+                    }
+                }
+            };
+
+            // If we have a page token from a previous request, use it
+            if (pageToken) {
+                requestBody.pageToken = pageToken;
             }
 
-            const placesRes = await axios.get(placesUrl);
+            console.log(`[LeadFinder] Text Search (New API) page ${pageCount + 1}, requesting ${requestBody.maxResultCount} results`);
 
-            if (placesRes.data.status === 'REQUEST_DENIED') {
-                return res.status(403).json({ error: `API Negada: ${placesRes.data.error_message || 'Verifique se a Places API está habilitada no Google Cloud Console.'}` });
+            const placesRes = await axios.post(
+                'https://places.googleapis.com/v1/places:searchText',
+                requestBody,
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Goog-Api-Key': apiKey,
+                        'X-Goog-FieldMask': fieldMask
+                    }
+                }
+            );
+
+            if (placesRes.data.places && placesRes.data.places.length > 0) {
+                allPlaces = allPlaces.concat(placesRes.data.places);
+                console.log(`[LeadFinder] Got ${placesRes.data.places.length} results (total: ${allPlaces.length})`);
             }
 
-            if (placesRes.data.status === 'OVER_QUERY_LIMIT') {
-                return res.status(429).json({ error: 'Limite de requisições excedido. Tente novamente mais tarde.' });
+            // Check if there's a next page token
+            pageToken = placesRes.data.nextPageToken || null;
+            pageCount++;
+
+            // Safety: max 3 pages to avoid runaway requests
+            if (pageCount >= 3) break;
+
+            // Small delay before next page
+            if (pageToken && allPlaces.length < maxLeads) {
+                await sleep(500);
             }
 
-            if (placesRes.data.status === 'INVALID_REQUEST') {
-                return res.status(400).json({ error: 'Requisição inválida. Verifique os parâmetros.' });
-            }
-
-            if (placesRes.data.results) {
-                allPlaces = allPlaces.concat(placesRes.data.results);
-            }
-
-            nextPageToken = placesRes.data.next_page_token || null;
-
-            // Google requires a short delay before using next_page_token
-            if (nextPageToken && allPlaces.length < maxLeads) {
-                await sleep(2000);
-            }
-
-        } while (nextPageToken && allPlaces.length < maxLeads);
+        } while (pageToken && allPlaces.length < maxLeads);
 
         // Trim to maxResults
         allPlaces = allPlaces.slice(0, maxLeads);
@@ -3096,68 +3130,23 @@ app.post('/api/leads/search', authenticateToken, async (req, res) => {
             return res.json({ leads: [], message: `Nenhum resultado encontrado para "${segment}" em "${region}".` });
         }
 
-        console.log(`[LeadFinder] Found ${allPlaces.length} places. Fetching details...`);
+        console.log(`[LeadFinder] Processing ${allPlaces.length} results...`);
 
-        // Step 3: Place Details for each result (with rate limiting)
-        const leads = [];
-        for (let i = 0; i < allPlaces.length; i++) {
-            const place = allPlaces[i];
-
-            try {
-                const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,formatted_phone_number,website,rating,user_ratings_total,opening_hours,business_status,url&key=${apiKey}&language=pt-BR`;
-                const detailsRes = await axios.get(detailsUrl);
-
-                if (detailsRes.data.status === 'OK' && detailsRes.data.result) {
-                    const d = detailsRes.data.result;
-                    leads.push({
-                        id: place.place_id,
-                        name: d.name || place.name || 'N/A',
-                        address: d.formatted_address || place.vicinity || 'N/A',
-                        phone: d.formatted_phone_number || '',
-                        website: d.website || '',
-                        rating: d.rating || 0,
-                        totalRatings: d.user_ratings_total || 0,
-                        status: d.business_status || 'UNKNOWN',
-                        isOpen: d.opening_hours?.open_now ?? null,
-                        googleMapsUrl: d.url || `https://www.google.com/maps/place/?q=place_id:${place.place_id}`
-                    });
-                } else {
-                    // Fallback: use basic data from Nearby Search
-                    leads.push({
-                        id: place.place_id,
-                        name: place.name || 'N/A',
-                        address: place.vicinity || 'N/A',
-                        phone: '',
-                        website: '',
-                        rating: place.rating || 0,
-                        totalRatings: place.user_ratings_total || 0,
-                        status: place.business_status || 'UNKNOWN',
-                        isOpen: place.opening_hours?.open_now ?? null,
-                        googleMapsUrl: `https://www.google.com/maps/place/?q=place_id:${place.place_id}`
-                    });
-                }
-            } catch (detailErr) {
-                console.error(`[LeadFinder] Detail fetch error for ${place.name}:`, detailErr.message);
-                // Use basic data
-                leads.push({
-                    id: place.place_id,
-                    name: place.name || 'N/A',
-                    address: place.vicinity || 'N/A',
-                    phone: '',
-                    website: '',
-                    rating: place.rating || 0,
-                    totalRatings: place.user_ratings_total || 0,
-                    status: place.business_status || 'UNKNOWN',
-                    isOpen: null,
-                    googleMapsUrl: `https://www.google.com/maps/place/?q=place_id:${place.place_id}`
-                });
-            }
-
-            // Rate limiting: 100ms between Place Details calls (respects 10 req/s)
-            if (i < allPlaces.length - 1) {
-                await sleep(100);
-            }
-        }
+        // Step 3: Map results to our lead format (no separate Details call needed!)
+        const leads = allPlaces.map((place, index) => {
+            return {
+                id: place.id || `lead_${index}`,
+                name: place.displayName?.text || 'N/A',
+                address: place.formattedAddress || 'N/A',
+                phone: place.nationalPhoneNumber || place.internationalPhoneNumber || '',
+                website: place.websiteUri || '',
+                rating: place.rating || 0,
+                totalRatings: place.userRatingCount || 0,
+                status: place.businessStatus || 'UNKNOWN',
+                isOpen: place.currentOpeningHours?.openNow ?? null,
+                googleMapsUrl: place.googleMapsUri || `https://www.google.com/maps/place/?q=place_id:${place.id}`
+            };
+        });
 
         // Store in cache
         leadSearchCache.set(cacheKey, { data: leads, timestamp: Date.now() });
@@ -3174,7 +3163,23 @@ app.post('/api/leads/search', authenticateToken, async (req, res) => {
         res.json({ leads, fromCache: false });
 
     } catch (e) {
-        console.error('[LeadFinder] Search Error:', e.message);
+        console.error('[LeadFinder] Search Error:', e.response?.data || e.message);
+
+        // Handle specific Google API errors
+        const googleError = e.response?.data?.error;
+        if (googleError) {
+            const status = googleError.status || '';
+            const message = googleError.message || '';
+
+            if (status === 'PERMISSION_DENIED' || message.includes('not enabled')) {
+                return res.status(403).json({ error: `API Negada: ${message}. Verifique se a Places API (New) está habilitada no Google Cloud Console.` });
+            }
+            if (status === 'RESOURCE_EXHAUSTED') {
+                return res.status(429).json({ error: 'Limite de requisições excedido. Tente novamente mais tarde.' });
+            }
+            return res.status(400).json({ error: `Erro da API Google: ${message}` });
+        }
+
         res.status(500).json({ error: `Erro interno na busca: ${e.message}` });
     }
 });
