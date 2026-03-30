@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Lock } from 'lucide-react';
+import { Save, Lock, MapPin, Loader, CheckCircle, XCircle } from 'lucide-react';
 
 const AdminConfig = () => {
     const [config, setConfig] = useState({
@@ -9,8 +9,12 @@ const AdminConfig = () => {
         elevenLabsVoiceId: '',
         googleClientId: '',
         googleClientSecret: '',
-        googleRedirectUri: ''
+        googleRedirectUri: '',
+        googleMapsApiKey: '',
+        googlePlacesSearchRadius: 5000
     });
+    const [testingConnection, setTestingConnection] = useState(false);
+    const [connectionResult, setConnectionResult] = useState(null);
     const [loading, setLoading] = useState(true);
     const [showToast, setShowToast] = useState(false);
 
@@ -30,7 +34,9 @@ const AdminConfig = () => {
                         elevenLabsVoiceId: data.elevenLabsVoiceId || '',
                         googleClientId: data.googleClientId || '',
                         googleClientSecret: data.googleClientSecret || '',
-                        googleRedirectUri: data.googleRedirectUri || ''
+                        googleRedirectUri: data.googleRedirectUri || '',
+                        googleMapsApiKey: data.googleMapsApiKey || '',
+                        googlePlacesSearchRadius: data.googlePlacesSearchRadius || 5000
                     });
                 }
             } catch (e) {
@@ -185,6 +191,95 @@ const AdminConfig = () => {
                             style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', backgroundColor: '#F3F4F6' }}
                         />
                         <small style={{ color: '#6B7280' }}>Adicione esta URL no Console do Google Cloud. (Deve corresponder EXATAMENTE)</small>
+                    </div>
+                </div>
+
+                {/* Google Maps - Lead Finder */}
+                <div style={{ marginBottom: '24px', borderTop: '1px solid #E5E7EB', paddingTop: '24px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <MapPin size={20} color="#6366F1" />
+                        Google Maps (Lead Finder)
+                    </h3>
+                    <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '16px' }}>
+                        Configure a chave da API do Google Maps para o módulo de prospecção de leads.
+                        APIs necessárias: Places API, Geocoding API.
+                    </p>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Google Maps API Key</label>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <input
+                                type="password"
+                                name="googleMapsApiKey"
+                                value={config.googleMapsApiKey || ''}
+                                onChange={handleChange}
+                                placeholder="AIzaSy..."
+                                style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                            />
+                            <button
+                                onClick={async () => {
+                                    setTestingConnection(true);
+                                    setConnectionResult(null);
+                                    try {
+                                        // Save first so the backend has the key
+                                        await handleSave();
+                                        const token = localStorage.getItem('token');
+                                        const res = await fetch('/api/leads/test-connection', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+                                        });
+                                        const data = await res.json();
+                                        setConnectionResult(data);
+                                    } catch (e) {
+                                        setConnectionResult({ success: false, error: e.message });
+                                    } finally {
+                                        setTestingConnection(false);
+                                    }
+                                }}
+                                disabled={testingConnection}
+                                style={{
+                                    padding: '10px 18px', borderRadius: '6px', border: '1px solid #E5E7EB',
+                                    background: testingConnection ? '#F3F4F6' : 'white', cursor: testingConnection ? 'not-allowed' : 'pointer',
+                                    fontWeight: 500, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px',
+                                    color: '#374151', whiteSpace: 'nowrap'
+                                }}
+                            >
+                                {testingConnection ? (
+                                    <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Testando...</>
+                                ) : (
+                                    'Testar Conexão'
+                                )}
+                            </button>
+                        </div>
+                        {connectionResult && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px',
+                                padding: '8px 12px', borderRadius: '6px', fontSize: '13px',
+                                background: connectionResult.success ? '#ECFDF5' : '#FEF2F2',
+                                color: connectionResult.success ? '#065F46' : '#991B1B',
+                                border: `1px solid ${connectionResult.success ? '#A7F3D0' : '#FECACA'}`
+                            }}>
+                                {connectionResult.success
+                                    ? <><CheckCircle size={16} /> {connectionResult.message}</>
+                                    : <><XCircle size={16} /> {connectionResult.error}</>
+                                }
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Raio de Busca Padrão (metros)</label>
+                        <input
+                            type="number"
+                            name="googlePlacesSearchRadius"
+                            value={config.googlePlacesSearchRadius || 5000}
+                            onChange={handleChange}
+                            min="1000"
+                            max="50000"
+                            step="1000"
+                            style={{ width: '200px', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        />
+                        <small style={{ display: 'block', color: '#6B7280', marginTop: '4px' }}>Padrão: 5000m (5 km). Máximo: 50000m (50 km).</small>
                     </div>
                 </div>
 

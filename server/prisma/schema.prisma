@@ -127,15 +127,17 @@ model TestMessage {
 }
 
 model GlobalConfig {
-  id                 String   @id @default(uuid())
-  openaiKey          String?
-  geminiKey          String?
-  elevenLabsKey      String?
-  elevenLabsVoiceId  String?
-  googleClientId     String?
-  googleClientSecret String?
-  googleRedirectUri  String?
-  updatedAt          DateTime @updatedAt
+  id                       String   @id @default(uuid())
+  openaiKey                String?
+  geminiKey                String?
+  elevenLabsKey            String?
+  elevenLabsVoiceId        String?
+  googleClientId           String?
+  googleClientSecret       String?
+  googleRedirectUri        String?
+  googleMapsApiKey         String?
+  googlePlacesSearchRadius Int?     @default(5000)
+  updatedAt                DateTime @updatedAt
 }
 
 model ProductSource {

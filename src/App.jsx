@@ -14,6 +14,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import AdminConfig from './pages/AdminConfig';
 import TagAutomation from './pages/TagAutomation';
 import Integrations from './pages/Integrations';
+import LeadFinder from './pages/LeadFinder';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -66,6 +67,7 @@ function App() {
               <Route path="scheduling" element={<SchedulingConfig />} />
               <Route path="settings" element={<Settings />} />
               <Route path="integrations" element={<Integrations />} />
+              <Route path="lead-finder" element={<LeadFinder />} />
 
               <Route path="admin" element={
                 <AdminRoute>

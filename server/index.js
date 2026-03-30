@@ -2933,9 +2933,6 @@ app.get('/api/promp/queues', authenticateToken, async (req, res) => {
 
 // --- GLOBAL CONFIG API (ADMIN) ---
 app.post('/api/admin/config', authenticateToken, async (req, res) => {
-    // Ideally check if req.user.role === 'ADMIN'
-    // For now allowing any authenticated user to setup global keys if they know this route (User asked for "Unique configuration present in admin")
-    // We assume the UI will protect access.
     try {
         const {
             openaiKey,
@@ -2944,47 +2941,241 @@ app.post('/api/admin/config', authenticateToken, async (req, res) => {
             elevenLabsVoiceId,
             googleClientId,
             googleClientSecret,
-            googleRedirectUri
+            googleRedirectUri,
+            googleMapsApiKey,
+            googlePlacesSearchRadius
         } = req.body;
 
         console.log('[GlobalConfig] Received Payload:', JSON.stringify(req.body, null, 2));
 
-        // Upsert Global Config (Single Record logic)
-        // We will stick to ID 'global_settings' or just take the first one.
-        // Let's use a fixed ID or findFirst.
-
         const existing = await prisma.globalConfig.findFirst();
+
+        const data = {
+            openaiKey,
+            geminiKey,
+            elevenLabsKey,
+            elevenLabsVoiceId,
+            googleClientId,
+            googleClientSecret,
+            googleRedirectUri,
+            googleMapsApiKey,
+            googlePlacesSearchRadius: googlePlacesSearchRadius ? parseInt(googlePlacesSearchRadius) : 5000
+        };
 
         if (existing) {
             await prisma.globalConfig.update({
                 where: { id: existing.id },
-                data: {
-                    openaiKey,
-                    geminiKey,
-                    elevenLabsKey,
-                    elevenLabsVoiceId,
-                    googleClientId,
-                    googleClientSecret,
-                    googleRedirectUri
-                }
+                data
             });
         } else {
-            await prisma.globalConfig.create({
-                data: {
-                    openaiKey,
-                    geminiKey,
-                    elevenLabsKey,
-                    elevenLabsVoiceId,
-                    googleClientId,
-                    googleClientSecret,
-                    googleRedirectUri
-                }
-            });
+            await prisma.globalConfig.create({ data });
         }
         res.json({ success: true });
     } catch (e) {
         console.error('Error saving global config:', e);
         res.status(500).json({ error: 'Failed to save global config' });
+    }
+});
+
+// --- LEAD FINDER API ---
+
+// In-memory cache for lead searches (24h TTL)
+const leadSearchCache = new Map();
+const LEAD_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// Helper: sleep for rate limiting
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Test Google Maps API Connection
+app.post('/api/leads/test-connection', authenticateToken, async (req, res) => {
+    try {
+        const globalConfig = await prisma.globalConfig.findFirst();
+        const apiKey = globalConfig?.googleMapsApiKey;
+        if (!apiKey) {
+            return res.json({ success: false, error: 'Google Maps API Key não configurada. Vá em Config Global para definir.' });
+        }
+
+        // Simple test: Geocode a known location
+        const testUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=São+Paulo,+Brasil&key=${apiKey}`;
+        const response = await axios.get(testUrl);
+
+        if (response.data.status === 'OK') {
+            return res.json({ success: true, message: 'Conexão com Google Maps API funcionando!' });
+        } else {
+            return res.json({ success: false, error: `API retornou: ${response.data.status} - ${response.data.error_message || 'Verifique sua chave e permissões.'}` });
+        }
+    } catch (e) {
+        console.error('[LeadFinder] Test Connection Error:', e.message);
+        return res.json({ success: false, error: `Erro de conexão: ${e.message}` });
+    }
+});
+
+// Search Leads via Google Places API
+app.post('/api/leads/search', authenticateToken, async (req, res) => {
+    try {
+        const { segment, region, radius, maxResults } = req.body;
+
+        if (!segment || !region) {
+            return res.status(400).json({ error: 'Segmento e região são obrigatórios.' });
+        }
+
+        const globalConfig = await prisma.globalConfig.findFirst();
+        const apiKey = globalConfig?.googleMapsApiKey;
+        if (!apiKey) {
+            return res.status(400).json({ error: 'Google Maps API Key não configurada. Configure em Config Global.' });
+        }
+
+        const searchRadius = radius || globalConfig?.googlePlacesSearchRadius || 5000;
+        const maxLeads = Math.min(maxResults || 20, 60);
+
+        // Check cache
+        const cacheKey = `${segment}_${region}_${searchRadius}_${maxLeads}`.toLowerCase().replace(/\s+/g, '_');
+        const cached = leadSearchCache.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp < LEAD_CACHE_TTL)) {
+            console.log(`[LeadFinder] Cache HIT for: ${cacheKey}`);
+            return res.json({ leads: cached.data, fromCache: true, cachedAt: new Date(cached.timestamp).toISOString() });
+        }
+
+        console.log(`[LeadFinder] Searching: segment="${segment}", region="${region}", radius=${searchRadius}m, max=${maxLeads}`);
+
+        // Step 1: Geocoding - Convert region to lat/lng
+        const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(region)}&key=${apiKey}`;
+        const geocodeRes = await axios.get(geocodeUrl);
+
+        if (geocodeRes.data.status !== 'OK' || !geocodeRes.data.results.length) {
+            const errMsg = geocodeRes.data.status === 'ZERO_RESULTS'
+                ? `Região "${region}" não encontrada. Tente um nome mais específico (ex: "São Paulo, SP, Brasil").`
+                : `Erro no Geocoding: ${geocodeRes.data.status}`;
+            return res.status(400).json({ error: errMsg });
+        }
+
+        const { lat, lng } = geocodeRes.data.results[0].geometry.location;
+        console.log(`[LeadFinder] Geocoded "${region}" -> lat=${lat}, lng=${lng}`);
+
+        // Step 2: Places Nearby Search (with pagination)
+        let allPlaces = [];
+        let nextPageToken = null;
+
+        do {
+            let placesUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${searchRadius}&keyword=${encodeURIComponent(segment)}&key=${apiKey}&language=pt-BR`;
+            if (nextPageToken) {
+                placesUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?pagetoken=${nextPageToken}&key=${apiKey}`;
+            }
+
+            const placesRes = await axios.get(placesUrl);
+
+            if (placesRes.data.status === 'REQUEST_DENIED') {
+                return res.status(403).json({ error: `API Negada: ${placesRes.data.error_message || 'Verifique se a Places API está habilitada no Google Cloud Console.'}` });
+            }
+
+            if (placesRes.data.status === 'OVER_QUERY_LIMIT') {
+                return res.status(429).json({ error: 'Limite de requisições excedido. Tente novamente mais tarde.' });
+            }
+
+            if (placesRes.data.status === 'INVALID_REQUEST') {
+                return res.status(400).json({ error: 'Requisição inválida. Verifique os parâmetros.' });
+            }
+
+            if (placesRes.data.results) {
+                allPlaces = allPlaces.concat(placesRes.data.results);
+            }
+
+            nextPageToken = placesRes.data.next_page_token || null;
+
+            // Google requires a short delay before using next_page_token
+            if (nextPageToken && allPlaces.length < maxLeads) {
+                await sleep(2000);
+            }
+
+        } while (nextPageToken && allPlaces.length < maxLeads);
+
+        // Trim to maxResults
+        allPlaces = allPlaces.slice(0, maxLeads);
+
+        if (allPlaces.length === 0) {
+            return res.json({ leads: [], message: `Nenhum resultado encontrado para "${segment}" em "${region}".` });
+        }
+
+        console.log(`[LeadFinder] Found ${allPlaces.length} places. Fetching details...`);
+
+        // Step 3: Place Details for each result (with rate limiting)
+        const leads = [];
+        for (let i = 0; i < allPlaces.length; i++) {
+            const place = allPlaces[i];
+
+            try {
+                const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${place.place_id}&fields=name,formatted_address,formatted_phone_number,website,rating,user_ratings_total,opening_hours,business_status,url&key=${apiKey}&language=pt-BR`;
+                const detailsRes = await axios.get(detailsUrl);
+
+                if (detailsRes.data.status === 'OK' && detailsRes.data.result) {
+                    const d = detailsRes.data.result;
+                    leads.push({
+                        id: place.place_id,
+                        name: d.name || place.name || 'N/A',
+                        address: d.formatted_address || place.vicinity || 'N/A',
+                        phone: d.formatted_phone_number || '',
+                        website: d.website || '',
+                        rating: d.rating || 0,
+                        totalRatings: d.user_ratings_total || 0,
+                        status: d.business_status || 'UNKNOWN',
+                        isOpen: d.opening_hours?.open_now ?? null,
+                        googleMapsUrl: d.url || `https://www.google.com/maps/place/?q=place_id:${place.place_id}`
+                    });
+                } else {
+                    // Fallback: use basic data from Nearby Search
+                    leads.push({
+                        id: place.place_id,
+                        name: place.name || 'N/A',
+                        address: place.vicinity || 'N/A',
+                        phone: '',
+                        website: '',
+                        rating: place.rating || 0,
+                        totalRatings: place.user_ratings_total || 0,
+                        status: place.business_status || 'UNKNOWN',
+                        isOpen: place.opening_hours?.open_now ?? null,
+                        googleMapsUrl: `https://www.google.com/maps/place/?q=place_id:${place.place_id}`
+                    });
+                }
+            } catch (detailErr) {
+                console.error(`[LeadFinder] Detail fetch error for ${place.name}:`, detailErr.message);
+                // Use basic data
+                leads.push({
+                    id: place.place_id,
+                    name: place.name || 'N/A',
+                    address: place.vicinity || 'N/A',
+                    phone: '',
+                    website: '',
+                    rating: place.rating || 0,
+                    totalRatings: place.user_ratings_total || 0,
+                    status: place.business_status || 'UNKNOWN',
+                    isOpen: null,
+                    googleMapsUrl: `https://www.google.com/maps/place/?q=place_id:${place.place_id}`
+                });
+            }
+
+            // Rate limiting: 100ms between Place Details calls (respects 10 req/s)
+            if (i < allPlaces.length - 1) {
+                await sleep(100);
+            }
+        }
+
+        // Store in cache
+        leadSearchCache.set(cacheKey, { data: leads, timestamp: Date.now() });
+
+        // Clean old cache entries periodically
+        if (leadSearchCache.size > 100) {
+            const now = Date.now();
+            for (const [key, val] of leadSearchCache.entries()) {
+                if (now - val.timestamp > LEAD_CACHE_TTL) leadSearchCache.delete(key);
+            }
+        }
+
+        console.log(`[LeadFinder] Returning ${leads.length} leads for "${segment}" in "${region}"`);
+        res.json({ leads, fromCache: false });
+
+    } catch (e) {
+        console.error('[LeadFinder] Search Error:', e.message);
+        res.status(500).json({ error: `Erro interno na busca: ${e.message}` });
     }
 });
 
