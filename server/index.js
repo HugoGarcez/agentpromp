@@ -491,20 +491,41 @@ const handleWebhookRequest = async (req, res) => {
     // ------------------------------------------------------------------
     // 5. STRICT FILTERS (Groups, Status, Broadcasts)
     // ------------------------------------------------------------------
-    const isGroup = rawSender ? rawSender.includes('@g.us') : false;
-    const isBroadcast = rawSender ? (rawSender.includes('broadcast') || rawSender.includes('@lid')) : false;
+    // COMPREHENSIVE GROUP DETECTION: Check ALL possible JID fields, not just rawSender.
+    // In some payloads, rawSender resolves to the participant (individual number) while
+    // the group JID (@g.us) is in another field. We must check everywhere.
+    const groupIndicatorFields = [
+        rawSender,
+        payload.key?.remoteJid,
+        payload.data?.key?.remoteJid,
+        payload.msg?.from,
+        payload.msg?.chatid,
+        payload.msg?.chat,
+        payload.msg?.remoteJid,
+        payload.chatId,
+        payload.chat?.id,
+        payload.data?.chatId,
+        payload.data?.from,
+        payload.ticket?.chatId,
+        payload.ticket?.remoteJid,
+        payload.from,
+    ].filter(Boolean).map(String);
+
+    const groupFieldMatch = groupIndicatorFields.find(f => f.includes('@g.us'));
+    const isGroup = !!groupFieldMatch;
+    const isBroadcast = groupIndicatorFields.some(f => f.includes('broadcast') || f.includes('@lid'));
 
     // Check if messageType is present
     const messageType = payload.messageType || payload.type;
     const isProtocol = messageType === 'protocolMessage' || messageType === 'senderKeyDistributionMessage';
 
-    if (rawSender && rawSender.includes('status@broadcast')) {
+    if (groupIndicatorFields.some(f => f.includes('status@broadcast'))) {
         console.log('[Webhook] Ignoring Status Update (status@broadcast).');
         return res.json({ status: 'ignored_status' });
     }
 
     if (isGroup) {
-        console.log('[Webhook] Ignoring Group Message.');
+        console.log(`[Webhook] Ignoring Group Message. Detected via field: "${groupFieldMatch}"`);
         return res.json({ status: 'ignored_group' });
     }
 
