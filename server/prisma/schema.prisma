@@ -25,6 +25,7 @@ model Company {
   users            User[]
   xmlCatalogSources XmlCatalogSource[]
   leadSearchBalance Int                @default(0)
+  asaasCustomerId   String?
   leadSearches      LeadSearch[]
 }
 

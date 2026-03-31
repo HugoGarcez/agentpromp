@@ -3269,16 +3269,41 @@ app.post('/api/payments/asaas/create-charge', authenticateToken, async (req, res
         }
 
         const company = await prisma.company.findUnique({ where: { id: companyId } });
+        if (!company) return res.status(404).json({ error: 'Empresa não encontrada.' });
         
         console.log(`[Asaas] Creating charge for Company: ${companyId} (${company.name})`);
 
-        // Nota: O Asaas exige um CustomerId. Para simplificar, poderíamos criar um Customer
-        // ou usar o link de pagamento. Para este caso, vamos tentar enviar o externalReference.
+        let asaasCustomerId = company.asaasCustomerId;
+
+        // Se não tiver Customer ID, cria um no Asaas
+        if (!asaasCustomerId) {
+            try {
+                console.log(`[Asaas] Creating new Customer for: ${company.name}`);
+                const customerResponse = await axios.post('https://www.asaas.com/api/v3/customers', {
+                    name: company.name,
+                    externalReference: companyId
+                }, {
+                    headers: { 'access_token': config.asaasKey }
+                });
+                
+                asaasCustomerId = customerResponse.data.id;
+
+                // Salva o ID no banco para futuras cobranças
+                await prisma.company.update({
+                    where: { id: companyId },
+                    data: { asaasCustomerId }
+                });
+            } catch (custError) {
+                console.error('[Asaas] Customer Creation Error:', custError.response?.data || custError.message);
+                return res.status(500).json({ error: 'Erro ao cadastrar cliente no Asaas.' });
+            }
+        }
+
         const asaasUrl = 'https://www.asaas.com/api/v3/payments';
 
         const response = await axios.post(asaasUrl, {
-            customer: 'generic_customer', 
-            billingType: 'UNDEFINED',
+            customer: asaasCustomerId, 
+            billingType: 'UNDEFINED', // Permite Cartão ou Pix
             value: 19.90,
             dueDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
             description: `Recarga Lead Finder (+3) - ${company.name}`,
