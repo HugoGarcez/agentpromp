@@ -1525,6 +1525,7 @@ function applyXmlMapping(item, fieldMapping) {
         stock: get(fieldMapping.stock),
         productUrl: get(fieldMapping.productUrl),
         category: get(fieldMapping.category),
+        color: get(fieldMapping.color),
         material: get(fieldMapping.material),
         extraRules: get(fieldMapping.extraRules),
     };
@@ -1566,6 +1567,7 @@ async function xmlCatalogSyncWorker(source) {
                 hasPaymentLink: !!mapped.productUrl,
                 paymentLink: mapped.productUrl || '',
                 category: mapped.category || '',
+                color: mapped.color || '',
                 material: mapped.material || '',
                 extraRules: mapped.extraRules || '',
                 active: true,

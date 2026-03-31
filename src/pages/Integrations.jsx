@@ -8,6 +8,7 @@ const XML_INTERNAL_FIELDS = [
     { key: 'description', label: 'Descrição',                     required: false },
     { key: 'imageUrl',    label: 'Imagem (URL)',                   required: false },
     { key: 'size',        label: 'Tamanho / Variação',             required: false },
+    { key: 'color',       label: 'Cor',                           required: false },
     { key: 'price',       label: 'Preço',                         required: false },
     { key: 'stock',       label: 'Estoque',                       required: false },
     { key: 'productUrl',  label: 'Link do Produto',                required: false },
