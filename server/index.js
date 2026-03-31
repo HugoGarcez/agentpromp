@@ -1504,8 +1504,15 @@ function parseXmlToProducts(xmlContent) {
 function applyXmlMapping(item, fieldMapping) {
     const get = (key) => {
         if (!key || !item) return '';
-        const val = item[key];
+        let val = item[key];
         if (val === undefined || val === null) return '';
+        
+        // Se o valor for um objeto (comum no fast-xml-parser para atributos ou nós com texto), 
+        // tentamos pegar o texto principal ou converter para string.
+        if (typeof val === 'object') {
+            val = val['#text'] || val._ || val.text || JSON.stringify(val);
+        }
+        
         return String(val).trim();
     };
 
@@ -1576,7 +1583,6 @@ async function xmlCatalogSyncWorker(source) {
                 lastSyncMessage: `${mappedProducts.length} produtos importados`,
                 productCount: mappedProducts.length,
                 products: JSON.stringify(mappedProducts),
-                nextRunAt: nextRun
             }
         });
 
