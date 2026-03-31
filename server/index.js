@@ -2968,7 +2968,9 @@ app.post('/api/admin/config', authenticateToken, async (req, res) => {
             googleClientSecret,
             googleRedirectUri,
             googleMapsApiKey,
-            googlePlacesSearchRadius
+            googlePlacesSearchRadius,
+            asaasKey,
+            asaasWebhookToken
         } = req.body;
 
         console.log('[GlobalConfig] Received Payload:', JSON.stringify(req.body, null, 2));
@@ -2984,7 +2986,9 @@ app.post('/api/admin/config', authenticateToken, async (req, res) => {
             googleClientSecret,
             googleRedirectUri,
             googleMapsApiKey,
-            googlePlacesSearchRadius: googlePlacesSearchRadius ? parseInt(googlePlacesSearchRadius) : 5000
+            googlePlacesSearchRadius: googlePlacesSearchRadius ? parseInt(googlePlacesSearchRadius) : 5000,
+            asaasKey,
+            asaasWebhookToken
         };
 
         if (existing) {
@@ -3038,11 +3042,43 @@ app.post('/api/leads/test-connection', authenticateToken, async (req, res) => {
 // Search Leads via Google Places API (New)
 app.post('/api/leads/search', authenticateToken, async (req, res) => {
     try {
+        const companyId = req.user.companyId;
         const { segment, region, radius, maxResults } = req.body;
 
         if (!segment || !region) {
             return res.status(400).json({ error: 'Segmento e região são obrigatórios.' });
         }
+
+        // --- CHECK LIMITS ---
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const searchCount = await prisma.leadSearch.count({
+            where: {
+                companyId,
+                createdAt: { gte: sevenDaysAgo }
+            }
+        });
+
+        const company = await prisma.company.findUnique({
+            where: { id: companyId },
+            select: { leadSearchBalance: true }
+        });
+
+        const freeLimit = 3;
+        const hasBalance = (company?.leadSearchBalance || 0) > 0;
+        const isBlocked = searchCount >= freeLimit && !hasBalance;
+
+        if (isBlocked) {
+            return res.status(403).json({
+                error: 'LIMIT_REACHED',
+                message: 'Você atingiu o limite semanal de 3 consultas gratuitas.',
+                paymentLink: 'https://buy.asaas.com/placeholder-lead-finder', // Substituir pelo link real
+                searchCount,
+                freeLimit
+            });
+        }
+        // --------------------
 
         const globalConfig = await prisma.globalConfig.findFirst();
         const apiKey = globalConfig?.googleMapsApiKey;
@@ -3185,6 +3221,19 @@ app.post('/api/leads/search', authenticateToken, async (req, res) => {
         }
 
         console.log(`[LeadFinder] Returning ${leads.length} leads for "${segment}" in "${region}"`);
+
+        // Record Search & Update Balance
+        await prisma.leadSearch.create({
+            data: { companyId }
+        });
+
+        if (searchCount >= freeLimit && hasBalance) {
+            await prisma.company.update({
+                where: { id: companyId },
+                data: { leadSearchBalance: { decrement: 1 } }
+            });
+        }
+
         res.json({ leads, fromCache: false });
 
     } catch (e) {
@@ -3206,6 +3255,108 @@ app.post('/api/leads/search', authenticateToken, async (req, res) => {
         }
 
         res.status(500).json({ error: `Erro interno na busca: ${e.message}` });
+    }
+});
+
+// Create Asaas Charge for Lead Finder
+app.post('/api/payments/asaas/create-charge', authenticateToken, async (req, res) => {
+    try {
+        const companyId = req.user.companyId;
+        const config = await getGlobalConfig();
+
+        if (!config?.asaasKey) {
+            return res.status(400).json({ error: 'Configuração do Asaas (API Key) não encontrada.' });
+        }
+
+        const company = await prisma.company.findUnique({ where: { id: companyId } });
+        
+        console.log(`[Asaas] Creating charge for Company: ${companyId} (${company.name})`);
+
+        // Nota: O Asaas exige um CustomerId. Para simplificar, poderíamos criar um Customer
+        // ou usar o link de pagamento. Para este caso, vamos tentar enviar o externalReference.
+        const asaasUrl = 'https://www.asaas.com/api/v3/payments';
+
+        const response = await axios.post(asaasUrl, {
+            customer: 'generic_customer', 
+            billingType: 'UNDEFINED',
+            value: 19.90,
+            dueDate: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+            description: `Recarga Lead Finder (+3) - ${company.name}`,
+            externalReference: companyId,
+            postalService: false
+        }, {
+            headers: { 'access_token': config.asaasKey }
+        });
+
+        res.json({ invoiceUrl: response.data.invoiceUrl });
+    } catch (e) {
+        console.error('[Asaas] Create Charge Error:', e.response?.data || e.message);
+        const errorMsg = e.response?.data?.errors?.[0]?.description || 'Falha ao gerar cobrança no Asaas.';
+        res.status(500).json({ error: errorMsg });
+    }
+});
+
+// Asaas Webhook for Payment Confirmation
+app.post('/api/webhooks/asaas', async (req, res) => {
+    try {
+        const payload = req.body;
+        const event = payload.event;
+        const companyId = payload.payment?.externalReference;
+        const tokenReceived = req.headers['asaas-access-token'];
+
+        console.log(`[Asaas Webhook] Event: ${event}, Company: ${companyId}`);
+
+        const config = await getGlobalConfig();
+        if (config?.asaasWebhookToken && tokenReceived !== config.asaasWebhookToken) {
+            console.warn('[Asaas Webhook] Invalid Token Received');
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        if (event === 'PAYMENT_CONFIRMED' || event === 'PAYMENT_RECEIVED') {
+            if (companyId) {
+                await prisma.company.update({
+                    where: { id: companyId },
+                    data: { leadSearchBalance: { increment: 3 } }
+                });
+                console.log(`[Asaas Webhook] Success: Added 3 credits to Company ${companyId}`);
+            }
+        }
+
+        res.json({ received: true });
+    } catch (e) {
+        console.error('[Asaas Webhook] Error:', e.message);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// Get Lead Finder Usage Stats
+app.get('/api/leads/stats', authenticateToken, async (req, res) => {
+    try {
+        const companyId = req.user.companyId;
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const searchCount = await prisma.leadSearch.count({
+            where: {
+                companyId,
+                createdAt: { gte: sevenDaysAgo }
+            }
+        });
+
+        const company = await prisma.company.findUnique({
+            where: { id: companyId },
+            select: { leadSearchBalance: true }
+        });
+
+        res.json({
+            searchCount,
+            freeLimit: 3,
+            balance: company?.leadSearchBalance || 0,
+            isBlocked: searchCount >= 3 && (company?.leadSearchBalance || 0) <= 0
+        });
+    } catch (e) {
+        console.error('[LeadFinder] Stats Error:', e.message);
+        res.status(500).json({ error: 'Falha ao buscar estatísticas do Lead Finder' });
     }
 });
 

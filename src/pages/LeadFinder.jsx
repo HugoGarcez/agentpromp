@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Search, Download, MapPin, Star, Phone, Globe, Filter, AlertTriangle, CheckCircle, XCircle, Loader, ExternalLink } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -23,6 +23,25 @@ const LeadFinder = () => {
     const [sortBy, setSortBy] = useState('rating'); // rating, totalRatings
     const [sortDir, setSortDir] = useState('desc');
     const [filterActive, setFilterActive] = useState(false);
+    const [stats, setStats] = useState({ searchCount: 0, freeLimit: 3, balance: 0, isBlocked: false });
+    const [recharging, setRecharging] = useState(false);
+
+    const fetchStats = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/leads/stats', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (res.ok) setStats(data);
+        } catch (e) {
+            console.error('Erro ao buscar stats:', e);
+        }
+    };
+
+    useEffect(() => {
+        fetchStats();
+    }, []);
 
     const handleSearch = async () => {
         if (!segment.trim() || !region.trim()) {
@@ -65,6 +84,28 @@ const LeadFinder = () => {
             setError(`Erro de conexão: ${e.message}`);
         } finally {
             setLoading(false);
+            fetchStats();
+        }
+    };
+
+    const handleReleaseCredits = async () => {
+        setRecharging(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/payments/asaas/create-charge', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (res.ok && data.invoiceUrl) {
+                window.open(data.invoiceUrl, '_blank');
+            } else {
+                alert(data.error || 'Erro ao gerar cobrança. Verifique as configurações do Asaas no Admin.');
+            }
+        } catch (e) {
+            alert('Erro de conexão ao gerar cobrança.');
+        } finally {
+            setRecharging(false);
         }
     };
 
@@ -346,31 +387,84 @@ const LeadFinder = () => {
                     </div>
                 </div>
 
-                {/* Cost Warning */}
+                {/* Limit Info */}
                 <div style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '10px 14px', borderRadius: '8px',
-                    background: '#FFFBEB', border: '1px solid #FCD34D',
-                    fontSize: '12px', color: '#92400E'
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '12px 16px', borderRadius: '10px',
+                    background: stats.isBlocked ? '#FEF2F2' : '#F0F9FF', 
+                    border: `1px solid ${stats.isBlocked ? '#FECACA' : '#BAE6FD'}`,
+                    fontSize: '13px', color: stats.isBlocked ? '#991B1B' : '#0369A1'
                 }}>
-                    <AlertTriangle size={14} />
-                    <span>
-                        <strong>Aviso de custo:</strong> Cada busca consome créditos da Google Maps API (~$0.017/detalhe).
-                        Uma busca de {maxResults} leads custa aproximadamente ${(maxResults * 0.017).toFixed(2)}.
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <AlertTriangle size={16} />
+                        <span>
+                            {stats.isBlocked 
+                                ? <strong>Limite atingido!</strong>
+                                : <>Você usou <strong>{stats.searchCount} de {stats.freeLimit}</strong> consultas gratuitas esta semana.</>
+                            }
+                        </span>
+                    </div>
+                    {stats.balance > 0 && (
+                        <div style={{ 
+                            background: '#10B981', color: 'white', padding: '2px 8px', 
+                            borderRadius: '6px', fontSize: '11px', fontWeight: 700 
+                        }}>
+                            +{stats.balance} CONSULTAS EXTRAS
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Error Message */}
+            {/* Error Message & Limit Block */}
             {error && (
                 <div style={{
-                    display: 'flex', alignItems: 'center', gap: '10px',
-                    padding: '14px 18px', borderRadius: '12px', marginBottom: '20px',
-                    background: '#FEF2F2', border: '1px solid #FECACA', color: '#991B1B',
-                    fontSize: '14px', animation: 'fadeIn 0.3s ease'
+                    display: 'flex', flexDirection: 'column', gap: '16px',
+                    padding: '24px', borderRadius: '16px', marginBottom: '24px',
+                    background: error === 'LIMIT_REACHED' ? '#EEF2FF' : '#FEF2F2',
+                    border: `1px solid ${error === 'LIMIT_REACHED' ? '#C7D2FE' : '#FECACA'}`,
+                    color: error === 'LIMIT_REACHED' ? '#3730A3' : '#991B1B',
+                    animation: 'fadeIn 0.3s ease'
                 }}>
-                    <XCircle size={18} />
-                    {error}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {error === 'LIMIT_REACHED' ? <AlertTriangle size={24} /> : <XCircle size={24} />}
+                        <div style={{ flex: 1 }}>
+                            <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>
+                                {error === 'LIMIT_REACHED' ? 'Limite de Consultas Atingido' : 'Erro na Busca'}
+                            </h3>
+                            <p style={{ fontSize: '14px', opacity: 0.9 }}>
+                                {error === 'LIMIT_REACHED' 
+                                    ? 'Você atingiu o limite de 3 consultas gratuitas desta semana. Adquira mais consultas para continuar prospectando imediatamente.'
+                                    : error}
+                            </p>
+                        </div>
+                    </div>
+                    
+                    {error === 'LIMIT_REACHED' && (
+                        <div style={{ 
+                            display: 'flex', alignItems: 'center', gap: '12px', 
+                            padding: '16px', background: 'white', borderRadius: '12px'
+                        }}>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '12px', fontWeight: 600, color: '#6366F1', textTransform: 'uppercase' }}>Pacote Extra</div>
+                                <div style={{ fontSize: '18px', fontWeight: 800 }}>+3 Consultas</div>
+                                <div style={{ fontSize: '14px', color: '#6B7280' }}>R$ 19,90 pago uma única vez</div>
+                            </div>
+                            <button 
+                                onClick={handleReleaseCredits}
+                                disabled={recharging}
+                                style={{
+                                    padding: '12px 24px', borderRadius: '10px',
+                                    background: recharging ? '#94A3B8' : 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+                                    color: 'white', fontWeight: 700, fontSize: '14px',
+                                    border: 'none', cursor: recharging ? 'not-allowed' : 'pointer',
+                                    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)',
+                                    display: 'flex', alignItems: 'center', gap: '8px'
+                                }}
+                            >
+                                {recharging ? <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Gerando...</> : 'Liberar Agora'}
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 

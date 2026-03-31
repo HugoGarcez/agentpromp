@@ -24,6 +24,8 @@ model Company {
   tagTriggers      TagTrigger[]
   users            User[]
   xmlCatalogSources XmlCatalogSource[]
+  leadSearchBalance Int                @default(0)
+  leadSearches      LeadSearch[]
 }
 
 model User {
@@ -137,6 +139,8 @@ model GlobalConfig {
   googleRedirectUri        String?
   googleMapsApiKey         String?
   googlePlacesSearchRadius Int?     @default(5000)
+  asaasKey                 String?
+  asaasWebhookToken        String?
   updatedAt                DateTime @updatedAt
 }
 
@@ -259,4 +263,13 @@ model NotificationRead {
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, notificationId])
+}
+
+model LeadSearch {
+  id        String   @id @default(uuid())
+  companyId String
+  createdAt DateTime @default(now())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
 }

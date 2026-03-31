@@ -11,7 +11,9 @@ const AdminConfig = () => {
         googleClientSecret: '',
         googleRedirectUri: '',
         googleMapsApiKey: '',
-        googlePlacesSearchRadius: 5000
+        googlePlacesSearchRadius: 5000,
+        asaasKey: '',
+        asaasWebhookToken: ''
     });
     const [testingConnection, setTestingConnection] = useState(false);
     const [connectionResult, setConnectionResult] = useState(null);
@@ -36,7 +38,9 @@ const AdminConfig = () => {
                         googleClientSecret: data.googleClientSecret || '',
                         googleRedirectUri: data.googleRedirectUri || '',
                         googleMapsApiKey: data.googleMapsApiKey || '',
-                        googlePlacesSearchRadius: data.googlePlacesSearchRadius || 5000
+                        googlePlacesSearchRadius: data.googlePlacesSearchRadius || 5000,
+                        asaasKey: data.asaasKey || '',
+                        asaasWebhookToken: data.asaasWebhookToken || ''
                     });
                 }
             } catch (e) {
@@ -280,6 +284,45 @@ const AdminConfig = () => {
                             style={{ width: '200px', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
                         />
                         <small style={{ display: 'block', color: '#6B7280', marginTop: '4px' }}>Padrão: 5000m (5 km). Máximo: 50000m (50 km).</small>
+                    </div>
+                </div>
+
+                {/* Asaas Payments */}
+                <div style={{ marginBottom: '24px', borderTop: '1px solid #E5E7EB', paddingTop: '24px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: 600, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        💰 Asaas Payments (Lead Finder)
+                    </h3>
+                    <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '16px' }}>
+                        Configure as chaves do Asaas para automatizar a liberação de créditos (+3 consultas).
+                        Obtenha sua API Key em: Configurações &gt; Integrações.
+                    </p>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Asaas API Key</label>
+                        <input
+                            type="password"
+                            name="asaasKey"
+                            value={config.asaasKey || ''}
+                            onChange={handleChange}
+                            placeholder="Ex: $aak_ZW..."
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        />
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Webhook Token (Acesso)</label>
+                        <input
+                            type="password"
+                            name="asaasWebhookToken"
+                            value={config.asaasWebhookToken || ''}
+                            onChange={handleChange}
+                            placeholder="Defina um token para validar o webhook"
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        />
+                        <small style={{ color: '#6B7280' }}>
+                            Este token deve ser o mesmo configurado no painel do Asaas (Fila de Webhooks &gt; Token de Autenticação).
+                            URL do Webhook: <strong>{window.location.origin}/api/webhooks/asaas</strong>
+                        </small>
                     </div>
                 </div>
 
