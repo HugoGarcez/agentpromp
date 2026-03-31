@@ -168,6 +168,7 @@ model XmlCatalogSource {
   lastSyncStatus  String?   // "ok" | "error"
   lastSyncMessage String?
   productCount    Int       @default(0)
+  products        String?   // JSON com a lista de produtos deste catálogo
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)

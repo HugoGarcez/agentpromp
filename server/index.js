@@ -1541,53 +1541,31 @@ async function xmlCatalogSyncWorker(source) {
             : source.fieldMapping;
 
         const { items } = parseXmlToProducts(xmlContent);
+        const mappedProducts = [];
 
-        // Get first agent config for this company (products are company-wide)
-        const config = await prisma.agentConfig.findFirst({ where: { companyId: source.companyId } });
-        if (!config) throw new Error('No agent config found for company');
-
-        let productsMap = new Map();
-        const existing = config.products ? JSON.parse(config.products) : [];
-        existing.forEach(p => { if (p.name) productsMap.set(p.name.trim().toLowerCase(), p); });
-
-        // Clear existing XML-sourced products from this source before re-import
-        const filtered = existing.filter(p => p.xmlSourceId !== source.id);
-        filtered.forEach(p => { if (p.name) productsMap.set(p.name.trim().toLowerCase(), p); });
-
-        let count = 0;
         for (const item of items) {
             const mapped = applyXmlMapping(item, fieldMapping);
             if (!mapped.title) continue;
 
-            const key = mapped.title.trim().toLowerCase();
-            const prev = productsMap.get(key);
-
-            productsMap.set(key, {
-                id: prev?.id || `xml_${source.id}_${Date.now()}_${count}`,
+            mappedProducts.push({
+                id: `xml_${source.id}_${Date.now()}_${mappedProducts.length}`,
                 type: 'product',
                 name: mapped.title,
-                description: mapped.description || prev?.description || '',
-                image: mapped.imageUrl || prev?.image || null,
-                size: mapped.size || prev?.size || '',
-                price: mapped.price || prev?.price || '0.00',
-                stock: parseFloat(mapped.stock) || prev?.stock || 0,
+                description: mapped.description || '',
+                image: mapped.imageUrl || null,
+                size: mapped.size || '',
+                price: mapped.price || '0.00',
+                stock: parseFloat(mapped.stock) || 0,
                 hasPaymentLink: !!mapped.productUrl,
-                paymentLink: mapped.productUrl || prev?.paymentLink || '',
-                category: mapped.category || prev?.category || '',
-                material: mapped.material || prev?.material || '',
-                extraRules: mapped.extraRules || prev?.extraRules || '',
+                paymentLink: mapped.productUrl || '',
+                category: mapped.category || '',
+                material: mapped.material || '',
+                extraRules: mapped.extraRules || '',
                 active: true,
                 unit: 'Unidade',
                 xmlSourceId: source.id,
             });
-            count++;
         }
-
-        const mergedList = Array.from(productsMap.values());
-        await prisma.agentConfig.update({
-            where: { id: config.id },
-            data: { products: JSON.stringify(mergedList) }
-        });
 
         const nextRun = new Date(Date.now() + source.refreshMinutes * 60 * 1000);
         await prisma.xmlCatalogSource.update({
@@ -1595,13 +1573,15 @@ async function xmlCatalogSyncWorker(source) {
             data: {
                 lastSyncAt: new Date(),
                 lastSyncStatus: 'ok',
-                lastSyncMessage: `${count} produtos importados`,
-                productCount: count,
+                lastSyncMessage: `${mappedProducts.length} produtos importados`,
+                productCount: mappedProducts.length,
+                products: JSON.stringify(mappedProducts),
+                nextRunAt: nextRun
             }
         });
 
-        console.log(`[XML Catalog] Done: ${count} products synced for ${source.name}`);
-        return { success: true, count };
+        console.log(`[XML Catalog] Done: ${mappedProducts.length} products synced for ${source.name}`);
+        return { success: true, count: mappedProducts.length };
     } catch (err) {
         console.error(`[XML Catalog] Error syncing ${source.id}:`, err.message);
         await prisma.xmlCatalogSource.update({
@@ -2704,14 +2684,51 @@ const getCompanyConfig = async (companyId, agentId = null) => {
             try { return str ? JSON.parse(str) : undefined; } catch (e) { return undefined; }
         };
 
+        const parsedCatalogConfig = safeParse(config.catalogConfig);
+        let products = safeParse(config.products) || [];
+
+        // Filter out legacy XML products saved directly in AgentConfig to avoid duplicates
+        // with the new dynamic loading system.
+        products = products.filter(p => !p.xmlSourceId);
+
+        // Fetch products from independent XML sources linked to this agent
+        if (parsedCatalogConfig && Array.isArray(parsedCatalogConfig.xmlSources) && parsedCatalogConfig.xmlSources.length > 0) {
+            try {
+                const xmlSources = await prisma.xmlCatalogSource.findMany({
+                    where: {
+                        id: { in: parsedCatalogConfig.xmlSources },
+                        companyId: companyId
+                    },
+                    select: { products: true, id: true, name: true }
+                });
+
+                xmlSources.forEach(source => {
+                    if (source.products) {
+                        try {
+                            const sourceProducts = JSON.parse(source.products);
+                            if (Array.isArray(sourceProducts)) {
+                                // Add source info to products for traceability
+                                const enriched = sourceProducts.map(p => ({ ...p, xmlSourceId: source.id, xmlSourceName: source.name }));
+                                products = [...products, ...enriched];
+                            }
+                        } catch (e) {
+                            console.error(`[Config] Error parsing products for XML source ${source.id}:`, e);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error(`[Config] Error fetching XML sources for agent ${agentId}:`, error);
+            }
+        }
+
         return {
             ...config,
             persona: safeParse(config.persona),
             integrations: safeParse(config.integrations),
-            products: safeParse(config.products),
+            products: products,
             knowledgeBase: safeParse(config.knowledgeBase),
             followUpConfig: safeParse(config.followUpConfig),
-            catalogConfig: safeParse(config.catalogConfig),
+            catalogConfig: parsedCatalogConfig,
             transferConfig: safeParse(config.transferConfig),
             specialists: config.company?.specialists || [],
             appointmentTypes: config.company?.appointmentTypes || [],
