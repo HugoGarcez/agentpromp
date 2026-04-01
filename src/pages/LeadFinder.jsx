@@ -2,6 +2,31 @@ import React, { useState, useEffect } from 'react';
 import { Search, Download, MapPin, Star, Phone, Globe, Filter, AlertTriangle, CheckCircle, XCircle, Loader, ExternalLink } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
+const LeadResetTimer = ({ nextReset }) => {
+    const [timeLeft, setTimeLeft] = useState('');
+
+    useEffect(() => {
+        if (!nextReset) return;
+        const calculate = () => {
+            const now = new Date().getTime();
+            const distance = new Date(nextReset).getTime() - now;
+            if (distance < 0) {
+                setTimeLeft('Expira em breve...');
+                return;
+            }
+            const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+            setTimeLeft(`${days}d ${hours}h ${minutes}m`);
+        };
+        calculate();
+        const timer = setInterval(calculate, 60000);
+        return () => clearInterval(timer);
+    }, [nextReset]);
+
+    return timeLeft;
+};
+
 const LeadFinder = () => {
     const { user } = useAuth();
 
@@ -23,7 +48,14 @@ const LeadFinder = () => {
     const [sortBy, setSortBy] = useState('rating'); // rating, totalRatings
     const [sortDir, setSortDir] = useState('desc');
     const [filterActive, setFilterActive] = useState(false);
-    const [stats, setStats] = useState({ searchCount: 0, freeLimit: 3, balance: 0, isBlocked: false });
+    const [stats, setStats] = useState({ 
+        leadsUsedThisCycle: 0, 
+        freeLimit: 60, 
+        extraBalance: 0, 
+        totalAvailable: 0,
+        nextReset: null,
+        isBlocked: false 
+    });
     const [recharging, setRecharging] = useState(false);
 
     const fetchStats = async () => {
@@ -382,21 +414,35 @@ const LeadFinder = () => {
                     border: `1px solid ${stats.isBlocked ? '#FECACA' : '#BAE6FD'}`,
                     fontSize: '13px', color: stats.isBlocked ? '#991B1B' : '#0369A1'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <AlertTriangle size={16} />
                         <span>
                             {stats.isBlocked 
                                 ? <strong>Limite atingido!</strong>
-                                : <>Você usou <strong>{stats.searchCount} de {stats.freeLimit}</strong> consultas gratuitas esta semana.</>
+                                : <>Você usou <strong>{stats.leadsUsedThisCycle} de {stats.freeLimit}</strong> leads gratuitos esta semana.</>
                             }
                         </span>
+                        <span style={{ margin: '0 8px', opacity: 0.5 }}>|</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            Seu limite reseta em: <strong><LeadResetTimer nextReset={stats.nextReset} /></strong>
+                        </span>
+                        <span style={{ margin: '0 8px', opacity: 0.5 }}>-</span>
+                        <span 
+                            onClick={handleReleaseCredits}
+                            style={{ 
+                                textDecoration: 'underline', cursor: 'pointer', fontWeight: 600,
+                                color: '#6366F1'
+                            }}
+                        >
+                            Você pode comprar leads adicionais aqui
+                        </span>
                     </div>
-                    {stats.balance > 0 && (
+                    {stats.extraBalance > 0 && (
                         <div style={{ 
-                            background: '#10B981', color: 'white', padding: '2px 8px', 
+                            background: '#10B981', color: 'white', padding: '4px 10px', 
                             borderRadius: '6px', fontSize: '11px', fontWeight: 700 
                         }}>
-                            +{stats.balance} CONSULTAS EXTRAS
+                            +{stats.extraBalance} LEADS EXTRAS
                         </div>
                     )}
                 </div>
@@ -416,11 +462,11 @@ const LeadFinder = () => {
                         {error === 'LIMIT_REACHED' ? <AlertTriangle size={24} /> : <XCircle size={24} />}
                         <div style={{ flex: 1 }}>
                             <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '4px' }}>
-                                {error === 'LIMIT_REACHED' ? 'Limite de Consultas Atingido' : 'Erro na Busca'}
+                                {error === 'LIMIT_REACHED' ? 'Limite de Leads Atingido' : 'Erro na Busca'}
                             </h3>
                             <p style={{ fontSize: '14px', opacity: 0.9 }}>
                                 {error === 'LIMIT_REACHED' 
-                                    ? 'Você atingiu o limite de 3 consultas gratuitas desta semana. Adquira mais consultas para continuar prospectando imediatamente.'
+                                    ? 'Você atingiu o limite de 60 leads gratuitos desta semana. Adquira mais créditos de leads para continuar prospectando imediatamente.'
                                     : error}
                             </p>
                         </div>
@@ -434,7 +480,7 @@ const LeadFinder = () => {
                             }}>
                                 <div style={{ flex: 1 }}>
                                     <div style={{ fontSize: '12px', fontWeight: 600, color: '#6366F1', textTransform: 'uppercase' }}>Pacote Extra</div>
-                                    <div style={{ fontSize: '18px', fontWeight: 800 }}>+3 Consultas</div>
+                                    <div style={{ fontSize: '18px', fontWeight: 800 }}>+60 Leads</div>
                                     <div style={{ fontSize: '14px', color: '#6B7280' }}>R$ 19,90 pago uma única vez</div>
                                 </div>
                                 <button 

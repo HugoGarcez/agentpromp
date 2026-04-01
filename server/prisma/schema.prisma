@@ -266,12 +266,12 @@ model NotificationRead {
 
   @@unique([userId, notificationId])
 }
-
 model LeadSearch {
-  id        String   @id @default(uuid())
-  companyId String
-  createdAt DateTime @default(now())
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  companyId  String
+  leadsFound Int      @default(0)
+  createdAt  DateTime @default(now())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId, createdAt])
 }

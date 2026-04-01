@@ -3051,33 +3051,42 @@ app.post('/api/leads/search', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Segmento e região são obrigatórios.' });
         }
 
-        // --- CHECK LIMITS ---
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-        const searchCount = await prisma.leadSearch.count({
-            where: {
-                companyId,
-                createdAt: { gte: sevenDaysAgo }
-            }
-        });
-
+        // --- CHECK LIMITS (60 Leads per 7-day Cycle) ---
         const company = await prisma.company.findUnique({
             where: { id: companyId },
-            select: { leadSearchBalance: true }
+            select: { leadSearchBalance: true, createdAt: true }
         });
 
-        const freeLimit = 3;
-        const hasBalance = (company?.leadSearchBalance || 0) > 0;
-        const isBlocked = searchCount >= freeLimit && !hasBalance;
+        if (!company) return res.status(404).json({ error: 'Empresa não encontrada' });
 
-        if (isBlocked) {
+        const companyCreatedAt = new Date(company.createdAt);
+        const now = new Date();
+        const cycleMs = 7 * 24 * 60 * 60 * 1000;
+        const diffMs = now.getTime() - companyCreatedAt.getTime();
+        const currentCycleStart = new Date(companyCreatedAt.getTime() + (Math.floor(diffMs / cycleMs) * cycleMs));
+
+        // Count leads found in current cycle
+        const leadSearches = await prisma.leadSearch.findMany({
+            where: {
+                companyId,
+                createdAt: { gte: currentCycleStart }
+            },
+            select: { leadsFound: true }
+        });
+
+        const usedThisCycle = leadSearches.reduce((acc, curr) => acc + (curr.leadsFound || 0), 0);
+        const freeLimit = 60;
+        const extraBalance = company.leadSearchBalance || 0;
+        const remainingFree = Math.max(0, freeLimit - usedThisCycle);
+        const totalAvailable = remainingFree + extraBalance;
+
+        if (totalAvailable <= 0) {
             return res.status(403).json({
                 error: 'LIMIT_REACHED',
-                message: 'Você atingiu o limite semanal de 3 consultas gratuitas.',
-                paymentLink: 'https://buy.asaas.com/placeholder-lead-finder', // Substituir pelo link real
-                searchCount,
-                freeLimit
+                message: 'Você atingiu o limite semanal de 60 leads gratuitos.',
+                usedThisCycle,
+                freeLimit,
+                extraBalance
             });
         }
         // --------------------
@@ -3225,15 +3234,21 @@ app.post('/api/leads/search', authenticateToken, async (req, res) => {
         console.log(`[LeadFinder] Returning ${leads.length} leads for "${segment}" in "${region}"`);
 
         // Record Search & Update Balance
+        const leadsCount = leads.length;
         await prisma.leadSearch.create({
-            data: { companyId }
+            data: { 
+                companyId,
+                leadsFound: leadsCount
+            }
         });
 
-        if (searchCount >= freeLimit && hasBalance) {
+        if (leadsCount > remainingFree) {
+            const extraUsed = leadsCount - remainingFree;
             await prisma.company.update({
                 where: { id: companyId },
-                data: { leadSearchBalance: { decrement: 1 } }
+                data: { leadSearchBalance: { decrement: extraUsed } }
             });
+            console.log(`[LeadFinder] Used ${extraUsed} extra lead credits for Company ${companyId}`);
         }
 
         res.json({ leads, fromCache: false });
@@ -3372,9 +3387,9 @@ app.post('/api/webhooks/asaas', async (req, res) => {
             if (targetCompanyId) {
                 await prisma.company.update({
                     where: { id: targetCompanyId },
-                    data: { leadSearchBalance: { increment: 3 } }
+                    data: { leadSearchBalance: { increment: 60 } }
                 });
-                console.log(`[Asaas Webhook] Success: Added 3 credits to Company ${targetCompanyId}`);
+                console.log(`[Asaas Webhook] Success: Added 60 lead credits to Company ${targetCompanyId}`);
             } else {
                 console.warn('[Asaas Webhook] No company identified for this payment');
             }
@@ -3391,28 +3406,46 @@ app.post('/api/webhooks/asaas', async (req, res) => {
 app.get('/api/leads/stats', authenticateToken, async (req, res) => {
     try {
         const companyId = req.user.companyId;
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-        const searchCount = await prisma.leadSearch.count({
-            where: {
-                companyId,
-                createdAt: { gte: sevenDaysAgo }
-            }
-        });
-
         const company = await prisma.company.findUnique({
             where: { id: companyId },
-            select: { leadSearchBalance: true }
+            select: { leadSearchBalance: true, createdAt: true }
         });
+
+        if (!company) return res.status(404).json({ error: 'Empresa não encontrada' });
+
+        // Lead Cycle Logic (7 Days)
+        const companyCreatedAt = new Date(company.createdAt);
+        const now = new Date();
+        const cycleMs = 7 * 24 * 60 * 60 * 1000;
+        const diffMs = now.getTime() - companyCreatedAt.getTime();
+        const currentCycleStartMs = companyCreatedAt.getTime() + (Math.floor(diffMs / cycleMs) * cycleMs);
+        const currentCycleStart = new Date(currentCycleStartMs);
+        const nextReset = new Date(currentCycleStartMs + cycleMs);
+
+        // Count leads found in current cycle
+        const leadSearches = await prisma.leadSearch.findMany({
+            where: {
+                companyId,
+                createdAt: { gte: currentCycleStart }
+            },
+            select: { leadsFound: true }
+        });
+
+        const leadsUsedThisCycle = leadSearches.reduce((acc, curr) => acc + (curr.leadsFound || 0), 0);
+        const freeLimit = 60;
+        const extraBalance = company.leadSearchBalance || 0;
+        const remainingFree = Math.max(0, freeLimit - leadsUsedThisCycle);
+        const totalAvailable = remainingFree + extraBalance;
 
         const config = await getGlobalConfig();
 
         res.json({
-            searchCount,
-            freeLimit: 3,
-            balance: company?.leadSearchBalance || 0,
-            isBlocked: searchCount >= 3 && (company?.leadSearchBalance || 0) <= 0,
+            leadsUsedThisCycle,
+            freeLimit,
+            extraBalance,
+            totalAvailable,
+            nextReset: nextReset.toISOString(),
+            isBlocked: totalAvailable <= 0,
             paymentLink: config?.asaasPaymentLink || null
         });
     } catch (e) {
