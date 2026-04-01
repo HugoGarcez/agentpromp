@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Building, Bot, Plus, Edit, Bell, CheckCircle, Trash2, Clock } from 'lucide-react';
+import { Users, Building, Bot, Plus, Edit, Bell, CheckCircle, Trash2, Clock, Coins } from 'lucide-react';
 import Modal from '../components/Modal';
 
 const STAT_Cards = ({ stats }) => (
@@ -43,6 +43,11 @@ const AdminDashboard = () => {
     const [isUserModalOpen, setIsUserModalOpen] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
     const [userFormData, setUserFormData] = useState({ email: '', password: '', role: 'USER', companyName: '' });
+
+    // Credit Modal State
+    const [isCreditModalOpen, setIsCreditModalOpen] = useState(false);
+    const [userForCredit, setUserForCredit] = useState(null);
+    const [creditAmount, setCreditAmount] = useState(0);
 
     // Notification State
     const [notifications, setNotifications] = useState([]);
@@ -156,6 +161,30 @@ const AdminDashboard = () => {
         setIsUserModalOpen(true);
     };
 
+    const openAddCredits = (user) => {
+        setUserForCredit(user);
+        setCreditAmount(0);
+        setIsCreditModalOpen(true);
+    };
+
+    const handleCreditSubmit = async (e) => {
+        e.preventDefault();
+        const token = localStorage.getItem('token');
+        const res = await fetch(`/api/admin/users/${userForCredit.id}/lead-credits`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ credits: parseInt(creditAmount) })
+        });
+
+        if (res.ok) {
+            setIsCreditModalOpen(false);
+            setUserForCredit(null);
+            alert('Créditos adicionados com sucesso!');
+        } else {
+            alert('Erro ao adicionar créditos');
+        }
+    };
+
     const openEditNotif = (notif) => {
         setCurrentNotif(notif);
         setNotifFormData({
@@ -261,9 +290,14 @@ const AdminDashboard = () => {
                                         </span>
                                     </td>
                                     <td style={{ padding: '16px' }}>
-                                        <button onClick={() => openEditUser(user)} style={{ color: '#4B5563', background: 'none', border: 'none', cursor: 'pointer' }} title="Editar">
-                                            <Edit size={18} />
-                                        </button>
+                                        <div style={{ display: 'flex', gap: '12px' }}>
+                                            <button onClick={() => openEditUser(user)} style={{ color: '#4B5563', background: 'none', border: 'none', cursor: 'pointer' }} title="Editar">
+                                                <Edit size={18} />
+                                            </button>
+                                            <button onClick={() => openAddCredits(user)} style={{ color: '#F59E0B', background: 'none', border: 'none', cursor: 'pointer' }} title="Adicionar Créditos LeadFinder">
+                                                <Coins size={18} />
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -437,6 +471,33 @@ const AdminDashboard = () => {
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
                         <button type="submit" style={{ backgroundColor: 'var(--primary-blue)', color: 'white', padding: '10px 20px', borderRadius: '6px', border: 'none', cursor: 'pointer' }}>
                             Salvar
+                        </button>
+                    </div>
+                </form>
+            </Modal>
+
+            {/* Credit Modal */}
+            <Modal isOpen={isCreditModalOpen} onClose={() => setIsCreditModalOpen(false)} title="Adicionar Créditos Lead Finder">
+                <form onSubmit={handleCreditSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {userForCredit && (
+                        <div style={{ padding: '12px', backgroundColor: '#F3F4F6', borderRadius: '4px', fontSize: '14px' }}>
+                            <strong>Empresa:</strong> {userForCredit.company?.name} <br/>
+                            <strong>Usuário:</strong> {userForCredit.email}
+                        </div>
+                    )}
+                    <div>
+                        <label style={{ display: 'block', fontSize: '14px', marginBottom: '4px' }}>Quantidade de Créditos</label>
+                        <input
+                            type="number" value={creditAmount}
+                            onChange={e => setCreditAmount(e.target.value)}
+                            required
+                            min="1"
+                            style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #D1D5DB' }}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+                        <button type="submit" style={{ backgroundColor: '#F59E0B', color: 'white', padding: '10px 20px', borderRadius: '6px', border: 'none', cursor: 'pointer' }}>
+                            Adicionar Créditos
                         </button>
                     </div>
                 </form>

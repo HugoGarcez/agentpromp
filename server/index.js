@@ -2660,6 +2660,25 @@ app.put('/api/admin/users/:id', authenticateAdmin, async (req, res) => {
     }
 });
 
+app.post('/api/admin/users/:id/lead-credits', authenticateAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { credits } = req.body;
+    
+    try {
+        const user = await prisma.user.findUnique({ where: { id } });
+        if (!user) return res.status(404).json({ message: 'Usuário não encontrado' });
+        
+        await prisma.company.update({
+            where: { id: user.companyId },
+            data: { leadSearchBalance: { increment: parseInt(credits) } }
+        });
+        
+        res.json({ success: true, message: 'Créditos inseridos com sucesso' });
+    } catch (error) {
+        console.error('Error adding credits:', error);
+        res.status(500).json({ message: 'Erro ao inserir créditos' });
+    }
+});
 
 // --- Configuration Routes (Protected) ---
 
