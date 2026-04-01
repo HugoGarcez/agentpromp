@@ -88,25 +88,12 @@ const LeadFinder = () => {
         }
     };
 
-    const handleReleaseCredits = async () => {
-        setRecharging(true);
-        try {
-            const token = localStorage.getItem('token');
-            const res = await fetch('/api/payments/asaas/create-charge', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await res.json();
-            if (res.ok && data.invoiceUrl) {
-                window.open(data.invoiceUrl, '_blank');
-            } else {
-                alert(data.error || 'Erro ao gerar cobrança. Verifique as configurações do Asaas no Admin.');
-            }
-        } catch (e) {
-            alert('Erro de conexão ao gerar cobrança.');
-        } finally {
-            setRecharging(false);
+    const handleReleaseCredits = () => {
+        if (!stats.paymentLink) {
+            alert('Configuração de pagamento incompleta. Contate o administrador.');
+            return;
         }
+        window.open(stats.paymentLink, '_blank');
     };
 
     // Sorting & Filtering
@@ -440,29 +427,37 @@ const LeadFinder = () => {
                     </div>
                     
                     {error === 'LIMIT_REACHED' && (
-                        <div style={{ 
-                            display: 'flex', alignItems: 'center', gap: '12px', 
-                            padding: '16px', background: 'white', borderRadius: '12px'
-                        }}>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '12px', fontWeight: 600, color: '#6366F1', textTransform: 'uppercase' }}>Pacote Extra</div>
-                                <div style={{ fontSize: '18px', fontWeight: 800 }}>+3 Consultas</div>
-                                <div style={{ fontSize: '14px', color: '#6B7280' }}>R$ 19,90 pago uma única vez</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            <div style={{ 
+                                display: 'flex', alignItems: 'center', gap: '12px', 
+                                padding: '16px', background: 'white', borderRadius: '12px'
+                            }}>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#6366F1', textTransform: 'uppercase' }}>Pacote Extra</div>
+                                    <div style={{ fontSize: '18px', fontWeight: 800 }}>+3 Consultas</div>
+                                    <div style={{ fontSize: '14px', color: '#6B7280' }}>R$ 19,90 pago uma única vez</div>
+                                </div>
+                                <button 
+                                    onClick={handleReleaseCredits}
+                                    style={{
+                                        padding: '12px 24px', borderRadius: '10px',
+                                        background: 'linear-gradient(135deg, #6366F1, #8B5CF6)',
+                                        color: 'white', fontWeight: 700, fontSize: '14px',
+                                        border: 'none', cursor: 'pointer',
+                                        boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)'
+                                    }}
+                                >
+                                    Liberar Agora
+                                </button>
                             </div>
-                            <button 
-                                onClick={handleReleaseCredits}
-                                disabled={recharging}
-                                style={{
-                                    padding: '12px 24px', borderRadius: '10px',
-                                    background: recharging ? '#94A3B8' : 'linear-gradient(135deg, #6366F1, #8B5CF6)',
-                                    color: 'white', fontWeight: 700, fontSize: '14px',
-                                    border: 'none', cursor: recharging ? 'not-allowed' : 'pointer',
-                                    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)',
-                                    display: 'flex', alignItems: 'center', gap: '8px'
-                                }}
-                            >
-                                {recharging ? <><Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> Gerando...</> : 'Liberar Agora'}
-                            </button>
+                            <div style={{ 
+                                padding: '10px 16px', background: '#F5F3FF', borderRadius: '8px',
+                                border: '1px solid #DDD6FE', fontSize: '13px', color: '#5B21B6',
+                                display: 'flex', alignItems: 'center', gap: '8px'
+                            }}>
+                                <AlertTriangle size={16} />
+                                <span><strong>Atenção:</strong> Para liberação automática, utilize o e-mail <strong>{user?.email}</strong> no checkout do Asaas.</span>
+                            </div>
                         </div>
                     )}
                 </div>

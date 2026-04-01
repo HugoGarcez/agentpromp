@@ -142,6 +142,7 @@ model GlobalConfig {
   googlePlacesSearchRadius Int?     @default(5000)
   asaasKey                 String?
   asaasWebhookToken        String?
+  asaasPaymentLink         String?
   updatedAt                DateTime @updatedAt
 }
 

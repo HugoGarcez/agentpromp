@@ -324,6 +324,21 @@ const AdminConfig = () => {
                             URL do Webhook: <strong>{window.location.origin}/api/webhooks/asaas</strong>
                         </small>
                     </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Link de Pagamento (Lead Finder)</label>
+                        <input
+                            type="text"
+                            name="asaasPaymentLink"
+                            value={config.asaasPaymentLink || ''}
+                            onChange={handleChange}
+                            placeholder="Cole o link de pagamento gerado no Asaas"
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        />
+                        <small style={{ color: '#6B7280' }}>
+                            Ao atingir o limite, o usuário será direcionado para este link.
+                        </small>
+                    </div>
                 </div>
 
                 <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: '24px', display: 'flex', justifyContent: 'flex-end' }}>

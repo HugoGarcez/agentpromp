@@ -2970,7 +2970,8 @@ app.post('/api/admin/config', authenticateToken, async (req, res) => {
             googleMapsApiKey,
             googlePlacesSearchRadius,
             asaasKey,
-            asaasWebhookToken
+            asaasWebhookToken,
+            asaasPaymentLink
         } = req.body;
 
         console.log('[GlobalConfig] Received Payload:', JSON.stringify(req.body, null, 2));
@@ -2988,7 +2989,8 @@ app.post('/api/admin/config', authenticateToken, async (req, res) => {
             googleMapsApiKey,
             googlePlacesSearchRadius: googlePlacesSearchRadius ? parseInt(googlePlacesSearchRadius) : 5000,
             asaasKey,
-            asaasWebhookToken
+            asaasWebhookToken,
+            asaasPaymentLink
         };
 
         if (existing) {
@@ -3338,12 +3340,43 @@ app.post('/api/webhooks/asaas', async (req, res) => {
         }
 
         if (event === 'PAYMENT_CONFIRMED' || event === 'PAYMENT_RECEIVED') {
-            if (companyId) {
+            let targetCompanyId = companyId;
+
+            // Se não tiver companyId (Payment Link estático), buscar pelo e-mail do cliente
+            if (!targetCompanyId && payload.payment?.customer && config?.asaasKey) {
+                try {
+                    const customerId = payload.payment.customer;
+                    console.log(`[Asaas Webhook] No externalRef. Fetching customer ${customerId} data...`);
+                    
+                    const custRes = await axios.get(`https://www.asaas.com/api/v3/customers/${customerId}`, {
+                        headers: { 'access_token': config.asaasKey }
+                    });
+
+                    const email = custRes.data.email;
+                    if (email) {
+                        const user = await prisma.user.findFirst({
+                            where: { email: email.toLowerCase() },
+                            select: { companyId: true }
+                        });
+                        
+                        if (user) {
+                            targetCompanyId = user.companyId;
+                            console.log(`[Asaas Webhook] Found company for email ${email}: ${targetCompanyId}`);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[Asaas Webhook] Error fetching customer email:', err.message);
+                }
+            }
+
+            if (targetCompanyId) {
                 await prisma.company.update({
-                    where: { id: companyId },
+                    where: { id: targetCompanyId },
                     data: { leadSearchBalance: { increment: 3 } }
                 });
-                console.log(`[Asaas Webhook] Success: Added 3 credits to Company ${companyId}`);
+                console.log(`[Asaas Webhook] Success: Added 3 credits to Company ${targetCompanyId}`);
+            } else {
+                console.warn('[Asaas Webhook] No company identified for this payment');
             }
         }
 
@@ -3373,11 +3406,14 @@ app.get('/api/leads/stats', authenticateToken, async (req, res) => {
             select: { leadSearchBalance: true }
         });
 
+        const config = await getGlobalConfig();
+
         res.json({
             searchCount,
             freeLimit: 3,
             balance: company?.leadSearchBalance || 0,
-            isBlocked: searchCount >= 3 && (company?.leadSearchBalance || 0) <= 0
+            isBlocked: searchCount >= 3 && (company?.leadSearchBalance || 0) <= 0,
+            paymentLink: config?.asaasPaymentLink || null
         });
     } catch (e) {
         console.error('[LeadFinder] Stats Error:', e.message);
