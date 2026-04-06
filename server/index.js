@@ -4014,7 +4014,8 @@ Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
                     p.variantItems.forEach(v => {
                         // Check if image exists (Variant OR Parent Fallback)
                         const hasImage = v.image || p.image;
-                        productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name} (${v.color || ''} ${v.size || ''}) | R$ ${v.price || p.price} | ${hasImage ? '[TEM_IMAGEM]' : ''}\n`;
+                        const varPriceDisplay = globalHidePrices ? priceDisplay : `R$ ${v.price || p.price}`;
+                        productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name} (${v.color || ''} ${v.size || ''}) | ${varPriceDisplay} | ${hasImage ? '[TEM_IMAGEM]' : ''}\n`;
                     });
                 } else {
                     // Simple Item - IMAGEM OBRIGATÓRIA
@@ -4643,12 +4644,15 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
 
                             const result = filtered.map(p => {
                                 // TRUNCATE EXTREMELY LARGE DATA (LIKE BASE64 IMAGES) TO NOT EXCEED TOKEN LIMITS!
+                                const globalHidePrices = config.catalogConfig?.hidePrices || false;
+                                const hideReason = config.catalogConfig?.hidePricesReason || 'Sob consulta';
                                 const safeVariants = (p.variantItems || []).map(v => ({
                                     id: String(v.id), // Stringify numbers to be safe
                                     name: v.name,
                                     color: v.color,
                                     size: v.size,
-                                    price: Number(v.price),
+                                    price: globalHidePrices ? null : Number(v.price),
+                                    priceDisplay: globalHidePrices ? `[PREÇO_OCULTO: ${hideReason}]` : `R$ ${Number(v.price || p.price)}`,
                                     hasImage: !!v.image // Tell AI it has an image, but do NOT send the base64 string
                                 }));
 
@@ -4657,14 +4661,15 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                     name: p.name,
                                     type: p.type === 'service' ? 'servico' : 'produto',
                                     description: String(p.description || '').substring(0, 500),
-                                    price: Number(p.price),
-                                    priceHidden: config.catalogConfig?.hidePrices || false,
+                                    price: globalHidePrices ? null : Number(p.price),
+                                    priceDisplay: globalHidePrices ? `[PREÇO_OCULTO: ${hideReason}]` : `R$ ${Number(p.price)}`,
+                                    priceHidden: globalHidePrices,
                                     unit: p.unit || 'Unidade',
                                     customUnit: p.customUnit || '',
-                                    paymentConditions: p.paymentConditions || '',
+                                    paymentConditions: globalHidePrices ? `[PREÇO_OCULTO: ${hideReason}]` : (p.paymentConditions || ''),
                                     paymentLink: p.paymentLink || '',
                                     hasPaymentLink: !!p.hasPaymentLink,
-                                    paymentPrices: p.paymentPrices || [], // Returns list of {label, price, active}
+                                    paymentPrices: globalHidePrices ? [] : (p.paymentPrices || []), // Returns list of {label, price, active}
                                     variantItems: safeVariants,
                                     visual_instruction: p.image
                                         ? `⚠️ PARA MOSTRAR FOTO DESTE PRODUTO, USE EXATAMENTE: [SHOW_IMAGE: ${p.id}]`
