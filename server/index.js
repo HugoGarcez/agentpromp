@@ -4941,12 +4941,9 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                         productCaption = resolved.caption;
                     }
                 } else {
-                    console.log(`[Chat] Image not found for ${targetId}`);
-                    // Append error to the previous text chunk or new text chunk
-                    messageChunks.push({
-                        type: 'text',
-                        content: `(⚠️ Erro: Imagem não encontrada para o ID: ${targetId})`
-                    });
+                    // Imagem não encontrada — logar apenas no servidor, NÃO enviar mensagem de erro ao cliente
+                    console.log(`[Chat] Image not found for ${targetId} — skipping silently (no error message sent to client)`);
+                    // NÃO adicionar chunk de erro. O produto simplesmente não terá imagem enviada.
                 }
 
                 lastIndex = globalImageRegex.lastIndex;
@@ -5581,58 +5578,86 @@ function resolveProductImageFromConfig(targetId, config) {
 
     const hidePrices = config.catalogConfig?.hidePrices || false;
 
-    // Check Parent (ID exact match)
+    // ─── PASS 1: EXACT ID MATCH (Parent and Variants) ───────────────────────────
     for (const p of products) {
+        // Check Parent - Exact ID
         if (String(p.id) === cleanId) {
             if (p.image) {
-                console.log(`[ImageResolution] FOUND by ID Match: ${cleanId}`);
+                console.log(`[ImageResolution] FOUND by exact parent ID: ${cleanId}`);
                 const caption = hidePrices ? p.name : `${p.name} - R$ ${p.price}`;
                 return { found: true, url: p.image, caption };
             } else {
-                // Produto encontrado mas SEM imagem cadastrada
                 console.log(`[ImageResolution] Product ${cleanId} exists but has NO IMAGE`);
-                return {
-                    found: false,
-                    productExists: true,
-                    productName: p.name,
-                    error: `O produto "${p.name}" não tem imagem cadastrada`
-                };
+                return { found: false, productExists: true, productName: p.name, error: `O produto "${p.name}" não tem imagem` };
             }
         }
 
-        // Check Parent (Name loose match - Fallback)
-        if (p.name && p.name.toLowerCase().includes(cleanId.toLowerCase())) {
-            if (p.image) {
-                console.log(`[ImageResolution] FOUND by Name Match: "${cleanId}" in "${p.name}"`);
-                const caption = hidePrices ? p.name : `${p.name} - R$ ${p.price}`;
-                return { found: true, url: p.image, caption };
-            }
-        }
-
-        // Check Variations
+        // Check Variants - Exact ID
         if (p.variantItems) {
             const variant = p.variantItems.find(v => String(v.id) === cleanId);
             if (variant) {
                 if (variant.image || p.image) {
                     const details = [variant.color, variant.size].filter(Boolean).join(' / ');
-                    console.log(`[ImageResolution] FOUND VARIANT by ID Match: ${cleanId} (Parent: ${p.name})`);
+                    console.log(`[ImageResolution] FOUND VARIANT by exact ID: ${cleanId} (Parent: ${p.name})`);
                     const caption = hidePrices ? `${p.name} - ${details}` : `${p.name} - ${details} - R$ ${variant.price || p.price}`;
                     return { found: true, url: variant.image || p.image, caption };
                 } else {
-                    // Variação encontrada mas sem imagem
-                    console.log(`[ImageResolution] Variant ${cleanId} exists but has NO IMAGE`);
-                    return {
-                        found: false,
-                        productExists: true,
-                        productName: `${p.name} - ${variant.color || ''} ${variant.size || ''}`.trim(),
-                        error: `A variação "${variant.color || ''} ${variant.size || ''}" de "${p.name}" não tem imagem cadastrada`
-                    };
+                    console.log(`[ImageResolution] Variant ${cleanId} found but has NO IMAGE`);
+                    return { found: false, productExists: true, error: `Variação sem imagem` };
                 }
             }
         }
     }
 
-    console.log(`[ImageResolution] NOT FOUND for Target: "${cleanId}"`);
+    // ─── PASS 2: WBUY NUMERIC ID FALLBACK ─────────────────────────────────────
+    // IDs Wbuy têm padrão: wbuy_{wbuyId}_{timestamp} ou var_{wbuyId}_{varId}_{timestamp}
+    // O timestamp muda a cada ressincronização, então tentamos extrair o wbuyId numérico.
+    const wbuyParentMatch = cleanId.match(/^wbuy_(\d+)_\d+$/);
+    const wbuyVarMatch = cleanId.match(/^var_(\d+)_(\d+)_\d+$/);
+
+    if (wbuyParentMatch) {
+        const wbuyId = wbuyParentMatch[1];
+        // Buscar produto cujo próprio ID começa com wbuy_{wbuyId}_
+        const found = products.find(p => String(p.id).startsWith(`wbuy_${wbuyId}_`));
+        if (found && found.image) {
+            console.log(`[ImageResolution] FOUND by wbuyId fallback: ${wbuyId} -> ${found.id}`);
+            const caption = hidePrices ? found.name : `${found.name} - R$ ${found.price}`;
+            return { found: true, url: found.image, caption };
+        }
+        if (found) {
+            return { found: false, productExists: true, productName: found.name, error: `Produto sem imagem` };
+        }
+    }
+
+    if (wbuyVarMatch) {
+        const wbuyId = wbuyVarMatch[1];
+        const varId = wbuyVarMatch[2];
+        // Buscar produto cujo ID começa com wbuy_{wbuyId}_ e variação com var_{wbuyId}_{varId}_
+        for (const p of products) {
+            if (String(p.id).startsWith(`wbuy_${wbuyId}_`) && p.variantItems) {
+                const variant = p.variantItems.find(v => String(v.id).startsWith(`var_${wbuyId}_${varId}_`));
+                if (variant && (variant.image || p.image)) {
+                    const details = [variant.color, variant.size].filter(Boolean).join(' / ');
+                    console.log(`[ImageResolution] FOUND VARIANT by wbuyId fallback: var_${wbuyId}_${varId} (Parent: ${p.name})`);
+                    const caption = hidePrices ? `${p.name} - ${details}` : `${p.name} - ${details} - R$ ${variant.price || p.price}`;
+                    return { found: true, url: variant.image || p.image, caption };
+                }
+            }
+        }
+    }
+
+    // ─── PASS 3: LOOSE NAME MATCH ──────────────────────────────────────────────
+    for (const p of products) {
+        if (p.name && p.name.toLowerCase().includes(cleanId.toLowerCase())) {
+            if (p.image) {
+                console.log(`[ImageResolution] FOUND by name match: "${cleanId}" in "${p.name}"`);
+                const caption = hidePrices ? p.name : `${p.name} - R$ ${p.price}`;
+                return { found: true, url: p.image, caption };
+            }
+        }
+    }
+
+    console.log(`[ImageResolution] NOT FOUND for: "${cleanId}"`);
     return { found: false, error: `Produto com ID ${cleanId} não encontrado` };
 };
 
