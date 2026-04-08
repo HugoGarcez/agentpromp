@@ -4119,12 +4119,16 @@ Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
                         // Check if image exists (Variant OR Parent Fallback)
                         const hasImage = v.image || p.image;
                         const varPriceDisplay = globalHidePrices ? priceDisplay : `R$ ${v.price || p.price}`;
-                        productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name} (${v.color || ''} ${v.size || ''}) | ${varPriceDisplay} | ${hasImage ? '[TEM_IMAGEM]' : ''}\n`;
+                        const varStock = (v.stock !== undefined && v.stock !== null) ? Number(v.stock) : null;
+                        const varStockDisplay = varStock !== null ? (varStock > 0 ? `Estoque: ${varStock}` : `SEM ESTOQUE`) : `Estoque: não informado`;
+                        productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name || ''} (${v.color || ''} ${v.size || ''}) | ${varPriceDisplay} | ${varStockDisplay} | ${hasImage ? '[TEM_IMAGEM]' : ''}\n`;
                     });
                 } else {
                     // Simple Item - IMAGEM OBRIGATÓRIA
                     const imageInstruction = p.image ? '[TEM_IMAGEM] ⚠️ USE: [SHOW_IMAGE: ' + p.id + ']' : '';
-                    productList += `  -- [ITEM ÚNICO] ID: ${p.id} | ${imageInstruction}\n`;
+                    const simpleStock = (p.stock !== undefined && p.stock !== null) ? Number(p.stock) : null;
+                    const simpleStockDisplay = simpleStock !== null ? (simpleStock > 0 ? `Estoque: ${simpleStock}` : `SEM ESTOQUE`) : `Estoque: não informado`;
+                    productList += `  -- [ITEM ÚNICO] ID: ${p.id} | ${simpleStockDisplay} | ${imageInstruction}\n`;
                 }
             });
 
@@ -4228,11 +4232,24 @@ A function list_available_products retorna cada produto com:
 - id: Use para tags [SHOW_IMAGE: ID] quando hasImage = true
 - hasImage: Se true, o produto tem imagem
 - hasVariations: Se true, produto tem variações de cor/tamanho
+- stock: Quantidade em estoque (produto simples). Null se tiver variações.
+- stockDisplay: Texto formatado do estoque (ex: "307 em estoque" ou "SEM ESTOQUE")
+- variantItems: Lista de variações, cada uma com:
+    - color: Cor da variação
+    - size: Tamanho da variação
+    - stock: Quantidade em estoque daquela variação específica
+    - stockDisplay: Texto formatado (ex: "1553 em estoque" ou "SEM ESTOQUE")
 
-EXEMPLO:
-Function retorna: {id: "1770083712009", name: "Camisa Herói", hasImage: true}
-Usuário: "Foto da camisa herói"
-Resposta: "Aqui está a foto! 👕 [SHOW_IMAGE: 1770083712009]"
+⚠️ REGRAS DE ESTOQUE:
+1. Para produtos COM variações: informe o estoque de CADA variação separadamente.
+   Ex: "Rubro: 307 un | Aço: 1553 un | Loteria: 761 un | Marinho: 18 un"
+2. Para produtos SIMPLES (sem variações): use o campo stockDisplay do produto.
+3. Se stockDisplay for "SEM ESTOQUE", informe ao cliente que não há disponibilidade.
+4. Se stockDisplay for "Estoque não informado", NÃO invente quantidade — diga "estoque não disponível".
+
+EXEMPLO DE ESTOQUE:
+Function retorna variação: {color: "Rubro", size: "Tam", stock: 307, stockDisplay: "307 em estoque"}
+Resposta: "A cor Rubro está disponível com 307 unidades em estoque."
 ═══════════════════════════════════════════════════════════════
 
 `;
@@ -4757,8 +4774,18 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                     size: v.size,
                                     price: globalHidePrices ? null : Number(v.price),
                                     priceDisplay: globalHidePrices ? `[PREÇO_OCULTO: ${hideReason}]` : `R$ ${Number(v.price || p.price)}`,
+                                    stock: (v.stock !== undefined && v.stock !== null) ? Number(v.stock) : 0,
+                                    stockDisplay: (v.stock !== undefined && v.stock !== null)
+                                        ? (Number(v.stock) > 0 ? `${Number(v.stock)} em estoque` : 'SEM ESTOQUE')
+                                        : 'Estoque não informado',
                                     hasImage: !!v.image // Tell AI it has an image, but do NOT send the base64 string
                                 }));
+
+                                // For simple products with no variants, use the top-level stock field
+                                const productStock = (p.stock !== undefined && p.stock !== null) ? Number(p.stock) : 0;
+                                const productStockDisplay = (p.stock !== undefined && p.stock !== null)
+                                    ? (Number(p.stock) > 0 ? `${Number(p.stock)} em estoque` : 'SEM ESTOQUE')
+                                    : 'Estoque não informado';
 
                                 return {
                                     id: String(p.id),
@@ -4768,6 +4795,8 @@ COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032
                                     price: globalHidePrices ? null : Number(p.price),
                                     priceDisplay: globalHidePrices ? `[PREÇO_OCULTO: ${hideReason}]` : `R$ ${Number(p.price)}`,
                                     priceHidden: globalHidePrices,
+                                    stock: safeVariants.length > 0 ? null : productStock,
+                                    stockDisplay: safeVariants.length > 0 ? 'Ver variações abaixo' : productStockDisplay,
                                     unit: p.unit || 'Unidade',
                                     customUnit: p.customUnit || '',
                                     paymentConditions: globalHidePrices ? `[PREÇO_OCULTO: ${hideReason}]` : (p.paymentConditions || ''),
