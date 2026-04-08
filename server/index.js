@@ -34,7 +34,7 @@ import {
     checkAvailability,
     createCalendarEvent
 } from './googleCalendar.js';
-import { sendPrompMessage, getPrompTags, applyPrompTag, sendPrompPresence, downloadAndDecryptWhatsAppMedia, getPrompUsers, getPrompQueues, setTicketInfo, createTicketNote } from './prompUtils.js';
+import { sendPrompMessage, getPrompTags, applyPrompTag, createPrompTag, updatePrompTag, deletePrompTag, sendPrompPresence, downloadAndDecryptWhatsAppMedia, getPrompUsers, getPrompQueues, setTicketInfo, createTicketNote } from './prompUtils.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -2124,6 +2124,77 @@ app.get('/api/tags/promp', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Error fetching Promp tags:', error);
         res.status(500).json({ message: 'Erro ao buscar tags no Promp.' });
+    }
+});
+
+app.post('/api/tags/promp/create', authenticateToken, async (req, res) => {
+    try {
+        const config = await prisma.company.findUnique({
+            where: { id: req.user.companyId },
+            select: { prompUuid: true, prompToken: true }
+        });
+
+        if (!config || !config.prompUuid || !config.prompToken) {
+            return res.status(400).json({ message: 'Integração com Promp não configurada.' });
+        }
+
+        const tagData = {
+            name: req.body.name,
+            color: req.body.color || '#2563eb',
+            isActive: req.body.isActive !== undefined ? req.body.isActive : true
+        };
+
+        const result = await createPrompTag(config, tagData);
+        res.json({ success: true, result });
+    } catch (error) {
+        console.error('Error creating Promp tag:', error);
+        res.status(500).json({ message: 'Erro ao criar etiqueta no Promp.' });
+    }
+});
+
+app.put('/api/tags/promp/:id', authenticateToken, async (req, res) => {
+    try {
+        const config = await prisma.company.findUnique({
+            where: { id: req.user.companyId },
+            select: { prompUuid: true, prompToken: true }
+        });
+
+        if (!config || !config.prompUuid || !config.prompToken) {
+            return res.status(400).json({ message: 'Integração com Promp não configurada.' });
+        }
+
+        const tagId = req.params.id;
+        const tagData = {
+            name: req.body.name,
+            color: req.body.color || '#2563eb',
+            isActive: req.body.isActive !== undefined ? req.body.isActive : true
+        };
+
+        const result = await updatePrompTag(config, tagId, tagData);
+        res.json({ success: true, result });
+    } catch (error) {
+        console.error('Error updating Promp tag:', error);
+        res.status(500).json({ message: 'Erro ao atualizar etiqueta no Promp.' });
+    }
+});
+
+app.delete('/api/tags/promp/:id', authenticateToken, async (req, res) => {
+    try {
+        const config = await prisma.company.findUnique({
+            where: { id: req.user.companyId },
+            select: { prompUuid: true, prompToken: true }
+        });
+
+        if (!config || !config.prompUuid || !config.prompToken) {
+            return res.status(400).json({ message: 'Integração com Promp não configurada.' });
+        }
+
+        const tagId = req.params.id;
+        const result = await deletePrompTag(config, tagId);
+        res.json({ success: true, result });
+    } catch (error) {
+        console.error('Error deleting Promp tag:', error);
+        res.status(500).json({ message: 'Erro ao excluir etiqueta no Promp.' });
     }
 });
 

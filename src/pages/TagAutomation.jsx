@@ -1,13 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Tag, Plus, Trash2, Webhook, Info } from 'lucide-react';
+import { Tag, Plus, Trash2, Webhook, Info, Settings, Edit2 } from 'lucide-react';
 import Modal from '../components/Modal';
 
 const TagAutomation = () => {
     const [prompTags, setPrompTags] = useState([]);
     const [triggers, setTriggers] = useState([]);
     const [loading, setLoading] = useState(true);
+    
+    // Modal Gatilho
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [formData, setFormData] = useState({ tagId: '', tagName: '', triggerCondition: '' });
+
+    // Modal Gerenciar Tags Promp
+    const [isManageModalOpen, setIsManageModalOpen] = useState(false);
+    const [tagFormData, setTagFormData] = useState({ id: '', name: '', color: '#2563EB', isActive: true });
+    const [isEditingTag, setIsEditingTag] = useState(false);
 
     useEffect(() => {
         fetchData();
@@ -47,11 +54,11 @@ const TagAutomation = () => {
         setFormData({
             ...formData,
             tagId: selectedId,
-            tagName: selectedTag ? selectedTag.tag : ''
+            tagName: selectedTag ? (selectedTag.name || selectedTag.tag) : ''
         });
     };
 
-    const handleSubmit = async (e) => {
+    const handleSubmitTrigger = async (e) => {
         e.preventDefault();
         const token = localStorage.getItem('token');
         try {
@@ -76,7 +83,7 @@ const TagAutomation = () => {
         }
     };
 
-    const handleDelete = async (id) => {
+    const handleDeleteTrigger = async (id) => {
         if (!window.confirm('Tem certeza que deseja remover este gatilho? A IA não aplicará mais essa etiqueta.')) return;
 
         const token = localStorage.getItem('token');
@@ -96,6 +103,57 @@ const TagAutomation = () => {
         }
     };
 
+    const handleSaveTag = async (e) => {
+        e.preventDefault();
+        const token = localStorage.getItem('token');
+        try {
+            const isUpdate = !!tagFormData.id;
+            const url = isUpdate ? `/api/tags/promp/${tagFormData.id}` : '/api/tags/promp/create';
+            const method = isUpdate ? 'PUT' : 'POST';
+            
+            const res = await fetch(url, {
+                method,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: tagFormData.name,
+                    color: tagFormData.color,
+                    isActive: tagFormData.isActive
+                })
+            });
+
+            if (res.ok) {
+                setTagFormData({ id: '', name: '', color: '#2563EB', isActive: true });
+                setIsEditingTag(false);
+                fetchData(); 
+            } else {
+                alert('Erro ao salvar etiqueta na Promp');
+            }
+        } catch (error) {
+            console.error('Erro ao salvar etiqueta:', error);
+        }
+    };
+
+    const handleDeleteTag = async (id) => {
+        if (!window.confirm('Excluir esta etiqueta do Promp? Requer que a etiqueta não esteja em uso ativo.')) return;
+        const token = localStorage.getItem('token');
+        try {
+            const res = await fetch(`/api/tags/promp/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                fetchData();
+            } else {
+                alert('Erro ao excluir etiqueta na Promp');
+            }
+        } catch (error) {
+            console.error('Erro ao excluir etiqueta:', error);
+        }
+    };
+
     return (
         <div style={{ padding: '24px', maxWidth: '900px', margin: '0 auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
@@ -106,28 +164,52 @@ const TagAutomation = () => {
                     </h2>
                     <p style={{ color: 'var(--text-medium)', marginTop: '4px' }}>Configure a IA para aplicar etiquetas do Promp automaticamente nos tickets durante conversas.</p>
                 </div>
-                <button
-                    onClick={() => setIsModalOpen(true)}
-                    style={{
-                        padding: '10px 16px',
-                        backgroundColor: 'var(--primary-blue)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        fontWeight: '500',
-                        boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)'
-                    }}
-                >
-                    <Plus size={18} /> Novo Gatilho
-                </button>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                    <button
+                        onClick={() => {
+                            setTagFormData({ id: '', name: '', color: '#2563EB', isActive: true });
+                            setIsEditingTag(false);
+                            setIsManageModalOpen(true);
+                        }}
+                        style={{
+                            padding: '10px 16px',
+                            backgroundColor: 'white',
+                            color: 'var(--text-dark)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontWeight: '500'
+                        }}
+                    >
+                        <Settings size={18} /> Gerenciar Etiquetas
+                    </button>
+
+                    <button
+                        onClick={() => setIsModalOpen(true)}
+                        style={{
+                            padding: '10px 16px',
+                            backgroundColor: 'var(--primary-blue)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontWeight: '500',
+                            boxShadow: '0 2px 4px rgba(37, 99, 235, 0.2)'
+                        }}
+                    >
+                        <Plus size={18} /> Novo Gatilho
+                    </button>
+                </div>
             </div>
 
             {loading ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-medium)' }}>Carregando gatilhos...</div>
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-medium)' }}>Carregando dados...</div>
             ) : (
                 <div style={{ background: 'var(--bg-white)', borderRadius: '12px', border: '1px solid var(--border-color)', overflow: 'hidden' }}>
                     {triggers.length === 0 ? (
@@ -147,7 +229,6 @@ const TagAutomation = () => {
                             </thead>
                             <tbody>
                                 {triggers.map((trigger) => {
-                                    // Tentar encontrar a tag correspondente para pegar a cor, se disponível
                                     const sourceTag = prompTags.find(t => String(t.id) === String(trigger.tagId));
                                     const tagColor = sourceTag ? sourceTag.color : '#2563EB';
 
@@ -173,7 +254,7 @@ const TagAutomation = () => {
                                             </td>
                                             <td style={{ padding: '16px', textAlign: 'right' }}>
                                                 <button
-                                                    onClick={() => handleDelete(trigger.id)}
+                                                    onClick={() => handleDeleteTrigger(trigger.id)}
                                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', padding: '4px' }}
                                                     title="Remover Gatilho"
                                                 >
@@ -189,9 +270,9 @@ const TagAutomation = () => {
                 </div>
             )}
 
+            {/* MODAL: Configurar Novo Gatilho */}
             <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Configurar Novo Gatilho">
-                <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
+                <form onSubmit={handleSubmitTrigger} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ backgroundColor: '#EFF6FF', padding: '12px', borderRadius: '8px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
                         <Info size={20} color="#2563EB" style={{ flexShrink: 0, marginTop: '2px' }} />
                         <p style={{ fontSize: '13px', color: '#1E3A8A', margin: 0, lineHeight: '1.5' }}>
@@ -216,7 +297,7 @@ const TagAutomation = () => {
                             >
                                 <option value="">Selecione uma etiqueta para aplicar...</option>
                                 {prompTags.map(tag => (
-                                    <option key={tag.id} value={tag.id}>{tag.tag}</option>
+                                    <option key={tag.id} value={tag.id}>{tag.name || tag.tag}</option>
                                 ))}
                             </select>
                         )}
@@ -253,6 +334,128 @@ const TagAutomation = () => {
                     </div>
                 </form>
             </Modal>
+
+            {/* MODAL: Gerenciar Etiquetas do Promp */}
+            <Modal isOpen={isManageModalOpen} onClose={() => {
+                setIsManageModalOpen(false);
+                setIsEditingTag(false);
+            }} title="Gerenciar Etiquetas (Promp)">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    
+                    {/* Formulário de Criação/Edição */}
+                    <form onSubmit={handleSaveTag} style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '8px', backgroundColor: '#F9FAFB' }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: 'var(--text-dark)' }}>
+                            {isEditingTag ? 'Editar Etiqueta' : 'Criar Nova Etiqueta'}
+                        </h3>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-medium)', marginBottom: '4px' }}>Nome</label>
+                                <input 
+                                    type="text" 
+                                    value={tagFormData.name} 
+                                    onChange={e => setTagFormData({...tagFormData, name: e.target.value})}
+                                    placeholder="Ex: Comercial"
+                                    required
+                                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)' }}
+                                />
+                            </div>
+                            <div style={{ width: '60px' }}>
+                                <label style={{ display: 'block', fontSize: '12px', color: 'var(--text-medium)', marginBottom: '4px' }}>Cor</label>
+                                <input 
+                                    type="color" 
+                                    value={tagFormData.color} 
+                                    onChange={e => setTagFormData({...tagFormData, color: e.target.value})}
+                                    style={{ width: '100%', height: '36px', padding: '0', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer' }}
+                                />
+                            </div>
+                            <button 
+                                type="submit" 
+                                style={{ padding: '8px 16px', backgroundColor: 'var(--primary-blue)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', height: '36px', fontWeight: '500' }}
+                            >
+                                {isEditingTag ? 'Atualizar' : 'Criar'}
+                            </button>
+                            {isEditingTag && (
+                                <button 
+                                    type="button" 
+                                    onClick={() => {
+                                        setTagFormData({ id: '', name: '', color: '#2563EB', isActive: true });
+                                        setIsEditingTag(false);
+                                    }}
+                                    style={{ padding: '8px 12px', backgroundColor: 'transparent', color: 'var(--text-medium)', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', height: '36px' }}
+                                >
+                                    Cancelar
+                                </button>
+                            )}
+                        </div>
+                    </form>
+
+                    {/* Lista de Etiquetas Existentes */}
+                    <div>
+                        <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: 'var(--text-dark)' }}>
+                            Etiquetas na Integração
+                        </h3>
+                        {prompTags.length === 0 ? (
+                            <p style={{ fontSize: '13px', color: 'var(--text-medium)', textAlign: 'center', padding: '20px' }}>Nenhuma etiqueta encontrada.</p>
+                        ) : (
+                            <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <tbody>
+                                        {prompTags.map(tag => (
+                                            <tr key={tag.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                                <td style={{ padding: '12px' }}>
+                                                    <span style={{
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px',
+                                                        backgroundColor: `${tag.color}15`,
+                                                        color: tag.color || '#2563EB',
+                                                        padding: '4px 12px',
+                                                        borderRadius: '16px',
+                                                        fontSize: '13px',
+                                                        fontWeight: '600'
+                                                    }}>
+                                                        <Tag size={12} /> {tag.name || tag.tag}
+                                                    </span>
+                                                </td>
+                                                <td style={{ padding: '12px', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                                                    <button 
+                                                        onClick={() => {
+                                                            setTagFormData({ id: tag.id, name: tag.name || tag.tag, color: tag.color || '#2563eb', isActive: true });
+                                                            setIsEditingTag(true);
+                                                        }}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-medium)' }}
+                                                    >
+                                                        <Edit2 size={16} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDeleteTag(tag.id)}
+                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444' }}
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+                        <button
+                            onClick={() => {
+                                setIsManageModalOpen(false);
+                                setIsEditingTag(false);
+                            }}
+                            style={{ padding: '10px 16px', backgroundColor: 'transparent', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', color: 'var(--text-medium)' }}
+                        >
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+            </Modal>
+
         </div>
     );
 };

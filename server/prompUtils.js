@@ -361,6 +361,62 @@ export const applyPrompTag = async (config, ticketId, tagId) => {
     }
 };
 
+export const createPrompTag = async (config, tagData) => {
+    if (!config.prompUuid || !config.prompToken) throw new Error('Credenciais Promp ausentes');
+    
+    const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/createTag`;
+    try {
+        const response = await axios.post(url, tagData, {
+            headers: {
+                'Authorization': `Bearer ${config.prompToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error('[Promp] Failed to Create Tag:', error.response?.data || error.message);
+        throw error;
+    }
+};
+
+export const updatePrompTag = async (config, tagId, tagData) => {
+    if (!config.prompUuid || !config.prompToken || !tagId) throw new Error('Credenciais Promp ou ID ausentes');
+    
+    // Note: Utiliza POST segundo a spec, mesmo sendo update
+    const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/updateTagData/${tagId}`;
+    try {
+        const response = await axios.post(url, tagData, {
+            headers: {
+                'Authorization': `Bearer ${config.prompToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error('[Promp] Failed to Update Tag:', error.response?.data || error.message);
+        throw error;
+    }
+};
+
+export const deletePrompTag = async (config, tagId) => {
+    if (!config.prompUuid || !config.prompToken || !tagId) throw new Error('Credenciais Promp ou ID ausentes');
+    
+    // Note: Utiliza POST segundo a spec, para deleção
+    const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/deleteTag/${tagId}`;
+    try {
+        const response = await axios.post(url, {}, {
+            headers: {
+                'Authorization': `Bearer ${config.prompToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error('[Promp] Failed to Delete Tag:', error.response?.data || error.message);
+        throw error;
+    }
+};
+
 // --- WHATSAPP MEDIA DECRYPTION ---
 export const downloadAndDecryptWhatsAppMedia = async (url, mediaKeyBase64, mediaType = 'audio') => {
     try {
