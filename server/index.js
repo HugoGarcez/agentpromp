@@ -5253,8 +5253,10 @@ app.get('/api/promp/channels', authenticateToken, async (req, res) => {
 
         // Map backend channels and embellish with DB links
         let finalChannels = [];
-        if (data && Array.isArray(data.channels)) {
-            finalChannels = data.channels.map(ch => {
+        const incomingChannels = Array.isArray(data) ? data : (data.channels || data.data || []);
+        
+        if (incomingChannels && Array.isArray(incomingChannels)) {
+            finalChannels = incomingChannels.map(ch => {
                 const dbMatch = linkedChannels.find(l => String(l.prompConnectionId) === String(ch.id) || String(l.prompConnectionId) === String(ch.wabaId) || String(l.name) === String(ch.name));
                 return {
                     ...ch,
