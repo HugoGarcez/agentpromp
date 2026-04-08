@@ -322,8 +322,10 @@ export const getPrompTags = async (config) => {
             headers: { 'Authorization': `Bearer ${config.prompToken}` }
         });
 
-        // A API retorna um objeto que contém o array 'tags'
-        return response.data?.tags || [];
+        // A API da Promp pode retornar um array direto ou um objeto com a chave tags/data
+        const responseData = response.data;
+        if (Array.isArray(responseData)) return responseData;
+        return responseData?.tags || responseData?.data || [];
     } catch (error) {
         console.error('[Promp] Failed to List Tags:', error.response?.data || error.message);
         return [];
