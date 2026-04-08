@@ -1221,6 +1221,22 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
 
             // Process Variations
             if (hasVariations) {
+                // Build a map of color photos from the parent product's photo array
+                // Wbuy stores variation photos in wp.fotos with id_cor linking to the color
+                const colorPhotoMap = new Map();
+                if (Array.isArray(wp.fotos)) {
+                    wp.fotos.forEach(foto => {
+                        const fotoUrl = foto.foto || foto.url || foto.imagem || foto.src || null;
+                        const colorId = foto.id_cor || foto.cor_id || foto.idCor;
+                        if (colorId && fotoUrl) {
+                            // Store first photo per color (or all if preferred)
+                            if (!colorPhotoMap.has(String(colorId))) {
+                                colorPhotoMap.set(String(colorId), fotoUrl);
+                            }
+                        }
+                    });
+                }
+
                 internalProduct.variantItems = wp.estoque.map(v => {
                     const colorVal = v.cor?.nome ? v.cor.nome.replace(productName, '').replace(/^[\s\-\|]+/, '').trim() : '';
                     const sizeVal = v.variacao?.valor ? v.variacao.valor.replace(productName, '').replace(/^[\s\-\|]+/, '').trim() : '';
@@ -1230,13 +1246,25 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
                         varPrice = parseFloat(v.valores[0].valor) || price;
                     }
 
+                    // Try to resolve the variation's color photo:
+                    // 1. Direct fields in the variation
+                    // 2. Via cor object
+                    // 3. Via colorPhotoMap (wp.fotos matched by id_cor)
+                    // 4. Fallback to parent image
+                    const colorId = v.cor?.id || v.id_cor || v.cor_id;
+                    const variantImage = 
+                        v.imagem || v.foto || v.image ||
+                        v.cor?.img || v.cor?.foto || v.cor?.imagem || v.cor?.image || v.cor?.url ||
+                        (colorId ? colorPhotoMap.get(String(colorId)) : null) ||
+                        null;
+
                     return {
                         id: `var_${wbuyId}_${v.id}_${Date.now()}`,
                         color: colorVal,
                         size: sizeVal,
                         price: varPrice.toFixed(2),
                         stock: parseFloat(v.quantidade_em_estoque) || 0,
-                        image: v.cor?.img || v.imagem || v.foto || v.cor?.foto || v.cor?.imagem || null,
+                        image: variantImage,
                         sku: v.sku || String(v.id)
                     };
                 });
@@ -4116,12 +4144,18 @@ Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
                 // Variations (Only for Products usually, but code handles generically)
                 if (p.variantItems && p.variantItems.length > 0) {
                     p.variantItems.forEach(v => {
-                        // Check if image exists (Variant OR Parent Fallback)
-                        const hasImage = v.image || p.image;
+                        // Check if image exists: prefer variant-specific image, fallback to parent image
+                        const varImage = v.image || p.image;
+                        const hasImage = !!varImage;
+                        // Use variant ID for SHOW_IMAGE when variant has its own image,
+                        // otherwise use parent product ID so the resolver falls back correctly
+                        const imageInstruction = hasImage
+                            ? `[TEM_IMAGEM] ⚠️ USE: [SHOW_IMAGE: ${v.id}]`
+                            : '';
                         const varPriceDisplay = globalHidePrices ? priceDisplay : `R$ ${v.price || p.price}`;
                         const varStock = (v.stock !== undefined && v.stock !== null) ? Number(v.stock) : null;
                         const varStockDisplay = varStock !== null ? (varStock > 0 ? `Estoque: ${varStock}` : `SEM ESTOQUE`) : `Estoque: não informado`;
-                        productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name || ''} (${v.color || ''} ${v.size || ''}) | ${varPriceDisplay} | ${varStockDisplay} | ${hasImage ? '[TEM_IMAGEM]' : ''}\n`;
+                        productList += `  -- [VARIAÇÃO] ID: ${v.id} | ${v.name || ''} (${v.color || ''} ${v.size || ''}) | ${varPriceDisplay} | ${varStockDisplay} | ${imageInstruction}\n`;
                     });
                 } else {
                     // Simple Item - IMAGEM OBRIGATÓRIA
