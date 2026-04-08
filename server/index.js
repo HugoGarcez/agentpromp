@@ -2236,6 +2236,39 @@ app.post('/api/tags/triggers', authenticateToken, async (req, res) => {
     }
 });
 
+// Update TagTrigger
+app.put('/api/tags/triggers/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { tagId, tagName, triggerCondition } = req.body;
+
+    if (!tagId || !tagName || !triggerCondition) {
+        return res.status(400).json({ message: 'Dados incompletos.' });
+    }
+
+    try {
+        const updatedTrigger = await prisma.tagTrigger.updateMany({
+            where: {
+                id,
+                companyId: req.user.companyId
+            },
+            data: {
+                tagId: Number(tagId),
+                tagName,
+                triggerCondition
+            }
+        });
+
+        if (updatedTrigger.count === 0) {
+            return res.status(404).json({ message: 'Gatilho não encontrado.' });
+        }
+
+        res.json({ message: 'Gatilho atualizado com sucesso.' });
+    } catch (error) {
+        console.error('Error updating TagTrigger:', error);
+        res.status(500).json({ message: 'Erro ao atualizar gatilho.' });
+    }
+});
+
 // Delete TagTrigger
 app.delete('/api/tags/triggers/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;

@@ -9,7 +9,7 @@ const TagAutomation = () => {
     
     // Modal Gatilho
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [formData, setFormData] = useState({ tagId: '', tagName: '', triggerCondition: '' });
+    const [formData, setFormData] = useState({ id: '', tagId: '', tagName: '', triggerCondition: '' });
 
     // Modal Gerenciar Tags Promp
     const [isManageModalOpen, setIsManageModalOpen] = useState(false);
@@ -62,8 +62,12 @@ const TagAutomation = () => {
         e.preventDefault();
         const token = localStorage.getItem('token');
         try {
-            const res = await fetch('/api/tags/triggers', {
-                method: 'POST',
+            const isUpdate = !!formData.id;
+            const url = isUpdate ? `/api/tags/triggers/${formData.id}` : '/api/tags/triggers';
+            const method = isUpdate ? 'PUT' : 'POST';
+
+            const res = await fetch(url, {
+                method: method,
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json'
@@ -73,7 +77,7 @@ const TagAutomation = () => {
 
             if (res.ok) {
                 setIsModalOpen(false);
-                setFormData({ tagId: '', tagName: '', triggerCondition: '' });
+                setFormData({ id: '', tagId: '', tagName: '', triggerCondition: '' });
                 fetchData();
             } else {
                 alert('Erro ao salvar gatilho');
@@ -188,7 +192,10 @@ const TagAutomation = () => {
                     </button>
 
                     <button
-                        onClick={() => setIsModalOpen(true)}
+                        onClick={() => {
+                            setFormData({ id: '', tagId: '', tagName: '', triggerCondition: '' });
+                            setIsModalOpen(true);
+                        }}
                         style={{
                             padding: '10px 16px',
                             backgroundColor: 'var(--primary-blue)',
@@ -252,7 +259,22 @@ const TagAutomation = () => {
                                             <td style={{ padding: '16px', color: 'var(--text-dark)', fontSize: '14px' }}>
                                                 {trigger.triggerCondition}
                                             </td>
-                                            <td style={{ padding: '16px', textAlign: 'right' }}>
+                                            <td style={{ padding: '16px', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                                                <button
+                                                    onClick={() => {
+                                                        setFormData({
+                                                            id: trigger.id,
+                                                            tagId: String(trigger.tagId),
+                                                            tagName: trigger.tagName,
+                                                            triggerCondition: trigger.triggerCondition
+                                                        });
+                                                        setIsModalOpen(true);
+                                                    }}
+                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-medium)', padding: '4px' }}
+                                                    title="Editar Gatilho"
+                                                >
+                                                    <Edit2 size={18} />
+                                                </button>
                                                 <button
                                                     onClick={() => handleDeleteTrigger(trigger.id)}
                                                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444', padding: '4px' }}
@@ -271,7 +293,7 @@ const TagAutomation = () => {
             )}
 
             {/* MODAL: Configurar Novo Gatilho */}
-            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Configurar Novo Gatilho">
+            <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={formData.id ? "Editar Gatilho" : "Configurar Novo Gatilho"}>
                 <form onSubmit={handleSubmitTrigger} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ backgroundColor: '#EFF6FF', padding: '12px', borderRadius: '8px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
                         <Info size={20} color="#2563EB" style={{ flexShrink: 0, marginTop: '2px' }} />
