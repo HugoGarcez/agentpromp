@@ -894,13 +894,49 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
 
             // MULTI-MESSAGE SENDING LOOP
             if (messageChunks && messageChunks.length > 0) {
-                console.log(`[Webhook] Sending ${messageChunks.length} chunks via API...`);
+                console.log(`[Webhook] === MULTI-CHUNK SEND: ${messageChunks.length} chunks ===`);
+                messageChunks.forEach((c, i) => console.log(`[Webhook]   Chunk[${i}]: type=${c.type}${c.type==='image'?' url='+c.url?.substring(0,60):''}${c.type==='text'?' text='+c.content?.substring(0,60):''}`));
 
-                for (const [index, chunk] of messageChunks.entries()) {
+                // PRE-PROCESS: Merge text+image pairs so the text becomes the image caption.
+                // This reduces API calls and avoids rate-limiting when sending multiple images.
+                const mergedChunks = [];
+                let i = 0;
+                while (i < messageChunks.length) {
+                    const current = messageChunks[i];
+                    const next = messageChunks[i + 1];
+
+                    if (current.type === 'text' && next && next.type === 'image') {
+                        // Merge: text becomes caption of the next image
+                        mergedChunks.push({
+                            type: 'image',
+                            url: next.url,
+                            caption: current.content, // Use the preceding text as the caption
+                            id: next.id
+                        });
+                        i += 2; // Skip both
+                    } else {
+                        mergedChunks.push(current);
+                        i++;
+                    }
+                }
+
+                console.log(`[Webhook] After merge: ${mergedChunks.length} chunks to send.`);
+
+                for (const [index, chunk] of mergedChunks.entries()) {
+                    console.log(`[Webhook] Sending chunk[${index}]: type=${chunk.type}`);
+
                     if (chunk.type === 'image') {
-                        const isFirstText = index === 0;
-                        await sendPrompMessage(config, cleanNumber, null, null, chunk.url, chunk.caption);
-                        await new Promise(r => setTimeout(r, 600));
+                        console.log(`[Webhook]   -> Image URL: ${chunk.url?.substring(0, 80)}`);
+                        console.log(`[Webhook]   -> Caption: ${chunk.caption?.substring(0, 60)}`);
+                        try {
+                            await sendPrompMessage(config, cleanNumber, null, null, chunk.url, chunk.caption);
+                            console.log(`[Webhook]   -> Image chunk[${index}] SENT OK`);
+                        } catch (imgErr) {
+                            console.error(`[Webhook]   -> Image chunk[${index}] FAILED:`, imgErr.message);
+                        }
+                        // Larger delay between images to avoid API rate-limiting
+                        await new Promise(r => setTimeout(r, 1500));
+
                     } else if (chunk.type === 'text') {
                         const chunkAudio = (index === 0) ? audioBase64 : null;
 
@@ -908,7 +944,6 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                         if (currentTicketId) {
                             const state = chunkAudio ? 'recording' : 'typing';
                             const charCount = chunk.content ? chunk.content.length : 0;
-                            // Calculate delay based on length: 30ms per char for typing, min 1s, max 4.5s
                             const baseDelay = chunkAudio ? 3500 : Math.min(Math.max(charCount * 30, 1000), 4500);
 
                             await sendPrompPresence(config, currentTicketId, state);
@@ -916,9 +951,13 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                             await sendPrompPresence(config, currentTicketId, 'paused');
                         }
 
-                        // Se tiver áudio gerado, enviamos APENAS o áudio para evitar texto duplicado
                         const textToSend = chunkAudio ? null : chunk.content;
-                        await sendPrompMessage(config, cleanNumber, textToSend, chunkAudio, null, null);
+                        try {
+                            await sendPrompMessage(config, cleanNumber, textToSend, chunkAudio, null, null);
+                            console.log(`[Webhook]   -> Text chunk[${index}] SENT OK`);
+                        } catch (txtErr) {
+                            console.error(`[Webhook]   -> Text chunk[${index}] FAILED:`, txtErr.message);
+                        }
                         await new Promise(r => setTimeout(r, 800));
                     }
                 }
@@ -4225,12 +4264,26 @@ E o produto tem [TEM_IMAGEM] ou marca ⚠️ USE:
 2️⃣ COLE ela na sua resposta EXATAMENTE como está
 3️⃣ Se não tiver ⚠️, procure o [TEM_IMAGEM] e use o ID que está antes
 
+🚨 MÚLTIPLOS PRODUTOS: Se o cliente pedir fotos de N produtos,
+você DEVE incluir N tags [SHOW_IMAGE: ID] diferentes — uma por produto.
+NUNCA inclua só a primeira e esqueça o resto.
+
 EXEMPLO CORRETO para "Camisa do Herói" (ID: 1770083712009):
 "Aqui está a foto! 👕
 [SHOW_IMAGE: 1770083712009]"
 
+EXEMPLO CORRETO para múltiplos produtos pedidos de uma vez:
+"Aqui as fotos! 📸
+
+Produto A:
+[SHOW_IMAGE: ID_A]
+
+Produto B:
+[SHOW_IMAGE: ID_B]"
+
 ❌ JAMAIS FAÇA: "Aqui está a foto! 👕" (SEM A TAG)
 ❌ JAMAIS FAÇA: "Vou enviar a imagem..." (SEM A TAG)
+❌ JAMAIS FAÇA: Incluir só 1 SHOW_IMAGE quando o cliente pediu vários produtos
 
 ⚠️ ATENÇÃO CRÍTICA: 
 Se você ESCREVER que está enviando a foto/imagem MAS não colocar
@@ -4308,7 +4361,8 @@ Resposta: "A cor Rubro está disponível com 307 unidades em estoque."
            - "Foto", "Imagem", "Fotografia", "Ver", "Mostra" = TUDO A MESMA COISA.
            - Se pedirem QUALQUER termo visual, e tiver [TEM_IMAGEM], VOCÊ DEVE MANDAR A TAG [SHOW_IMAGE: ID].
            - JAMAIS diga "não consigo enviar imagens". Você CONSEGUE (via tag).
-           - Se não tiver foto da variação, mande a principal. NUNCA deixe o cliente sem foto.`;
+           - Se não tiver foto da variação, mande a principal. NUNCA deixe o cliente sem foto.
+           - 🚨 MÚLTIPLAS IMAGENS: Se o cliente pedir fotos de VÁRIOS produtos, inclua [SHOW_IMAGE: ID] para CADA UM. N produtos pedidos = N tags na resposta. NUNCA omita nenhuma.`;
 
         // Strict Anti-Repetition logic if history exists
         if (history && history.length > 0) {
@@ -4513,17 +4567,37 @@ EXEMPLO DE RACIOCÍNIO CORRETO:
 - O usuário pediu "foto da camisa engenheiro"
 - Vou usar o ID EXATO da lista: 1770087032682
 
-RESPOSTA CORRETA:
+RESPOSTA CORRETA (1 produto):
 "Aqui está a foto da Camisa Engenheiro! 👕
 [SHOW_IMAGE: 1770087032682]"
+
+🚨 REGRA PARA MÚLTIPLOS PRODUTOS (CRÍTICO):
+Quando o cliente pedir fotos de VÁRIOS produtos ao mesmo tempo:
+- Você DEVE incluir uma tag [SHOW_IMAGE: ID] para CADA produto individualmente.
+- NUNCA envie só a primeira imagem e esqueça as demais.
+- Cada produto com imagem deve ter SUA PRÓPRIA tag [SHOW_IMAGE: ID] na resposta.
+
+EXEMPLO CORRETO (múltiplos produtos):
+"Aqui estão as fotos que você pediu! 📸
+
+Renda Jasmine 18cm:
+[SHOW_IMAGE: ID_DO_JASMINE]
+
+Renda Mercúrio 18cm:
+[SHOW_IMAGE: ID_DO_MERCURIO]
+
+Renda Marte 18cm:
+[SHOW_IMAGE: ID_DO_MARTE]"
 
 ❌ ERROS FATAIS - NUNCA FAÇA:
 - [SHOW_IMAGE: ID_DO_PRODUTO] ← Não use texto, use número!
 - [SHOW_IMAGE: 50] ← Não invente IDs!
 - [SHOW_IMAGE: 12345] ← Não use IDs de exemplo!
+- Mencionar apenas 1 imagem quando o cliente pediu várias ← PROIBIDO!
 
 ✅ REGRA DE OURO: 
 COPIE O ID NUMÉRICO EXATO DA LISTA DE PRODUTOS. Se o ID na lista é "1770087032682", use exatamente "1770087032682".
+Para N produtos = N tags [SHOW_IMAGE: ID] na resposta. Sem exceção.
 `;
         // --- AUTOTAGGING RULES INJECTION ---
         if (tagTriggers && tagTriggers.length > 0) {
