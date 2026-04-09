@@ -3,6 +3,7 @@ import FilesTab from '../components/AIConfig/FilesTab';
 import LinksTab from '../components/AIConfig/LinksTab';
 import QATab from '../components/AIConfig/QATab';
 import PromptTab from '../components/AIConfig/PromptTab';
+import ConditionalTransferTab from '../components/AIConfig/ConditionalTransferTab';
 import { Save, Plus, ArrowLeft, ArrowRight, Bot, MessageSquare, Globe, FileText, HelpCircle, ChevronRight, Hash, Loader2, Package, Trash, FileCode2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -222,6 +223,7 @@ const AIConfig = () => {
 
     // Transfer Config State
     const [transferConfigs, setTransferConfigs] = useState([]);
+    const [conditionalTransferConfigs, setConditionalTransferConfigs] = useState([]);
     const [prompUsers, setPrompUsers] = useState([]);
     const [prompQueues, setPrompQueues] = useState([]);
     const [loadingListings, setLoadingListings] = useState(false);
@@ -407,9 +409,12 @@ const AIConfig = () => {
 
                 if (data.transferConfig) {
                     const parsed = data.transferConfig;
-                    setTransferConfigs(Array.isArray(parsed) ? parsed : [parsed]);
+                    const allConfigs = Array.isArray(parsed) ? parsed : [parsed];
+                    setTransferConfigs(allConfigs.filter(c => c.mode !== 'conditional'));
+                    setConditionalTransferConfigs(allConfigs.filter(c => c.mode === 'conditional'));
                 } else {
                     setTransferConfigs([]);
+                    setConditionalTransferConfigs([]);
                 }
             }
         } catch (e) {
@@ -428,7 +433,7 @@ const AIConfig = () => {
                 persona,
                 knowledgeBase: { files, links, qa },
                 catalogConfig,
-                transferConfig: transferConfigs
+                transferConfig: [...transferConfigs, ...conditionalTransferConfigs]
             };
 
             const res = await fetch('/api/config', {
@@ -971,7 +976,76 @@ const AIConfig = () => {
 
                                     {transferConfigs.length === 0 && (
                                         <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-medium)', background: '#F9FAFB', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                                            Nenhuma regra de transferência configurada. Clique em "Nova Regra" para adicionar.
+                                            Nenhuma regra de transferência simples configurada.
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ============ ENCAMINHAMENTO CONDICIONAL ============ */}
+                                <div style={{ marginTop: '40px', borderTop: '2px solid #E2E8F0', paddingTop: '32px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                                        <div>
+                                            <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px', color: 'var(--text-dark)' }}>
+                                                📋 Encaminhamento Condicional
+                                            </h3>
+                                            <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>
+                                                Configure fluxos de coleta de dados via conversa antes da transferência.
+                                            </p>
+                                        </div>
+                                        <button
+                                            onClick={() => setConditionalTransferConfigs(prev => [...prev, {
+                                                mode: 'conditional',
+                                                name: `Fluxo ${prev.length + 1}`,
+                                                triggerMode: 'keyword',
+                                                triggerKeywords: [],
+                                                triggerCommand: '',
+                                                destination: { type: 'user', targetId: '' },
+                                                notificationWhatsApp: { number: '', messageTemplate: '' },
+                                                fields: [],
+                                                maxRetries: 2,
+                                                cancelKeywords: ['cancelar', 'sair', 'desistir']
+                                            }])}
+                                            style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#6366F1', color: 'white', padding: '10px 18px', borderRadius: '10px', border: 'none', fontWeight: '600', cursor: 'pointer', boxShadow: '0 2px 8px rgba(99,102,241,0.3)' }}
+                                        >
+                                            <Plus size={16} /> Novo Fluxo
+                                        </button>
+                                    </div>
+
+                                    {conditionalTransferConfigs.map((ctConfig, ctIndex) => (
+                                        <div key={ctIndex} style={{ marginBottom: '24px', background: 'white', borderRadius: '16px', border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+                                            <div style={{
+                                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                padding: '16px 20px', background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)', color: 'white'
+                                            }}>
+                                                <span style={{ fontWeight: 700, fontSize: '15px' }}>
+                                                    {ctConfig.name || `Fluxo ${ctIndex + 1}`}
+                                                </span>
+                                                <button
+                                                    onClick={() => setConditionalTransferConfigs(prev => prev.filter((_, i) => i !== ctIndex))}
+                                                    style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '6px 14px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '13px' }}
+                                                >
+                                                    Remover
+                                                </button>
+                                            </div>
+                                            <div style={{ padding: '24px' }}>
+                                                <ConditionalTransferTab
+                                                    config={ctConfig}
+                                                    onChange={(updated) => {
+                                                        const newConfigs = [...conditionalTransferConfigs];
+                                                        newConfigs[ctIndex] = updated;
+                                                        setConditionalTransferConfigs(newConfigs);
+                                                    }}
+                                                    prompUsers={prompUsers}
+                                                    prompQueues={prompQueues}
+                                                    loadingListings={loadingListings}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {conditionalTransferConfigs.length === 0 && (
+                                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-medium)', background: '#F9FAFB', borderRadius: '12px', border: '2px dashed #E2E8F0' }}>
+                                            Nenhum fluxo condicional configurado. Clique em "Novo Fluxo" para começar.
                                         </div>
                                     )}
                                 </div>

@@ -275,3 +275,24 @@ model LeadSearch {
 
   @@index([companyId, createdAt])
 }
+
+model TransferSession {
+  id                    String    @id @default(uuid())
+  companyId             String
+  sessionId             String    // remoteJid / número do WhatsApp
+  agentConfigId         String
+  flowConfigIndex       Int       @default(0) // índice da regra no array transferConfig
+  status                String    @default("collecting") // collecting | completed | failed | cancelled
+  collectedData         String?   // JSON: { fieldId: value }
+  attachments           String?   // JSON array de attachments
+  currentFieldIndex     Int       @default(0)
+  retriesOnCurrentField Int       @default(0)
+  transferId            String?   // Protocolo: TRF-XXXXX
+  startedAt             DateTime  @default(now())
+  completedAt           DateTime?
+  failureReason         String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([companyId, sessionId])
+}

@@ -35,6 +35,14 @@ import {
     createCalendarEvent
 } from './googleCalendar.js';
 import { sendPrompMessage, getPrompTags, applyPrompTag, createPrompTag, updatePrompTag, deletePrompTag, sendPrompPresence, downloadAndDecryptWhatsAppMedia, getPrompUsers, getPrompQueues, setTicketInfo, createTicketNote } from './prompUtils.js';
+import {
+    shouldTriggerConditionalTransfer,
+    handleCollectionStep,
+    getInitialMessages,
+    renderTemplate,
+    generateTransferId,
+    maskSensitiveData
+} from './conditionalTransfer.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -777,6 +785,157 @@ const handleWebhookRequest = async (req, res) => {
 
         const currentTicketId = payload.ticket?.id || null;
 
+        // --- CHECK ACTIVE CONDITIONAL TRANSFER SESSION ---
+        try {
+            const activeSession = await prisma.transferSession.findFirst({
+                where: {
+                    companyId: String(companyId),
+                    sessionId: String(cleanNumber),
+                    status: 'collecting'
+                },
+                orderBy: { startedAt: 'desc' }
+            });
+
+            if (activeSession) {
+                console.log(`[Webhook] Active Conditional Transfer Session found for ${cleanNumber}`);
+
+                // Get the rule config from transferConfig
+                let allTransferConfigs = config.transferConfig;
+                if (allTransferConfigs && !Array.isArray(allTransferConfigs)) allTransferConfigs = [allTransferConfigs];
+
+                const conditionalRules = (allTransferConfigs || []).filter(r => r.mode === 'conditional');
+                const rule = conditionalRules[activeSession.flowConfigIndex];
+
+                if (rule) {
+                    // Detect media in payload for file/image fields
+                    let mediaPayload = null;
+                    const msgType = payload.msg?.messageType || payload.type || '';
+                    if (['ImageMessage', 'DocumentMessage', 'image', 'document'].includes(msgType)) {
+                        mediaPayload = {
+                            id: payload.msg?.content?.id || payload.msg?.id || `media_${Date.now()}`,
+                            mediaId: payload.msg?.content?.id || payload.msg?.id,
+                            mimeType: payload.msg?.content?.mimetype || payload.msg?.mimetype || 'application/octet-stream',
+                            fileName: payload.msg?.content?.fileName || payload.msg?.fileName || 'arquivo',
+                            size: payload.msg?.content?.fileLength || payload.msg?.fileLength || 0,
+                            url: payload.msg?.content?.URL || payload.msg?.url || null
+                        };
+                    }
+
+                    const result = handleCollectionStep(rule, activeSession, userMessage, mediaPayload);
+
+                    // Simulated typing delay (500-1500ms)
+                    const typingDelay = 500 + Math.random() * 1000;
+                    await new Promise(resolve => setTimeout(resolve, typingDelay));
+
+                    switch (result.action) {
+                        case 'ask': {
+                            // Update session and send next question
+                            await prisma.transferSession.update({
+                                where: { id: activeSession.id },
+                                data: {
+                                    currentFieldIndex: result.nextFieldIndex,
+                                    retriesOnCurrentField: 0,
+                                    collectedData: JSON.stringify(result.collectedData),
+                                    attachments: JSON.stringify(result.attachments)
+                                }
+                            });
+                            await sendPrompMessage(config, cleanNumber, result.message, null, null, null);
+                            return res.json({ status: 'conditional_transfer_collecting' });
+                        }
+
+                        case 'retry': {
+                            await prisma.transferSession.update({
+                                where: { id: activeSession.id },
+                                data: { retriesOnCurrentField: result.retries }
+                            });
+                            await sendPrompMessage(config, cleanNumber, result.message, null, null, null);
+                            return res.json({ status: 'conditional_transfer_retry' });
+                        }
+
+                        case 'cancelled': {
+                            await prisma.transferSession.update({
+                                where: { id: activeSession.id },
+                                data: { status: 'cancelled', completedAt: new Date() }
+                            });
+                            await sendPrompMessage(config, cleanNumber, result.message, null, null, null);
+                            return res.json({ status: 'conditional_transfer_cancelled' });
+                        }
+
+                        case 'failed': {
+                            await prisma.transferSession.update({
+                                where: { id: activeSession.id },
+                                data: { status: 'failed', completedAt: new Date(), failureReason: result.reason }
+                            });
+                            await sendPrompMessage(config, cleanNumber, result.message, null, null, null);
+                            return res.json({ status: 'conditional_transfer_failed' });
+                        }
+
+                        case 'complete': {
+                            const transferId = generateTransferId();
+
+                            // Update session as completed
+                            await prisma.transferSession.update({
+                                where: { id: activeSession.id },
+                                data: {
+                                    status: 'completed',
+                                    completedAt: new Date(),
+                                    collectedData: JSON.stringify(result.collectedData),
+                                    attachments: JSON.stringify(result.attachments),
+                                    transferId
+                                }
+                            });
+
+                            // 1. Render notification template and send to WhatsApp
+                            if (rule.notificationWhatsApp?.number && rule.notificationWhatsApp?.messageTemplate) {
+                                const notifNumber = rule.notificationWhatsApp.number.replace(/\D/g, '');
+                                const renderedMsg = renderTemplate(
+                                    rule.notificationWhatsApp.messageTemplate,
+                                    result.collectedData,
+                                    rule.fields
+                                );
+                                const fullMsg = `📋 *Encaminhamento Condicional* (${transferId})\n\n${renderedMsg}`;
+                                await sendPrompMessage(config, notifNumber, fullMsg, null, null, null);
+                                console.log(`[ConditionalTransfer] Summary sent to ${notifNumber}`);
+                            }
+
+                            // 2. Create ticket note with collected data
+                            if (currentTicketId) {
+                                const noteContent = `Encaminhamento Condicional (${transferId})\n\nDados coletados:\n${Object.entries(result.collectedData).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`;
+                                await createTicketNote(config, currentTicketId, noteContent);
+                            }
+
+                            // 3. Execute transfer
+                            if (currentTicketId && rule.destination) {
+                                const updateData = { status: 'open' };
+                                if (rule.destination.type === 'user' && rule.destination.targetId) {
+                                    updateData.userId = Number(rule.destination.targetId);
+                                } else if (rule.destination.type === 'queue' && rule.destination.targetId) {
+                                    updateData.queueId = Number(rule.destination.targetId);
+                                }
+                                await setTicketInfo(config, currentTicketId, updateData);
+                            }
+
+                            // 4. Confirm to user
+                            const confirmMsg = `✅ Informações recebidas! Estou transferindo seu atendimento. Protocolo: *${transferId}*. Por favor, aguarde.`;
+                            await sendPrompMessage(config, cleanNumber, confirmMsg, null, null, null);
+
+                            console.log(`[ConditionalTransfer] COMPLETED for ${cleanNumber}. Transfer ID: ${transferId}`);
+                            return res.json({ status: 'conditional_transfer_completed', transferId });
+                        }
+                    }
+                } else {
+                    // Rule not found — cancel orphan session
+                    console.warn(`[ConditionalTransfer] Rule index ${activeSession.flowConfigIndex} not found. Cancelling session.`);
+                    await prisma.transferSession.update({
+                        where: { id: activeSession.id },
+                        data: { status: 'failed', completedAt: new Date(), failureReason: 'Rule config not found' }
+                    });
+                }
+            }
+        } catch (ctErr) {
+            console.error('[Webhook] Conditional Transfer Session Error:', ctErr);
+        }
+
         // --- CHECK TRANSFER TRIGGER ---
         let transferConfigs = config.transferConfig;
         if (transferConfigs && !Array.isArray(transferConfigs)) {
@@ -785,7 +944,71 @@ const handleWebhookRequest = async (req, res) => {
 
         if (Array.isArray(transferConfigs) && userMessage) {
             let matched = false;
+
+            // --- CONDITIONAL TRANSFER: Check conditional rules FIRST ---
+            const conditionalRules = transferConfigs.filter(r => r.mode === 'conditional');
+            for (let ci = 0; ci < conditionalRules.length; ci++) {
+                const rule = conditionalRules[ci];
+                if (shouldTriggerConditionalTransfer(userMessage, rule)) {
+                    console.log(`[Webhook] Conditional Transfer Trigger MATCHED for rule: "${rule.name || ci}"`);
+
+                    // Find the actual index in the full conditional array
+                    const allConditional = transferConfigs.filter(r => r.mode === 'conditional');
+                    const flowConfigIndex = ci;
+
+                    try {
+                        // Create a new collection session
+                        const session = await prisma.transferSession.create({
+                            data: {
+                                companyId: String(companyId),
+                                sessionId: String(cleanNumber),
+                                agentConfigId: config.id || 'unknown',
+                                flowConfigIndex,
+                                status: 'collecting',
+                                collectedData: '{}',
+                                attachments: '[]',
+                                currentFieldIndex: 0,
+                                retriesOnCurrentField: 0
+                            }
+                        });
+
+                        console.log(`[ConditionalTransfer] Session created: ${session.id}`);
+
+                        // Send intro + first question
+                        const { intro, question, fieldIndex } = getInitialMessages(rule);
+
+                        // Update session with actual first field index
+                        if (fieldIndex > 0) {
+                            await prisma.transferSession.update({
+                                where: { id: session.id },
+                                data: { currentFieldIndex: fieldIndex }
+                            });
+                        }
+
+                        // Simulated typing delay
+                        const typingDelay = 500 + Math.random() * 1000;
+                        await new Promise(resolve => setTimeout(resolve, typingDelay));
+
+                        if (intro) {
+                            await sendPrompMessage(config, cleanNumber, intro, null, null, null);
+                            // Small gap between intro and question
+                            await new Promise(resolve => setTimeout(resolve, 800));
+                        }
+
+                        if (question) {
+                            await sendPrompMessage(config, cleanNumber, question, null, null, null);
+                        }
+
+                        return res.json({ status: 'conditional_transfer_started' });
+                    } catch (ctCreateErr) {
+                        console.error('[Webhook] Failed to create conditional transfer session:', ctCreateErr);
+                    }
+                }
+            }
+
+            // --- SIMPLE TRANSFER: Check simple rules ---
             for (const rule of transferConfigs) {
+                if (rule.mode === 'conditional') continue; // Skip conditional rules (already checked above)
                 if (!rule.triggerText) continue;
                 const trigger = rule.triggerText.toLowerCase().trim();
                 const msg = userMessage.toLowerCase().trim();
