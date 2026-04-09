@@ -315,383 +315,310 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
     };
 
     return (
-        <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-start' }}>
-            {/* Settings Navigation */}
+        <div style={{ display: 'flex', gap: '32px', minHeight: 'calc(100vh - 140px)', alignItems: 'stretch' }}>
+            {/* COLUMN 1: AGENT SIDEBAR */}
             <div style={{
-                width: '240px',
+                width: '300px',
                 background: 'var(--bg-white)',
-                borderRadius: 'var(--radius-md)',
+                borderRadius: 'var(--radius-lg)',
                 boxShadow: 'var(--shadow-sm)',
-                padding: '16px'
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden'
             }}>
+                <div style={{ padding: '24px', borderBottom: '1px solid var(--border-color)', background: '#F8FAFC' }}>
+                    <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Bot size={20} color="var(--primary-blue)" />
+                        Seus Agentes
+                    </h3>
+                    <p style={{ fontSize: '12px', color: 'var(--text-medium)', marginTop: '4px' }}>Selecione um agente para configurar</p>
+                </div>
 
-                <button
-                    onClick={() => setActiveSection('integrations')}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '12px',
-                        borderRadius: 'var(--radius-md)', marginBottom: '4px',
-                        background: activeSection === 'integrations' ? 'var(--primary-light)' : 'transparent',
-                        color: activeSection === 'integrations' ? 'var(--primary-blue)' : 'var(--text-medium)',
-                        fontWeight: 500
-                    }}
-                >
-                    <Cpu size={20} />
-                    Inteligência Artificial
-                </button>
-                <button
-                    onClick={() => setActiveSection('voice')}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '12px',
-                        borderRadius: 'var(--radius-md)', marginBottom: '4px',
-                        background: activeSection === 'voice' ? 'var(--primary-light)' : 'transparent',
-                        color: activeSection === 'voice' ? 'var(--primary-blue)' : 'var(--text-medium)',
-                        fontWeight: 500
-                    }}
-                >
-                    <Mic size={20} />
-                    Voz e Áudio
-                </button>
-
-                {/* FOLLOW UP TAB */}
-                <button
-                    onClick={() => setActiveSection('followup')}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '12px',
-                        borderRadius: 'var(--radius-md)', marginBottom: '4px',
-                        background: activeSection === 'followup' ? 'var(--primary-light)' : 'transparent',
-                        color: activeSection === 'followup' ? 'var(--primary-blue)' : 'var(--text-medium)',
-                        fontWeight: 500
-                    }}
-                >
-                    <Clock size={20} />
-                    Follow-up (IA)
-                </button>
-
-                {/* CATALOG TAB */}
-                <button
-                    onClick={() => setActiveSection('catalog')}
-                    style={{
-                        display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '12px',
-                        borderRadius: 'var(--radius-md)',
-                        background: activeSection === 'catalog' ? 'var(--primary-light)' : 'transparent',
-                        color: activeSection === 'catalog' ? 'var(--primary-blue)' : 'var(--text-medium)',
-                        fontWeight: 500
-                    }}
-                >
-                    <Package size={20} />
-                    Catálogo de Produtos
-                </button>
-            </div>
-
-            
-            {/* AGENT SELECTOR */}
-            <div style={{ padding: '16px', background: 'var(--bg-white)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <span style={{ fontWeight: 600 }}>Agente Selecionado:</span>
-                <select 
-                    value={selectedAgentId} 
-                    onChange={e => setSelectedAgentId(e.target.value)}
-                    style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', minWidth: '200px' }}
-                >
-                    {agents.map(a => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                </select>
-                <button 
-                    onClick={async () => {
-                        const name = prompt('Nome do novo agente:');
-                        if (!name) return;
-                        const token = localStorage.getItem('token');
-                        const res = await fetch('/api/agents', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                            body: JSON.stringify({ name })
-                        });
-                        if (res.ok) {
-                            const newAg = await res.json();
-                            setAgents(prev => [...prev, newAg]);
-                            setSelectedAgentId(newAg.id);
-                        }
-                    }}
-                    style={{ padding: '8px 16px', background: 'var(--primary-blue)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 500 }}
-                >
-                    + Novo
-                </button>
-            </div>
-    
-            {/* Main Content */}
-            <div style={{
-                flex: 1,
-                background: 'var(--bg-white)',
-                borderRadius: 'var(--radius-md)',
-                boxShadow: 'var(--shadow-sm)',
-                padding: '32px'
-            }}>
-
-                {/* Integrations Section (Now AI Status) */}
-                {activeSection === 'integrations' && (
-                    <div>
-                        <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <Cpu size={24} color="var(--primary-blue)" />
-                            Inteligência Artificial (Promp IA)
-                        </h2>
-                        <p style={{ color: 'var(--text-medium)', marginBottom: '24px' }}>
-                            Gerencie o motor de inteligência artificial do seu agente.
-                        </p>
-
-                        <div style={{ display: 'grid', gap: '24px' }}>
-                            <div style={{ padding: '24px', border: '1px solid #E5E7EB', borderRadius: 'var(--radius-md)', background: 'white' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                        <Bot size={24} color="var(--primary-blue)" />
-                                        <div>
-                                            <h3 style={{ fontWeight: 600, fontSize: '16px' }}>Promp IA (Standard)</h3>
-                                            <p style={{ fontSize: '13px', color: '#6B7280' }}>Modelo de Linguagem Otimizado para Vendas</p>
-                                        </div>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#DCFCE7', color: '#166534', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: 600 }}>
-                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#166534' }}></div>
-                                        ONLINE
-                                    </div>
-                                </div>
-                                <p style={{ fontSize: '14px', color: '#374151', lineHeight: '1.5' }}>
-                                    Sua instância está conectada à infraestrutura global da Promp IA. Não é necessário configuração adicional.
-                                </p>
-                            </div>
-
-                        </div>
-                    </div>
-                )}
-
-                {/* Voice Section */}
-                {activeSection === 'voice' && (
-                    <div>
-                        <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <Mic size={24} color="var(--primary-blue)" />
-                            Configuração de Voz e Áudio
-                        </h2>
-
-                        <div style={{ marginBottom: '32px', padding: '24px', background: 'var(--bg-main)', borderRadius: 'var(--radius-md)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                                <input
-                                    type="checkbox"
-                                    id="voiceEnabled"
-                                    name="enabled"
-                                    checked={voice.enabled}
-                                    onChange={handleVoiceChange}
-                                    style={{ width: '20px', height: '20px', cursor: 'pointer' }}
-                                />
-                                <label htmlFor="voiceEnabled" style={{ fontWeight: 600, cursor: 'pointer' }}>Habilitar Respostas em Áudio</label>
-                            </div>
-                            <p style={{ color: 'var(--text-medium)', fontSize: '14px', marginLeft: '32px' }}>
-                                Permite que a IA envie áudios humanizados utilizando a tecnologia Promp Voice.
-                            </p>
-                        </div>
-
-                        {voice.enabled && (
-                            <div style={{ display: 'grid', gap: '24px' }}>
-                                <div style={{ padding: '24px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
-                                    <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px' }}>Regras de Envio</h3>
-
-                                    <div style={{ marginBottom: '16px' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', cursor: 'pointer' }}>
-                                            <input
-                                                type="radio"
-                                                name="responseType"
-                                                value="audio_only"
-                                                checked={voice.responseType === 'audio_only'}
-                                                onChange={handleVoiceChange}
-                                            />
-                                            <span>Responder em áudio apenas quando o cliente enviar áudio</span>
-                                        </label>
-
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                            <input
-                                                type="radio"
-                                                name="responseType"
-                                                value="percentage"
-                                                checked={voice.responseType === 'percentage'}
-                                                onChange={handleVoiceChange}
-                                            />
-                                            <span>Responder em áudio aleatoriamente (% das mensagens)</span>
-                                        </label>
-                                    </div>
-
-                                    {voice.responseType === 'percentage' && (
-                                        <div style={{ paddingLeft: '28px' }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                                <span style={{ fontSize: '14px', fontWeight: 500 }}>Probabilidade</span>
-                                                <span style={{ fontSize: '14px', fontWeight: 600 }}>{voice.responsePercentage}%</span>
-                                            </div>
-                                            <input
-                                                type="range"
-                                                min="0"
-                                                max="100"
-                                                step="10"
-                                                name="responsePercentage"
-                                                value={voice.responsePercentage}
-                                                onChange={handleVoiceChange}
-                                                style={{ width: '100%', cursor: 'pointer' }}
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-
-                {/* Follow-up Section */}
-                {activeSection === 'followup' && (
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                            <div>
-                                <h2 style={{ fontSize: '20px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <Clock size={24} color="var(--primary-blue)" />
-                                    Follow-up Inteligente com IA
-                                </h2>
-                                <p style={{ color: 'var(--text-medium)', marginTop: 8 }}>
-                                    Recupere conversas "frias" automaticamente. A IA envia mensagens personalizadas quando o cliente para de responder.
-                                </p>
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <span style={{ fontSize: 14, fontWeight: 600, color: followUp.enabled ? '#10B981' : '#6B7280' }}>
-                                    {followUp.enabled ? 'ATIVADO' : 'DESATIVADO'}
-                                </span>
-                                <label className="switch">
-                                    <input type="checkbox" checked={followUp.enabled} onChange={(e) => handleFollowUpChange('enabled', e.target.checked)} />
-                                    <span className="slider round"></span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <div style={{ background: '#F9FAFB', padding: 24, borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 24 }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Números Ignorados (Anti-Loop)</label>
-                            <div style={{ display: 'flex', gap: '8px', flexDirection: 'column' }}>
-                                <input
-                                    type="text"
-                                    placeholder="Ex: 5521999999999 (Separe por vírgula)"
-                                    value={followUp.ignoreNumbers || ''}
-                                    onChange={(e) => handleFollowUpChange('ignoreNumbers', e.target.value)}
-                                    style={{ padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }}
-                                />
-                                <span style={{ fontSize: 12, color: '#6B7280' }}>
-                                    Insira aqui o número dos atendentes ou do próprio robô para evitar que a IA responda a mensagens internas (Loop).
-                                </span>
-                            </div>
-                        </div>
-
-                        <div style={{ background: '#F9FAFB', padding: 24, borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 24 }}>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>Tom de Voz do Follow-up</label>
-                            <select
-                                value={followUp.tone}
-                                onChange={(e) => handleFollowUpChange('tone', e.target.value)}
-                                style={{ width: '100%', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid #D1D5DB' }}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {agents.map(a => (
+                            <button
+                                key={a.id}
+                                onClick={() => setSelectedAgentId(a.id)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '12px',
+                                    padding: '12px 16px',
+                                    borderRadius: '12px',
+                                    width: '100%',
+                                    textAlign: 'left',
+                                    transition: 'all 0.2s ease',
+                                    backgroundColor: selectedAgentId === a.id ? 'var(--primary-light)' : 'transparent',
+                                    border: selectedAgentId === a.id ? '1px solid var(--primary-blue)' : '1px solid transparent',
+                                    color: selectedAgentId === a.id ? 'var(--primary-blue)' : 'var(--text-medium)',
+                                }}
+                                onMouseEnter={e => {
+                                    if (selectedAgentId !== a.id) {
+                                        e.currentTarget.style.backgroundColor = '#F1F5F9';
+                                    }
+                                }}
+                                onMouseLeave={e => {
+                                    if (selectedAgentId !== a.id) {
+                                        e.currentTarget.style.backgroundColor = 'transparent';
+                                    }
+                                }}
                             >
-                                <option value="animated">Animado (Energia, oportunidade 🚀)</option>
-                                <option value="serious">Sério (Profissional, objetivo 👔)</option>
-                                <option value="ice_breaker">Quebra-gelo (Leve, simpático 😄)</option>
-                            </select>
-                            <p style={{ fontSize: 12, color: '#6B7280', marginTop: 8 }}>O tom selecionado será usado pela IA para gerar todas as mensagens de recuperação.</p>
-                        </div>
-
-                        <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Sequência de Tentativas</h3>
-                        <div style={{ display: 'grid', gap: 12 }}>
-                            {followUp.attempts.map((attempt, index) => (
-                                <div key={attempt.id} style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'white', padding: 12, borderRadius: 8, border: '1px solid #E5E7EB', opacity: attempt.active ? 1 : 0.6 }}>
-                                    <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#EFF6FF', color: '#1E40AF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 'bold' }}>
-                                        {index + 1}
-                                    </div>
-                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 14 }}>Enviar após</span>
-                                        <input
-                                            type="number"
-                                            value={attempt.delayValue}
-                                            onChange={(e) => updateFollowUpAttempt(index, 'delayValue', parseInt(e.target.value))}
-                                            style={{ width: 60, padding: 6, borderRadius: 4, border: '1px solid #D1D5DB' }}
-                                        />
-                                        <select
-                                            value={attempt.delayUnit}
-                                            onChange={(e) => updateFollowUpAttempt(index, 'delayUnit', e.target.value)}
-                                            style={{ padding: 6, borderRadius: 4, border: '1px solid #D1D5DB' }}
-                                        >
-                                            <option value="minutes">Minutos</option>
-                                            <option value="hours">Horas</option>
-                                            <option value="days">Dias</option>
-                                        </select>
-                                        <span style={{ fontSize: 14 }}>sem resposta.</span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 12, color: attempt.active ? '#10B981' : '#9CA3AF' }}>{attempt.active ? 'Ativa' : 'Pausada'}</span>
-                                        <input type="checkbox" checked={attempt.active} onChange={(e) => updateFollowUpAttempt(index, 'active', e.target.checked)} />
-                                    </div>
+                                <div style={{
+                                    width: '36px',
+                                    height: '36px',
+                                    borderRadius: '10px',
+                                    backgroundColor: selectedAgentId === a.id ? 'var(--primary-blue)' : '#F1F5F9',
+                                    color: selectedAgentId === a.id ? 'white' : 'var(--text-medium)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s'
+                                }}>
+                                    <Bot size={20} />
                                 </div>
-                            ))}
-                        </div>
+                                <span style={{ fontWeight: 600, fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {a.name}
+                                </span>
+                            </button>
+                        ))}
                     </div>
-                )}
+                </div>
 
-                {/* Catalog Section */}
-                {activeSection === 'catalog' && (
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-                            <div>
-                                <h2 style={{ fontSize: '20px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <Package size={24} color="var(--primary-blue)" />
-                                    Configurações do Catálogo
-                                </h2>
-                                <p style={{ color: 'var(--text-medium)', marginTop: 8 }}>
-                                    Defina regras gerais para a forma como a IA apresenta seus produtos e serviços.
+                <div style={{ padding: '16px', borderTop: '1px solid var(--border-color)', background: '#F8FAFC' }}>
+                    <button
+                        onClick={async () => {
+                            const name = prompt('Nome do novo agente:');
+                            if (!name) return;
+                            const token = localStorage.getItem('token');
+                            const res = await fetch('/api/agents', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                body: JSON.stringify({ name })
+                            });
+                            if (res.ok) {
+                                const newAg = await res.json();
+                                setAgents(prev => [...prev, newAg]);
+                                setSelectedAgentId(newAg.id);
+                            }
+                        }}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            width: '100%',
+                            padding: '12px',
+                            borderRadius: '10px',
+                            border: '2px dashed #CBD5E1',
+                            color: '#64748B',
+                            fontWeight: '600',
+                            fontSize: '14px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={e => {
+                            e.currentTarget.style.borderColor = 'var(--primary-blue)';
+                            e.currentTarget.style.color = 'var(--primary-blue)';
+                            e.currentTarget.style.backgroundColor = 'var(--primary-light)';
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.borderColor = '#CBD5E1';
+                            e.currentTarget.style.color = '#64748B';
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                        }}
+                    >
+                        <span>+ Novo Agente</span>
+                    </button>
+                </div>
+            </div>
+
+            {/* COLUMN 2: SETTINGS CONTENT */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* Horizontal Tabs Navigation */}
+                <div style={{
+                    background: 'var(--bg-white)',
+                    padding: '8px',
+                    borderRadius: 'var(--radius-lg)',
+                    boxShadow: 'var(--shadow-sm)',
+                    border: '1px solid var(--border-color)',
+                    display: 'flex',
+                    gap: '8px',
+                    overflowX: 'auto'
+                }}>
+                    {[
+                        { id: 'integrations', label: 'Inteligência Artificial', icon: Cpu },
+                        { id: 'voice', label: 'Voz e Áudio', icon: Mic },
+                        { id: 'followup', label: 'Follow-up (IA)', icon: Clock },
+                        { id: 'catalog', label: 'Catálogo de Produtos', icon: Package }
+                    ].map(section => (
+                        <button
+                            key={section.id}
+                            onClick={() => setActiveSection(section.id)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '10px 20px',
+                                borderRadius: '10px',
+                                fontWeight: 600,
+                                fontSize: '14px',
+                                whiteSpace: 'nowrap',
+                                transition: 'all 0.2s',
+                                cursor: 'pointer',
+                                background: activeSection === section.id ? 'var(--primary-blue)' : 'transparent',
+                                color: activeSection === section.id ? 'white' : 'var(--text-medium)',
+                                border: 'none'
+                            }}
+                        >
+                            <section.icon size={18} />
+                            {section.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Main Configuration Form Area */}
+                <div style={{
+                    flex: 1,
+                    background: 'var(--bg-white)',
+                    borderRadius: 'var(--radius-lg)',
+                    boxShadow: 'var(--shadow-sm)',
+                    border: '1px solid var(--border-color)',
+                    padding: '32px',
+                    position: 'relative',
+                    overflowY: 'auto'
+                }}>
+                    {/* Integrations Section */}
+                    {activeSection === 'integrations' && (
+                        <div className="animate-fade-in">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                                <div style={{ background: 'var(--primary-light)', padding: '10px', borderRadius: '12px' }}>
+                                    <Cpu size={28} color="var(--primary-blue)" />
+                                </div>
+                                <div>
+                                    <h2 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-dark)' }}>Inteligência Artificial</h2>
+                                    <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Gerencie o motor cognitivo do seu agente.</p>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gap: '24px' }}>
+                                <div style={{ padding: '24px', border: '1px solid #E5E7EB', borderRadius: 'var(--radius-lg)', background: '#F8FAFC' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                            <Bot size={24} color="var(--primary-blue)" />
+                                            <div>
+                                                <h3 style={{ fontWeight: 700, fontSize: '16px' }}>Promp IA (Standard)</h3>
+                                                <p style={{ fontSize: '13px', color: '#6B7280' }}>Modelo Otimizado para Vendas</p>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#DCFCE7', color: '#166534', padding: '6px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: 700 }}>
+                                            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#166534' }}></div>
+                                            ONLINE
+                                        </div>
+                                    </div>
+                                    <p style={{ fontSize: '14px', color: '#374151', lineHeight: '1.6' }}>
+                                        Sua instância está conectada à infraestrutura global da Promp IA. O desempenho é ajustado automaticamente para este agente.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Voice Section */}
+                    {activeSection === 'voice' && (
+                        <div className="animate-fade-in">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+                                <div style={{ background: 'var(--primary-light)', padding: '10px', borderRadius: '12px' }}>
+                                    <Mic size={28} color="var(--primary-blue)" />
+                                </div>
+                                <div>
+                                    <h2 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-dark)' }}>Voz e Áudio</h2>
+                                    <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Configure como seu agente fala com os clientes.</p>
+                                </div>
+                            </div>
+
+                            <div style={{ marginBottom: '32px', padding: '24px', background: '#F8FAFC', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                                    <input
+                                        type="checkbox"
+                                        id="voiceEnabled"
+                                        name="enabled"
+                                        checked={voice.enabled}
+                                        onChange={handleVoiceChange}
+                                        style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: 'var(--primary-blue)' }}
+                                    />
+                                    <label htmlFor="voiceEnabled" style={{ fontWeight: 700, fontSize: '16px', cursor: 'pointer' }}>Habilitar Respostas em Áudio</label>
+                                </div>
+                                <p style={{ color: 'var(--text-medium)', fontSize: '14px', marginLeft: '34px', lineHeight: '1.5' }}>
+                                    Permite que a IA envie mensagens de voz humanizadas utilizando a tecnologia de última geração Promp Voice.
                                 </p>
                             </div>
-                        </div>
 
-                        <div style={{ background: '#F9FAFB', padding: 24, borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 24 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                                <input
-                                    type="checkbox"
-                                    id="hidePrices"
-                                    name="hidePrices"
-                                    checked={catalogConfig.hidePrices}
-                                    onChange={handleCatalogChange}
-                                    style={{ width: '20px', height: '20px', cursor: 'pointer' }}
-                                />
-                                <label htmlFor="hidePrices" style={{ fontWeight: 600, cursor: 'pointer', fontSize: '15px' }}>
-                                    Ocultar os preços de todos os produtos
-                                </label>
-                            </div>
-                            <p style={{ fontSize: 13, color: '#6B7280', marginBottom: '20px', paddingLeft: '32px' }}>
-                                Quando ativado, a IA nunca informará o valor real do produto/serviço para os clientes ou na legenda das fotos.
-                            </p>
+                            {voice.enabled && (
+                                <div style={{ display: 'grid', gap: '24px' }}>
+                                    <div style={{ padding: '28px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', background: 'white' }}>
+                                        <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '20px', color: 'var(--text-dark)' }}>Regras de Gatilho</h3>
 
-                            {catalogConfig.hidePrices && (
-                                <div style={{ paddingLeft: '32px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                    <div style={{ padding: '16px', background: '#FEF3C7', borderRadius: '8px', border: '1px solid #FCD34D' }}>
-                                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: '#92400E' }}>
-                                            Motivo / Mensagem Substituta (O que a IA vai dizer?)
-                                        </label>
-                                        <select
-                                            name="hidePricesReason"
-                                            value={catalogConfig.hidePricesReason}
-                                            onChange={handleCatalogChange}
-                                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #F59E0B', fontSize: '14px', marginBottom: catalogConfig.hidePricesReason === 'Outro' ? '12px' : '0' }}
-                                        >
-                                            <option value="Sob consulta">Sob consulta (Ex: "O valor é sob consulta")</option>
-                                            <option value="Preço com vendedor">Preço com vendedor (A IA dirá que um consultor informará)</option>
-                                            <option value="A partir de (Variável)">A partir de (Variável de acordo com projeto)</option>
-                                            <option value="Outro">Outro (Mensagem Personalizada)</option>
-                                        </select>
-
-                                        {catalogConfig.hidePricesReason === 'Outro' && (
-                                            <div>
-                                                <label style={{ display: 'block', fontSize: '13px', marginBottom: '6px', color: '#92400E' }}>Sua Mensagem Personalizada:</label>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
+                                            <label style={{
+                                                display: 'flex', alignItems: 'center', gap: '12px', padding: '16px',
+                                                borderRadius: '12px', border: '1px solid',
+                                                borderColor: voice.responseType === 'audio_only' ? 'var(--primary-blue)' : '#E2E8F0',
+                                                background: voice.responseType === 'audio_only' ? 'var(--primary-light)' : 'transparent',
+                                                cursor: 'pointer', transition: 'all 0.2s'
+                                            }}>
                                                 <input
-                                                    type="text"
-                                                    name="customPriceHiddenReason"
-                                                    value={catalogConfig.customPriceHiddenReason}
-                                                    onChange={handleCatalogChange}
-                                                    placeholder='Ex: "Valor sob medida, vou chamar um técnico."'
-                                                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #F59E0B', fontSize: '14px' }}
+                                                    type="radio"
+                                                    name="responseType"
+                                                    value="audio_only"
+                                                    checked={voice.responseType === 'audio_only'}
+                                                    onChange={handleVoiceChange}
+                                                    style={{ width: '18px', height: '18px', accentColor: 'var(--primary-blue)' }}
+                                                />
+                                                <div>
+                                                    <div style={{ fontWeight: 700, fontSize: '14px' }}>Reativo</div>
+                                                    <div style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Responder em áudio apenas quando o cliente enviar um áudio primeiro.</div>
+                                                </div>
+                                            </label>
+
+                                            <label style={{
+                                                display: 'flex', alignItems: 'center', gap: '12px', padding: '16px',
+                                                borderRadius: '12px', border: '1px solid',
+                                                borderColor: voice.responseType === 'percentage' ? 'var(--primary-blue)' : '#E2E8F0',
+                                                background: voice.responseType === 'percentage' ? 'var(--primary-light)' : 'transparent',
+                                                cursor: 'pointer', transition: 'all 0.2s'
+                                            }}>
+                                                <input
+                                                    type="radio"
+                                                    name="responseType"
+                                                    value="percentage"
+                                                    checked={voice.responseType === 'percentage'}
+                                                    onChange={handleVoiceChange}
+                                                    style={{ width: '18px', height: '18px', accentColor: 'var(--primary-blue)' }}
+                                                />
+                                                <div>
+                                                    <div style={{ fontWeight: 700, fontSize: '14px' }}>Proativo (Aleatório)</div>
+                                                    <div style={{ fontSize: '12px', color: 'var(--text-medium)' }}>Responder em áudio em uma porcentagem definida de mensagens.</div>
+                                                </div>
+                                            </label>
+                                        </div>
+
+                                        {voice.responseType === 'percentage' && (
+                                            <div style={{ padding: '20px', background: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                                    <span style={{ fontSize: '14px', fontWeight: 600 }}>Probabilidade de Áudio</span>
+                                                    <span style={{ fontSize: '16px', fontWeight: 800, color: 'var(--primary-blue)' }}>{voice.responsePercentage}%</span>
+                                                </div>
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="100"
+                                                    step="10"
+                                                    name="responsePercentage"
+                                                    value={voice.responsePercentage}
+                                                    onChange={handleVoiceChange}
+                                                    style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--primary-blue)' }}
                                                 />
                                             </div>
                                         )}
@@ -699,48 +626,271 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                                 </div>
                             )}
                         </div>
-                    </div>
-                )}
+                    )}
 
-                <div style={{ marginTop: '32px', paddingTop: '24px', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'flex-end' }}>
-                    <button
-                        onClick={handleSave}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '8px',
-                            background: 'var(--primary-blue)', color: 'white',
-                            padding: '12px 24px', borderRadius: 'var(--radius-md)',
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                            opacity: showToast ? 0.7 : 1,
-                            transition: 'all 0.2s'
-                        }}
-                    >
-                        <Save size={18} />
-                        {showToast ? 'Salvo!' : 'Salvar Alterações'}
-                    </button>
-                </div>
+                    {/* Follow-up Section */}
+                    {activeSection === 'followup' && (
+                        <div className="animate-fade-in">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ background: 'var(--primary-light)', padding: '10px', borderRadius: '12px' }}>
+                                        <Clock size={28} color="var(--primary-blue)" />
+                                    </div>
+                                    <div>
+                                        <h2 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-dark)' }}>Follow-up IA</h2>
+                                        <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Recupere conversas automaticamente.</p>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#F8FAFC', padding: '8px 16px', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: followUp.enabled ? '#10B981' : '#64748B' }}>
+                                        {followUp.enabled ? 'ATIVADO' : 'DESATIVADO'}
+                                    </span>
+                                    <input
+                                        type="checkbox"
+                                        checked={followUp.enabled}
+                                        onChange={(e) => handleFollowUpChange('enabled', e.target.checked)}
+                                        style={{ height: '20px', width: '20px', cursor: 'pointer', accentColor: '#10B981' }}
+                                    />
+                                </div>
+                            </div>
 
-                {/* Toast Notification */}
-                {showToast && (
+                            <div style={{ display: 'grid', gap: '24px' }}>
+                                <div style={{ background: '#F8FAFC', padding: 24, borderRadius: 16, border: '1px solid #E2E8F0' }}>
+                                    <label style={{ display: 'block', marginBottom: '12px', fontSize: '14px', fontWeight: 700, color: 'var(--text-dark)' }}>Números Ignorados (Filtro)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Ex: 5521999999999, 5511988888888"
+                                        value={followUp.ignoreNumbers || ''}
+                                        onChange={(e) => handleFollowUpChange('ignoreNumbers', e.target.value)}
+                                        style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '14px', marginBottom: '8px' }}
+                                    />
+                                    <p style={{ fontSize: 12, color: '#64748B', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <MessageCircle size={14} /> Evita que a IA envie mensagens para administradores ou para si mesma.
+                                    </p>
+                                </div>
+
+                                <div style={{ background: 'white', padding: 24, borderRadius: 16, border: '1px solid #E2E8F0 shadow-sm' }}>
+                                    <label style={{ display: 'block', marginBottom: '12px', fontSize: '14px', fontWeight: 700 }}>Personalidade de Recuperação</label>
+                                    <select
+                                        value={followUp.tone}
+                                        onChange={(e) => handleFollowUpChange('tone', e.target.value)}
+                                        style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #CBD5E1', fontSize: '14px', background: 'white', fontWeight: 600 }}
+                                    >
+                                        <option value="animated">🚀 Animado (Curto, enérgico, direto)</option>
+                                        <option value="serious">👔 Profissional (Polido, consultivo)</option>
+                                        <option value="ice_breaker">😄 Simpático (Leve, amigável)</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <h3 style={{ fontSize: '15px', fontWeight: 700, marginBottom: '16px', color: 'var(--text-dark)' }}>Sequência de Disparo</h3>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {followUp.attempts.map((attempt, index) => (
+                                            <div key={attempt.id} style={{
+                                                display: 'flex', alignItems: 'center', gap: 16,
+                                                background: attempt.active ? 'white' : '#F8FAFC',
+                                                padding: '16px 20px', borderRadius: '12px',
+                                                border: attempt.active ? '1px solid #E2E8F0' : '1px solid transparent',
+                                                opacity: attempt.active ? 1 : 0.6,
+                                                boxShadow: attempt.active ? 'var(--shadow-sm)' : 'none'
+                                            }}>
+                                                <div style={{
+                                                    width: '28px', height: '28px', borderRadius: '50%',
+                                                    background: attempt.active ? 'var(--primary-blue)' : '#CBD5E1',
+                                                    color: 'white', display: 'flex', alignItems: 'center',
+                                                    justifyContent: 'center', fontSize: '12px', fontWeight: 800
+                                                }}>
+                                                    {index + 1}
+                                                </div>
+                                                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                    <span style={{ fontSize: '14px', fontWeight: 500 }}>Enviar após</span>
+                                                    <input
+                                                        type="number"
+                                                        value={attempt.delayValue}
+                                                        onChange={(e) => updateFollowUpAttempt(index, 'delayValue', parseInt(e.target.value))}
+                                                        style={{ width: '60px', padding: '8px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '14px', textAlign: 'center', fontWeight: 700 }}
+                                                    />
+                                                    <select
+                                                        value={attempt.delayUnit}
+                                                        onChange={(e) => updateFollowUpAttempt(index, 'delayUnit', e.target.value)}
+                                                        style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px', fontWeight: 600, background: 'white' }}
+                                                    >
+                                                        <option value="minutes">Minutos</option>
+                                                        <option value="hours">Horas</option>
+                                                        <option value="days">Dias</option>
+                                                    </select>
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '12px', fontWeight: 700, color: attempt.active ? '#10B981' : '#94A3B8' }}>{attempt.active ? 'ATIVO' : 'PAUSADO'}</span>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={attempt.active}
+                                                        onChange={(e) => updateFollowUpAttempt(index, 'active', e.target.checked)}
+                                                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#10B981' }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Catalog Section */}
+                    {activeSection === 'catalog' && (
+                        <div className="animate-fade-in">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
+                                <div style={{ background: 'var(--primary-light)', padding: '10px', borderRadius: '12px' }}>
+                                    <Package size={28} color="var(--primary-blue)" />
+                                </div>
+                                <div>
+                                    <h2 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-dark)' }}>Configurações do Catálogo</h2>
+                                    <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Regras globais de apresentação de produtos.</p>
+                                </div>
+                            </div>
+
+                            <div style={{ background: '#F8FAFC', padding: 28, borderRadius: 20, border: '1px solid var(--border-color)', boxShadow: 'var(--shadow-sm)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
+                                    <input
+                                        type="checkbox"
+                                        id="hidePrices"
+                                        name="hidePrices"
+                                        checked={catalogConfig.hidePrices}
+                                        onChange={handleCatalogChange}
+                                        style={{ width: '22px', height: '22px', cursor: 'pointer', accentColor: 'var(--primary-blue)' }}
+                                    />
+                                    <label htmlFor="hidePrices" style={{ fontWeight: 800, cursor: 'pointer', fontSize: '16px' }}>
+                                        Modo "Sob Consulta" (Ocultar Preços)
+                                    </label>
+                                </div>
+                                <p style={{ fontSize: 13, color: '#64748B', marginBottom: '24px', paddingLeft: '36px', lineHeight: '1.6' }}>
+                                    Quando ativado, a IA omitirá o preço de todos os itens e utilizará uma justificativa personalizada para incentivar o contato humano.
+                                </p>
+
+                                {catalogConfig.hidePrices && (
+                                    <div style={{ paddingLeft: '36px' }}>
+                                        <div style={{ padding: '24px', background: '#FFFBEB', borderRadius: '16px', border: '1px solid #FEF3C7' }}>
+                                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 700, marginBottom: '12px', color: '#92400E' }}>
+                                                Justificativa da IA
+                                            </label>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                                <select
+                                                    name="hidePricesReason"
+                                                    value={catalogConfig.hidePricesReason}
+                                                    onChange={handleCatalogChange}
+                                                    style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #FCD34D', fontSize: '14px', background: 'white', fontWeight: 600, color: '#92400E' }}
+                                                >
+                                                    <option value="Sob consulta">💎 Valor sob consulta</option>
+                                                    <option value="Preço com vendedor">👨‍💼 Falar com especialista</option>
+                                                    <option value="A partir de (Variável)">📈 Preço variável (Sob projeto)</option>
+                                                    <option value="Outro">✏️ Personalizar mensagem...</option>
+                                                </select>
+
+                                                {catalogConfig.hidePricesReason === 'Outro' && (
+                                                    <input
+                                                        type="text"
+                                                        name="customPriceHiddenReason"
+                                                        value={catalogConfig.customPriceHiddenReason || ''}
+                                                        onChange={handleCatalogChange}
+                                                        placeholder='Ex: "O valor depende da sua região..."'
+                                                        style={{ width: '100%', padding: '12px 16px', borderRadius: '10px', border: '1px solid #FCD34D', fontSize: '14px' }}
+                                                    />
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Bottom Save Bar (Within Content Area but Sticky) */}
                     <div style={{
-                        position: 'fixed',
-                        bottom: '24px',
-                        right: '24px',
-                        background: '#10B981',
-                        color: 'white',
-                        padding: '12px 24px',
-                        borderRadius: 'var(--radius-md)',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                        marginTop: '40px',
+                        paddingTop: '24px',
+                        borderTop: '1px solid #E5E7EB',
                         display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        animation: 'slideIn 0.3s ease-out'
+                        justifyContent: 'flex-end',
+                        position: 'sticky',
+                        bottom: 0,
+                        background: 'white',
+                        zIndex: 10
                     }}>
-                        <span>Configurações salvas com sucesso!</span>
+                        <button
+                            onClick={handleSave}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                background: 'var(--primary-blue)',
+                                color: 'white',
+                                padding: '14px 32px',
+                                borderRadius: '12px',
+                                fontWeight: 700,
+                                fontSize: '15px',
+                                cursor: 'pointer',
+                                border: 'none',
+                                boxShadow: '0 4px 14px 0 rgba(0, 102, 255, 0.39)',
+                                transition: 'all 0.2s ease',
+                                transform: showToast ? 'scale(0.98)' : 'scale(1)',
+                                opacity: showToast ? 0.8 : 1
+                            }}
+                            onMouseEnter={e => {
+                                e.currentTarget.style.transform = 'translateY(-2px)';
+                                e.currentTarget.style.boxShadow = '0 6px 20px rgba(0, 102, 255, 0.45)';
+                            }}
+                            onMouseLeave={e => {
+                                e.currentTarget.style.transform = 'translateY(0)';
+                                e.currentTarget.style.boxShadow = '0 4px 14px 0 rgba(0, 102, 255, 0.39)';
+                            }}
+                        >
+                            <Save size={20} />
+                            {showToast ? 'Salvo com Sucesso!' : 'Salvar Alterações'}
+                        </button>
                     </div>
-                )}
+                </div>
             </div>
+
+            {/* Float Toast Notification */}
+            {showToast && (
+                <div style={{
+                    position: 'fixed',
+                    bottom: '32px',
+                    right: '32px',
+                    background: '#059669',
+                    color: 'white',
+                    padding: '16px 28px',
+                    borderRadius: '16px',
+                    boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    zIndex: 9999,
+                    animation: 'slideUp 0.4s ease-out'
+                }}>
+                    <div style={{ background: 'rgba(255,255,255,0.2)', padding: '4px', borderRadius: '50%' }}>
+                        <Save size={16} />
+                    </div>
+                    <span style={{ fontWeight: 700, fontSize: '14px' }}>Configurações atualizadas!</span>
+                </div>
+            )}
+
+            <style>{`
+                @keyframes slideUp {
+                    from { transform: translateY(100%); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+                .animate-fade-in {
+                    animation: fadeIn 0.3s ease-in-out;
+                }
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(5px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+            `}</style>
         </div>
     );
 };
+
 export default Settings;
