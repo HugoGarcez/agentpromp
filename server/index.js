@@ -939,27 +939,32 @@ const handleWebhookRequest = async (req, res) => {
             console.error('[Webhook] Conditional Transfer Session Error:', ctErr);
         }
 
-        // --- CHECK TRANSFER TRIGGER ---
-        let transferConfigs = config.transferConfig;
+        let transferConfigs = config?.transferConfig;
         if (transferConfigs && !Array.isArray(transferConfigs)) {
-            transferConfigs = [transferConfigs]; // Compatibilidade
+            transferConfigs = [transferConfigs];
+        } else if (!transferConfigs) {
+            transferConfigs = [];
         }
 
-        if (Array.isArray(transferConfigs) && userMessage) {
+        const logWebhook = (m) => {
+            try { fsCommon.appendFileSync('debug_transfer.txt', `[${new Date().toISOString()}] ${m}\n`); } catch(e) {}
+            console.log(m);
+        };
+
+        if (userMessage) {
+            logWebhook(`[Webhook] Processing msg: "${userMessage.substring(0, 30)}" for Agent: ${agentId || 'Global'}. Rules found: ${transferConfigs.length}`);
+            
             let matched = false;
 
             // --- CONDITIONAL TRANSFER: Check conditional rules FIRST ---
             const conditionalRules = transferConfigs.filter(r => r.mode === 'conditional');
-            if (conditionalRules.length > 0) {
-                console.log(`[Webhook] Checking ${conditionalRules.length} Conditional Transfer rules for msg: "${userMessage.substring(0, 30)}"`);
-            }
-
+            
             for (let ci = 0; ci < conditionalRules.length; ci++) {
                 const rule = conditionalRules[ci];
                 const isMatch = shouldTriggerConditionalTransfer(userMessage, rule);
                 
                 if (isMatch) {
-                    console.log(`[Webhook] Conditional Transfer Trigger MATCHED for rule: "${rule.name || ci}" (Trigger: ${rule.triggerMode})`);
+                    logWebhook(`[Webhook] Conditional Transfer Trigger MATCHED for rule: "${rule.name || ci}" (Trigger: ${rule.triggerMode})`);
 
                     // Find the actual index in the full conditional array
                     const allConditional = transferConfigs.filter(r => r.mode === 'conditional');
