@@ -250,10 +250,10 @@ const AIConfig = () => {
         const fetchListings = async () => {
             setLoadingListings(true);
             try {
-                const resUsers = await fetch('/api/promp/users', { headers: { 'Authorization': `Bearer ${token}` } });
+                const resUsers = await fetch(`/api/promp/users?agentId=${selectedAgentId}`, { headers: { 'Authorization': `Bearer ${token}` } });
                 if (resUsers.ok) setPrompUsers(await resUsers.json());
 
-                const resQueues = await fetch('/api/promp/queues', { headers: { 'Authorization': `Bearer ${token}` } });
+                const resQueues = await fetch(`/api/promp/queues?agentId=${selectedAgentId}`, { headers: { 'Authorization': `Bearer ${token}` } });
                 if (resQueues.ok) setPrompQueues(await resQueues.json());
             } catch (e) {
                 console.error("Failed to fetch listings:", e);

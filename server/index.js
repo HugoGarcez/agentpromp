@@ -3347,8 +3347,9 @@ app.get('/api/config', authenticateToken, async (req, res) => {
 // --- PROMP EXTERNAL LISTINGS (FOR FRONTEND) ---
 app.get('/api/promp/users', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
+    const agentId = req.query.agentId;
     try {
-        const config = await getCompanyConfig(companyId);
+        const config = await getCompanyConfig(companyId, agentId);
         if (!config || (!config.prompUuid && !config.prompIdentity)) return res.status(404).json({ error: 'Configuração do Promp incompleta' });
         const users = await getPrompUsers(config);
         res.json(users);
@@ -3359,8 +3360,9 @@ app.get('/api/promp/users', authenticateToken, async (req, res) => {
 
 app.get('/api/promp/queues', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
+    const agentId = req.query.agentId;
     try {
-        const config = await getCompanyConfig(companyId);
+        const config = await getCompanyConfig(companyId, agentId);
         if (!config || (!config.prompUuid && !config.prompIdentity)) return res.status(404).json({ error: 'Configuração do Promp incompleta' });
         const queues = await getPrompQueues(config);
         res.json(queues);

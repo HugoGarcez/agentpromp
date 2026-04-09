@@ -317,9 +317,10 @@ export const getPrompTags = async (config) => {
     if (!config.prompUuid || !config.prompToken) return [];
 
     try {
+        const finalToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
         const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/listTags?isActive=true`;
         const response = await axios.get(url, {
-            headers: { 'Authorization': `Bearer ${config.prompToken}` }
+            headers: { 'Authorization': `Bearer ${finalToken}` }
         });
 
         // A API da Promp pode retornar um array direto ou um objeto com a chave tags/data
@@ -478,7 +479,9 @@ export const getPrompUsers = async (config) => {
         const response = await axios.get(url, {
             headers: { 'Authorization': `Bearer ${finalToken}` }
         });
-        return response.data?.users || [];
+        const responseData = response.data;
+        if (Array.isArray(responseData)) return responseData;
+        return responseData?.users || responseData?.data || responseData?.results || [];
     } catch (error) {
         console.error('[Promp] Failed to List Users:', error.response?.data || error.message);
         return [];
@@ -495,7 +498,9 @@ export const getPrompQueues = async (config) => {
         const response = await axios.get(url, {
             headers: { 'Authorization': `Bearer ${finalToken}` }
         });
-        return response.data?.queues || response.data || [];
+        const responseData = response.data;
+        if (Array.isArray(responseData)) return responseData;
+        return responseData?.queues || responseData?.data || responseData?.results || responseData || [];
     } catch (error) {
         console.error('[Promp] Failed to List Queues:', error.response?.data || error.message);
         return [];
