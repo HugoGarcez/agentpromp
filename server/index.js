@@ -813,8 +813,10 @@ const handleWebhookRequest = async (req, res) => {
                 if (rule) {
                     // Detect media in payload for file/image fields
                     let mediaPayload = null;
-                    const msgType = payload.msg?.messageType || payload.type || '';
-                    if (['ImageMessage', 'DocumentMessage', 'image', 'document'].includes(msgType)) {
+                    const msgType = (payload.msg?.messageType || payload.type || '').toLowerCase();
+                    const isMedia = ['imagemessage', 'documentmessage', 'image', 'document', 'audio', 'audiomessage'].includes(msgType);
+                    
+                    if (isMedia) {
                         mediaPayload = {
                             id: payload.msg?.content?.id || payload.msg?.id || `media_${Date.now()}`,
                             mediaId: payload.msg?.content?.id || payload.msg?.id,
@@ -899,6 +901,28 @@ const handleWebhookRequest = async (req, res) => {
                                 );
                                 const fullMsg = `📋 *Encaminhamento Condicional* (${transferId})\n\n${renderedMsg}`;
                                 await sendPrompMessage(config, notifNumber, fullMsg, null, null, null);
+
+                                // Forward Attachments to Operator
+                                if (result.attachments && result.attachments.length > 0) {
+                                    console.log(`[ConditionalTransfer] Forwarding ${result.attachments.length} attachments to operator ${notifNumber}...`);
+                                    for (const att of result.attachments) {
+                                        try {
+                                            if (att.url) {
+                                                // Baixar e encaminhar o arquivo real
+                                                const axios = (await import('axios')).default;
+                                                const response = await axios.get(att.url, { responseType: 'arraybuffer' });
+                                                const buffer = Buffer.from(response.data);
+                                                
+                                                const { sendPrompMedia } = await import('./prompUtils.js');
+                                                await sendPrompMedia(config, notifNumber, buffer, att.fileName || 'arquivo', att.mimeType, `Anexo de: ${att.fieldId}`);
+                                            } else {
+                                                console.log(`[ConditionalTransfer] Attachment ${att.fieldId} has no URL to forward.`);
+                                            }
+                                        } catch (forwardErr) {
+                                            console.error(`[ConditionalTransfer] Failed to forward attachment ${att.fieldId}:`, forwardErr.message);
+                                        }
+                                    }
+                                }
                                 console.log(`[ConditionalTransfer] Summary sent to ${notifNumber}`);
                             }
 

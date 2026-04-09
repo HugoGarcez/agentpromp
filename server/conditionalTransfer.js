@@ -215,13 +215,21 @@ export function validateField(field, value) {
             }
         }
 
-        // Para imagem, validar MIME padrão se não há allowedMimeTypes configurado
-        if (field.type === 'image' && (!field.validation?.allowedMimeTypes || field.validation.allowedMimeTypes.length === 0)) {
-            const acceptedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
-            if (!acceptedImageTypes.includes(value.mimeType)) {
+        // Para imagem ou arquivo, validar MIME padrão se não há allowedMimeTypes configurado
+        if (!field.validation?.allowedMimeTypes || field.validation.allowedMimeTypes.length === 0) {
+            const acceptedTypes = [
+                'image/jpeg', 'image/png', 'image/webp', 'image/heic', 
+                'application/pdf', 'application/msword', 
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            ];
+            
+            if (!acceptedTypes.includes(value.mimeType)) {
+                const hint = field.type === 'image' ? 'uma imagem (JPEG, PNG ou WebP)' : 'um documento (PDF, DOCX, XLSX)';
                 return {
                     valid: false,
-                    error: field.errorMessage || 'Por favor, envie uma imagem (JPEG, PNG ou WebP).'
+                    error: field.errorMessage || `Por favor, envie ${hint}.`
                 };
             }
         }
@@ -569,6 +577,7 @@ export function handleCollectionStep(rule, session, userMessage, mediaPayload = 
                 fieldId: currentField.id,
                 mediaId: mediaPayload.mediaId || mediaPayload.id,
                 mimeType: mediaPayload.mimeType,
+                fileName: mediaPayload.fileName || 'arquivo',
                 caption: currentField.question,
                 url: mediaPayload.url || null
             });
