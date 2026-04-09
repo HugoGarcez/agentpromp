@@ -39,6 +39,7 @@ export function shouldTriggerConditionalTransfer(message, rule) {
     if (!message) return false;
 
     const triggerMode = rule.triggerMode || 'keyword';
+    const normalizedMsg = normalizeText(message);
 
     switch (triggerMode) {
         case 'always':
@@ -47,13 +48,18 @@ export function shouldTriggerConditionalTransfer(message, rule) {
         case 'command': {
             const command = normalizeText(rule.triggerCommand);
             if (!command) return false;
-            return normalizeText(message).startsWith(command);
+            // Compara exatamente ou se a mensagem começa com o comando
+            const matched = normalizedMsg.startsWith(command);
+            if (!matched && normalizedMsg.includes(command)) {
+                // Log de aviso se o comando está no meio da mensagem
+                console.log(`[ConditionalTransfer] Potential command match found but not at start: "${command}" in "${normalizedMsg}"`);
+            }
+            return matched;
         }
 
         case 'keyword': {
             const keywords = rule.triggerKeywords || [];
             if (keywords.length === 0) return false;
-            const normalizedMsg = normalizeText(message);
             return keywords.some(kw => normalizedMsg.includes(normalizeText(kw)));
         }
 

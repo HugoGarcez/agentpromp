@@ -322,6 +322,9 @@ const handleWebhookRequest = async (req, res) => {
 
         // LOAD FULL CONFIG (Global Tokens + JSON Parsed)
         config = await getCompanyConfig(companyId, agentId);
+        if (config) {
+            console.log(`[Webhook] Config loaded for Company: ${companyId}, Agent: ${agentId || 'Global'}. Transfer rules: ${Array.isArray(config.transferConfig) ? config.transferConfig.length : 0}`);
+        }
 
         // --- MULTI-CHANNEL CREDENTIAL OVERRIDE ---
         if (matchedChannel && config) {
@@ -947,10 +950,16 @@ const handleWebhookRequest = async (req, res) => {
 
             // --- CONDITIONAL TRANSFER: Check conditional rules FIRST ---
             const conditionalRules = transferConfigs.filter(r => r.mode === 'conditional');
+            if (conditionalRules.length > 0) {
+                console.log(`[Webhook] Checking ${conditionalRules.length} Conditional Transfer rules for msg: "${userMessage.substring(0, 30)}"`);
+            }
+
             for (let ci = 0; ci < conditionalRules.length; ci++) {
                 const rule = conditionalRules[ci];
-                if (shouldTriggerConditionalTransfer(userMessage, rule)) {
-                    console.log(`[Webhook] Conditional Transfer Trigger MATCHED for rule: "${rule.name || ci}"`);
+                const isMatch = shouldTriggerConditionalTransfer(userMessage, rule);
+                
+                if (isMatch) {
+                    console.log(`[Webhook] Conditional Transfer Trigger MATCHED for rule: "${rule.name || ci}" (Trigger: ${rule.triggerMode})`);
 
                     // Find the actual index in the full conditional array
                     const allConditional = transferConfigs.filter(r => r.mode === 'conditional');
