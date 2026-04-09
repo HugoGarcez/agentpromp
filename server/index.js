@@ -154,6 +154,7 @@ const handleWebhookRequest = async (req, res) => {
     // Load Config EARLY (needed for Identity check)
     let followUpCfg = null;
     let config = null;
+    let agentId = null;
     let matchedChannel = null;
 
     // 2. Identify Sender and Owner Early
@@ -306,7 +307,7 @@ const handleWebhookRequest = async (req, res) => {
             }
         }
 
-        let agentId = null;
+
         if (matchedChannel && matchedChannel.agents.length > 0) {
             agentId = matchedChannel.agents[0].id; // Take FIRST agent linked to this channel
             console.log(`[Webhook] Routed to Channel ${matchedChannel.name}, Agent ID: ${agentId}`);
