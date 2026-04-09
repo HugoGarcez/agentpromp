@@ -1012,10 +1012,11 @@ const AIConfig = () => {
                                     </div>
 
                                     {conditionalTransferConfigs.map((ctConfig, ctIndex) => (
-                                        <div key={ctIndex} style={{ marginBottom: '24px', background: 'white', borderRadius: '16px', border: '1px solid #E2E8F0', overflow: 'hidden' }}>
+                                        <div key={ctIndex} style={{ marginBottom: '24px', background: 'white', borderRadius: '16px', border: '1px solid #E2E8F0', position: 'relative' }}>
                                             <div style={{
                                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                                padding: '16px 20px', background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)', color: 'white'
+                                                padding: '16px 20px', background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)', color: 'white',
+                                                borderTopLeftRadius: '16px', borderTopRightRadius: '16px'
                                             }}>
                                                 <span style={{ fontWeight: 700, fontSize: '15px' }}>
                                                     {ctConfig.name || `Fluxo ${ctIndex + 1}`}

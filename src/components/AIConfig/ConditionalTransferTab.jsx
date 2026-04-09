@@ -401,7 +401,7 @@ const ConditionalTransferTab = ({ config, onChange, prompUsers, prompQueues, loa
                                 position: 'absolute', top: '100%', right: 0, marginTop: '8px',
                                 background: 'white', borderRadius: '14px', border: '1px solid #E2E8F0',
                                 boxShadow: '0 10px 40px rgba(0,0,0,0.12)', padding: '8px', width: '260px',
-                                zIndex: 100
+                                zIndex: 500
                             }}>
                                 {FIELD_TYPES.map(ft => (
                                     <button
