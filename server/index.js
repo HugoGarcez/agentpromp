@@ -811,20 +811,57 @@ const handleWebhookRequest = async (req, res) => {
                 const rule = conditionalRules[activeSession.flowConfigIndex];
 
                 if (rule) {
-                    // Detect media in payload for file/image fields
+                    // --- ROBUST MEDIA EXTRACTION ---
                     let mediaPayload = null;
-                    const msgType = (payload.msg?.messageType || payload.type || '').toLowerCase();
-                    const isMedia = ['imagemessage', 'documentmessage', 'image', 'document', 'audio', 'audiomessage'].includes(msgType);
                     
-                    if (isMedia) {
-                        mediaPayload = {
-                            id: payload.msg?.content?.id || payload.msg?.id || `media_${Date.now()}`,
-                            mediaId: payload.msg?.content?.id || payload.msg?.id,
-                            mimeType: payload.msg?.content?.mimetype || payload.msg?.mimetype || 'application/octet-stream',
-                            fileName: payload.msg?.content?.fileName || payload.msg?.fileName || 'arquivo',
-                            size: payload.msg?.content?.fileLength || payload.msg?.fileLength || 0,
-                            url: payload.msg?.content?.URL || payload.msg?.url || null
-                        };
+                    const findMediaRecursively = (obj) => {
+                        if (!obj || typeof obj !== 'object') return null;
+                        
+                        // Check if current level has media indicators
+                        const hasUrl = obj.url || obj.URL || obj.directPath;
+                        const hasMime = obj.mimetype || obj.mimeType || obj.contentType;
+                        
+                        if (hasUrl && hasMime) {
+                            return {
+                                id: obj.id || obj.fileSha256 || `media_${Date.now()}`,
+                                mediaId: obj.id || obj.fileSha256,
+                                mimeType: String(hasMime).toLowerCase(),
+                                fileName: obj.fileName || obj.filename || obj.caption || 'arquivo',
+                                size: obj.fileLength || obj.size || 0,
+                                url: hasUrl
+                            };
+                        }
+                        
+                        // Recurse into common message keys
+                        const keysToTry = ['documentMessage', 'imageMessage', 'audioMessage', 'videoMessage', 'stickerMessage', 'msg', 'message', 'content', 'body'];
+                        for (const key of keysToTry) {
+                            if (obj[key]) {
+                                const found = findMediaRecursively(obj[key]);
+                                if (found) return found;
+                            }
+                        }
+                        
+                        // Generic deep search
+                        for (const key of Object.keys(obj)) {
+                            if (keysToTry.includes(key)) continue; // Already tried
+                            if (obj[key] && typeof obj[key] === 'object') {
+                                const found = findMediaRecursively(obj[key]);
+                                if (found) return found;
+                            }
+                        }
+                        return null;
+                    };
+
+                    mediaPayload = findMediaRecursively(payload);
+                    
+                    if (mediaPayload) {
+                        console.log(`[ConditionalTransfer] Media detected: ${mediaPayload.fileName} (${mediaPayload.mimeType})`);
+                    } else {
+                        // Fallback log for debugging
+                        const msgType = (payload.msg?.messageType || payload.type || '').toLowerCase();
+                        if (msgType.includes('message') || msgType.includes('image') || msgType.includes('document')) {
+                            console.log(`[ConditionalTransfer] Payload type "${msgType}" suggested media, but extraction failed.`);
+                        }
                     }
 
                     const result = handleCollectionStep(rule, activeSession, userMessage, mediaPayload);
