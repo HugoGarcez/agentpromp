@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Send, User, Bot, Sparkles, Save, Trash2, ChevronDown } from 'lucide-react';
 import PromptTab from '../components/AIConfig/PromptTab';
 
@@ -19,6 +19,15 @@ const TestAI = () => {
     const [isSaving, setIsSaving] = useState(false);
 
     const [products, setProducts] = useState([]);
+    const chatContainerRef = useRef(null);
+
+    // Auto-scroll logic
+    useEffect(() => {
+        if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+    }, [messages]);
+
 
     const fetchData = async (agentId) => {
         const idToUse = agentId || selectedAgentId;
@@ -326,7 +335,10 @@ const TestAI = () => {
                     </div>
                 </div>
 
-                <div style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', background: 'var(--bg-main)' }}>
+                <div 
+                    ref={chatContainerRef}
+                    style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', background: 'var(--bg-main)' }}
+                >
                     {messages.map((msg) => (
                         <div key={msg.id} style={{
                             alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
