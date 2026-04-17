@@ -66,6 +66,7 @@ const ConditionalTransferTab = ({ config, onChange, prompUsers, prompQueues, loa
         const newField = {
             ...DEFAULT_FIELD,
             id: `field_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+            _uid: `uid_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
             type,
             question: getDefaultQuestion(type),
             validation: getDefaultValidation(type),
@@ -305,7 +306,7 @@ const ConditionalTransferTab = ({ config, onChange, prompUsers, prompQueues, loa
                             <div style={{ fontSize: '12px', fontWeight: 700, color: '#065F46', marginBottom: '8px' }}>Variáveis disponíveis:</div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                                 {safeConfig.fields.map(f => (
-                                    <code key={f.id} style={{
+                                    <code key={f._uid || f.id} style={{
                                         fontSize: '11px', background: '#ECFDF5', padding: '2px 8px',
                                         borderRadius: '4px', color: '#047857', cursor: 'pointer',
                                         border: '1px solid #A7F3D0'
@@ -438,7 +439,7 @@ const ConditionalTransferTab = ({ config, onChange, prompUsers, prompQueues, loa
                         const isExpanded = expandedField === index;
 
                         return (
-                            <div key={field.id || index} style={{
+                            <div key={field._uid || index} style={{
                                 background: 'white', borderRadius: '14px',
                                 border: isExpanded ? `2px solid ${fieldType.color}` : '1px solid #E5E7EB',
                                 overflow: 'hidden', transition: 'all 0.2s',
