@@ -5542,8 +5542,16 @@ Para N produtos = N tags [SHOW_IMAGE: ID] na resposta. Sem exceção.
 // --- Config History Routes ---
 app.get('/api/config/history', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
+    const { agentId } = req.query;
     try {
-        const config = await prisma.agentConfig.findFirst({ where: { companyId } });
+        let config;
+        if (agentId) {
+            config = await prisma.agentConfig.findFirst({ where: { id: agentId, companyId } });
+        } else {
+            // Deprecated fallback: get first agent if no ID provided
+            config = await prisma.agentConfig.findFirst({ where: { companyId } });
+        }
+        
         if (!config) return res.json([]);
 
         const history = await prisma.promptHistory.findMany({
@@ -5563,10 +5571,17 @@ app.post('/api/config/restore', authenticateToken, async (req, res) => {
     const companyId = req.user.companyId;
 
     try {
-        const historyItem = await prisma.promptHistory.findUnique({ where: { id: historyId } });
-        if (!historyItem) return res.status(404).json({ message: 'Versão não encontrada' });
+        const historyItem = await prisma.promptHistory.findUnique({ 
+            where: { id: historyId },
+            include: { agentConfig: true }
+        });
+        
+        if (!historyItem || historyItem.agentConfig.companyId !== companyId) {
+            return res.status(404).json({ message: 'Versão não encontrada ou acesso negado' });
+        }
 
-        await prisma.agentConfig.updateMany({ where: { companyId },
+        await prisma.agentConfig.update({ 
+            where: { id: historyItem.agentConfigId },
             data: { systemPrompt: historyItem.systemPrompt }
         });
 

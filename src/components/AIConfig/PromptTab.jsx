@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { History, RotateCcw } from 'lucide-react';
 import Modal from '../Modal';
 
-const PromptTab = ({ systemPrompt, onPromptChange, persona, onPersonaChange }) => {
+const PromptTab = ({ agentId, systemPrompt, onPromptChange, persona, onPersonaChange }) => {
     // Local state only for History UI
     const [history, setHistory] = useState([]);
     const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -100,7 +100,7 @@ const PromptTab = ({ systemPrompt, onPromptChange, persona, onPersonaChange }) =
     const fetchHistory = async () => {
         const token = localStorage.getItem('token');
         try {
-            const res = await fetch('/api/config/history', {
+            const res = await fetch(`/api/config/history?agentId=${agentId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (res.ok) {

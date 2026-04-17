@@ -606,7 +606,7 @@ const AIConfig = () => {
                     </div>
                 ) : (
                     <>
-                        {activeTab === 'prompt' && <PromptTab systemPrompt={systemPrompt} onPromptChange={setSystemPrompt} persona={persona} onPersonaChange={setPersona} />}
+                        {activeTab === 'prompt' && <PromptTab agentId={selectedAgentId} systemPrompt={systemPrompt} onPromptChange={setSystemPrompt} persona={persona} onPersonaChange={setPersona} />}
                         
                         {activeTab === 'channels' && (
                             <div style={{ padding: '8px' }}>
