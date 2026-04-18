@@ -95,14 +95,13 @@ export const sendUazapiPresence = async (tokenAPI, phone, type = 'text') => {
         return false;
     }
 
-    try {
         const body = {
-            phone: String(phone).replace(/\D/g, ''),
+            number: String(phone).replace(/\D/g, ''),
             presence: 'composing'
         };
 
         if (type === 'audio') {
-            body.media = 'audio';
+            body.presence = 'recording';
         }
 
         const response = await fetch(`${UAZAPI_BASE_URL}/message/presence`, {
@@ -347,7 +346,7 @@ export const sendUazapiAudio = async (tokenAPI, phone, audioBase64) => {
     try {
         const payload = {
             number: String(phone).replace(/\D/g, ''),
-            media: `data:audio/ogg;base64,${audioBase64}`,
+            file: `data:audio/ogg;base64,${audioBase64}`,
             type: 'ptt',
             delay: 0
         };
