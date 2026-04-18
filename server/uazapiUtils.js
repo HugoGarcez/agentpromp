@@ -174,80 +174,72 @@ export const shouldShowCatalog = (userMessage) => {
 };
 
 /**
- * Build carousel cards from the product catalog.
+ * Build choices array for Uazapi carousel format.
  * 
- * Each card has:
- * - text: "Product Name\nDescription" (title + body)
- * - image: product image URL
- * - buttons: interactive buttons (reply type)
+ * Format per the Uazapi documentation (POST /send/menu with type: "carousel"):
+ * - "[Title\nDescription]" — card text (title + body)
+ * - "{imageUrl}" — card image
+ * - "Button Text|button_id" — reply button
+ * - "Button Text|https://url" — URL button
  * 
  * WhatsApp carousel supports up to 10 cards.
- * Each card can have up to 3 buttons.
  * 
  * @param {Array} catalogItems - Product array from config.products
- * @returns {Array} Carousel cards for POST /send/carousel
+ * @returns {string[]} Choices array for Uazapi /send/menu carousel
  */
-export const buildCarouselCards = (catalogItems) => {
+export const buildCarouselChoices = (catalogItems) => {
     if (!Array.isArray(catalogItems) || catalogItems.length === 0) return [];
 
     // Limit to 10 cards (WhatsApp carousel limit)
     const items = catalogItems.slice(0, 10);
+    const choices = [];
 
-    return items.map((item, index) => {
-        // Support multiple product schema formats
+    for (const item of items) {
+        // Support multiple product schema formats from the Promp system
         const name = item.name || item.title || item.nome || item.titulo || 'Produto';
         const desc = item.description || item.descricao || '';
         const price = item.price ?? item.preco ?? item.valor;
         const imageUrl = item.imageUrl || item.image || item.imagem || item.foto || '';
         const productUrl = item.productUrl || item.link || item.url || '';
-        const id = item.id || item.productId || `prod_${index}`;
+        const id = item.id || item.productId || `prod_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
 
-        // Build card text: name + description + price
-        const textParts = [name];
-        if (desc) textParts.push(desc.slice(0, 200));
+        // Build description with price
+        const descParts = [];
+        if (desc) descParts.push(desc.slice(0, 150));
         if (price != null && price !== '' && price !== 0) {
             const formattedPrice = typeof price === 'number'
                 ? `R$ ${price.toFixed(2).replace('.', ',')}`
                 : `R$ ${price}`;
-            textParts.push(`💰 ${formattedPrice}`);
+            descParts.push(formattedPrice);
         }
+        const descLine = descParts.join('\n') || 'Toque para saber mais';
 
-        // Build buttons (max 3 per card)
-        const buttons = [];
-        buttons.push({
-            id: `info_${id}`,
-            text: 'Saber mais',
-            type: 'REPLY'
-        });
+        // 1. Card text: [Title\nDescription]
+        choices.push(`[${name}\n${descLine}]`);
 
-        if (productUrl) {
-            buttons.push({
-                id: `link_${id}`,
-                text: 'Ver no site',
-                type: 'URL',
-                url: productUrl
-            });
-        }
-
-        const card = {
-            text: textParts.join('\n'),
-            buttons
-        };
-
-        // Only include image if we have a valid URL
+        // 2. Card image: {url}
         if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
-            card.image = imageUrl;
+            choices.push(`{${imageUrl}}`);
         }
 
-        return card;
-    });
+        // 3. Buttons (up to 3 per card)
+        // Reply button — always present
+        choices.push(`Saber mais|info_${id}`);
+
+        // URL button — only if product has a link
+        if (productUrl && (productUrl.startsWith('http://') || productUrl.startsWith('https://'))) {
+            choices.push(`Ver no site|${productUrl}`);
+        }
+    }
+
+    return choices;
 };
 
 /**
  * Send product catalog as a WhatsApp carousel via Uazapi.
- * Uses POST /send/carousel endpoint with structured JSON.
+ * Uses POST /send/menu with type: "carousel" and choices array.
  * 
- * Documentation: https://docs.uazapi.com/endpoint/post/send~carousel
+ * Documentation: https://docs.uazapi.com/endpoint/post/send~menu
  * 
  * @param {string} tokenAPI - Uazapi API token
  * @param {string} phone - Recipient phone number
@@ -267,100 +259,22 @@ export const sendCatalogCarousel = async (tokenAPI, phone, products, agentName) 
     }
 
     try {
-        const carousel = buildCarouselCards(products);
-        if (carousel.length === 0) {
-            console.log('[Uazapi] Skipping Carousel: Failed to build cards.');
+        const choices = buildCarouselChoices(products);
+        if (choices.length === 0) {
+            console.log('[Uazapi] Skipping Carousel: Failed to build choices.');
             return false;
         }
 
         const payload = {
             number: String(phone).replace(/\D/g, ''),
-            text: `📦 Catálogo ${agentName || 'Nossos Produtos'} — ${carousel.length} produto${carousel.length > 1 ? 's' : ''}`,
-            carousel
-        };
-
-        console.log(`[Uazapi] Sending Carousel to ${phone} (${carousel.length} cards)`);
-
-        const response = await fetch(`${UAZAPI_BASE_URL}/send/carousel`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'token': tokenAPI
-            },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unknown error');
-            console.error(`[Uazapi] Carousel Failed (${response.status}):`, errorText);
-
-            // Fallback: try send/menu with type: "carousel" format
-            console.log('[Uazapi] Trying fallback via /send/menu with type: carousel...');
-            return await sendCatalogMenuCarousel(tokenAPI, phone, products, agentName);
-        }
-
-        console.log('[Uazapi] Carousel Sent Successfully');
-        return true;
-    } catch (error) {
-        console.error('[Uazapi] Carousel Exception:', error.message);
-        return false;
-    }
-};
-
-/**
- * Fallback: Send carousel via POST /send/menu with type: "carousel".
- * Uses the string-based choices format from the Uazapi docs.
- * 
- * Documentation: https://docs.uazapi.com/endpoint/post/send~menu
- * 
- * choices format:
- * - "[Title\nDescription]" — card text
- * - "{imageUrl}" — card image
- * - "Button Text|button_id" — reply button
- */
-const sendCatalogMenuCarousel = async (tokenAPI, phone, products, agentName) => {
-    try {
-        const items = products.slice(0, 10);
-        const choices = [];
-
-        for (const item of items) {
-            const name = item.name || item.title || item.nome || item.titulo || 'Produto';
-            const desc = item.description || item.descricao || '';
-            const price = item.price ?? item.preco ?? item.valor;
-            const imageUrl = item.imageUrl || item.image || item.imagem || item.foto || '';
-            const id = item.id || item.productId || `prod_${Date.now()}`;
-
-            // Build description line
-            const descParts = [];
-            if (desc) descParts.push(desc.slice(0, 100));
-            if (price != null && price !== '' && price !== 0) {
-                const formatted = typeof price === 'number'
-                    ? `R$ ${price.toFixed(2).replace('.', ',')}`
-                    : `R$ ${price}`;
-                descParts.push(formatted);
-            }
-            const descLine = descParts.join(' - ') || 'Toque para saber mais';
-
-            // Card text: [Title\nDescription]
-            choices.push(`[${name}\n${descLine}]`);
-
-            // Card image: {url}
-            if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
-                choices.push(`{${imageUrl}}`);
-            }
-
-            // Card button: Text|id
-            choices.push(`Saber mais|${id}`);
-        }
-
-        const payload = {
-            number: String(phone).replace(/\D/g, ''),
             type: 'carousel',
-            text: `📦 Catálogo ${agentName || 'Nossos Produtos'}`,
-            choices
+            text: `📦 Conheça nossos produtos — ${(agentName || 'Catálogo')}`,
+            choices,
+            delay: 1000
         };
 
-        console.log(`[Uazapi] Sending Menu Carousel to ${phone} (${items.length} items, ${choices.length} choices)`);
+        console.log(`[Uazapi] Sending Carousel to ${phone} via POST /send/menu (${products.slice(0, 10).length} cards, ${choices.length} choices)`);
+        console.log(`[Uazapi] Payload: ${JSON.stringify(payload, null, 2)}`);
 
         const response = await fetch(`${UAZAPI_BASE_URL}/send/menu`, {
             method: 'POST',
@@ -371,19 +285,21 @@ const sendCatalogMenuCarousel = async (tokenAPI, phone, products, agentName) => 
             body: JSON.stringify(payload)
         });
 
+        const responseText = await response.text().catch(() => 'No response body');
+
         if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unknown error');
-            console.error(`[Uazapi] Menu Carousel Failed (${response.status}):`, errorText);
+            console.error(`[Uazapi] Carousel Failed (${response.status}):`, responseText);
             return false;
         }
 
-        console.log('[Uazapi] Menu Carousel Sent Successfully');
+        console.log(`[Uazapi] Carousel Sent Successfully. Response: ${responseText}`);
         return true;
     } catch (error) {
-        console.error('[Uazapi] Menu Carousel Exception:', error.message);
+        console.error('[Uazapi] Carousel Exception:', error.message);
         return false;
     }
 };
 
 // Legacy export for backwards compatibility
 export const sendCatalogMenu = sendCatalogCarousel;
+
