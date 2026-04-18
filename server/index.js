@@ -43,6 +43,13 @@ import {
     generateTransferId,
     maskSensitiveData
 } from './conditionalTransfer.js';
+import {
+    getUazapiConfig,
+    calcPresenceDuration,
+    sendPresenceAndWait,
+    shouldShowCatalog,
+    sendCatalogMenu
+} from './uazapiUtils.js';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -1240,7 +1247,13 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                         const chunkAudio = (index === 0) ? audioBase64 : null;
 
                         // PRESENCE SIMULATION (Typing/Recording)
-                        if (currentTicketId) {
+                        // Use Uazapi presence if configured, otherwise fall back to Promp presence
+                        const uazapiCfg = getUazapiConfig(config);
+                        if (uazapiCfg) {
+                            const presenceType = chunkAudio ? 'audio' : 'text';
+                            const presenceContent = chunkAudio ? 10 : (chunk.content || '');
+                            await sendPresenceAndWait(uazapiCfg.tokenAPI, cleanNumber, presenceContent, presenceType);
+                        } else if (currentTicketId) {
                             const state = chunkAudio ? 'recording' : 'typing';
                             const charCount = chunk.content ? chunk.content.length : 0;
                             const baseDelay = chunkAudio ? 3500 : Math.min(Math.max(charCount * 30, 1000), 4500);
@@ -1264,7 +1277,13 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
 
             } else {
                 // FALLBACK FOR SINGLE MESSAGE CALL
-                if (currentTicketId && (aiResponse || audioBase64)) {
+                // Use Uazapi presence if configured, otherwise fall back to Promp presence
+                const uazapiCfgSingle = getUazapiConfig(config);
+                if (uazapiCfgSingle && (aiResponse || audioBase64)) {
+                    const presenceType = audioBase64 ? 'audio' : 'text';
+                    const presenceContent = audioBase64 ? 10 : (aiResponse || '');
+                    await sendPresenceAndWait(uazapiCfgSingle.tokenAPI, cleanNumber, presenceContent, presenceType);
+                } else if (currentTicketId && (aiResponse || audioBase64)) {
                     const state = audioBase64 ? 'recording' : 'typing';
                     const charCount = aiResponse ? aiResponse.length : 0;
                     const baseDelay = audioBase64 ? 3500 : Math.min(Math.max(charCount * 30, 1000), 4500);
@@ -1282,6 +1301,27 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
             console.log(`[Webhook] Sent via API: ${sentViaApi}`);
         } else {
             console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
+        }
+
+        // --- UAZAPI CATALOG CAROUSEL ---
+        // After sending the AI response, check if the user wants to see the catalog
+        // and send an interactive WhatsApp menu if Uazapi is configured
+        try {
+            const uazapiCfgCatalog = getUazapiConfig(config);
+            if (uazapiCfgCatalog && shouldShowCatalog(userMessage)) {
+                const catalogProducts = config.products;
+                if (Array.isArray(catalogProducts) && catalogProducts.length > 0) {
+                    console.log(`[Webhook] Catalog intent detected. Sending Uazapi menu with ${catalogProducts.length} products...`);
+                    // Small delay so the text response arrives first
+                    await new Promise(r => setTimeout(r, 1200));
+                    await sendCatalogMenu(uazapiCfgCatalog.tokenAPI, cleanNumber, catalogProducts, config.name);
+                } else {
+                    console.log('[Webhook] Catalog intent detected but no products available.');
+                }
+            }
+        } catch (catalogErr) {
+            // Catalog is non-critical — never block the response
+            console.error('[Webhook] Catalog Menu Error (non-blocking):', catalogErr.message);
         }
 
         if (sentViaApi) {
