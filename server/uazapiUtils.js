@@ -95,6 +95,7 @@ export const sendUazapiPresence = async (tokenAPI, phone, type = 'text') => {
         return false;
     }
 
+    try {
         const body = {
             number: String(phone).replace(/\D/g, ''),
             presence: 'composing'
