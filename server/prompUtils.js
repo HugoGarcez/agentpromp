@@ -64,7 +64,7 @@ export const sendPrompPresence = async (config, ticketId, state) => {
     const cleanToken = config.prompToken?.trim().replace(/^Bearer\s+/i, '');
 
     try {
-        const response = await fetch(`${PROMP_BASE_URL}/v2/api/external/${uuid}/sendPresence`, {
+        const response = await fetch(`${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/sendPresence`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${cleanToken}`,
