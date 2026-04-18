@@ -3,11 +3,14 @@
  * 
  * Provides WhatsApp integration via the Uazapi API (promp.uazapi.com):
  * - Presence simulation (composing/recording) with proportional duration
- * - Product catalog carousel via POST /send/carousel
+ * - Product catalog carousel via POST /send/menu (type: "carousel")
  * 
  * Token resolution priority:
- * 1. integrations.whatsapp.tokenAPI (explicit Uazapi config)
- * 2. prompToken from channel credentials (works if Promp backend is Uazapi)
+ * 1. integrations.whatsapp.tokenAPI (per-agent config)
+ * 2. UAZAPI_TOKEN environment variable (global fallback)
+ * 
+ * NOTE: prompToken (JWT) is NOT valid for the Uazapi API.
+ *       Uazapi requires its own token (UUID format).
  */
 
 const UAZAPI_BASE_URL = 'https://promp.uazapi.com';
@@ -20,18 +23,18 @@ const UAZAPI_BASE_URL = 'https://promp.uazapi.com';
  * Extract Uazapi config from agent configuration.
  * 
  * Priority:
- * 1. Explicit integrations.whatsapp.tokenAPI (when type === 'uazapi')
- * 2. Fallback to prompToken (since Promp uses Uazapi as backend)
+ * 1. Explicit integrations.whatsapp.tokenAPI (per-agent)
+ * 2. UAZAPI_TOKEN environment variable (global)
  * 
  * @returns {{ tokenAPI: string, baseUrl: string }} or null
  */
 export const getUazapiConfig = (config) => {
     try {
-        // 1. Check explicit Uazapi config in integrations
+        // 1. Check explicit Uazapi config in integrations (per-agent)
         const integrations = config?.integrations;
         if (integrations) {
             const whatsapp = integrations.whatsapp || integrations.Whatsapp;
-            if (whatsapp?.type === 'uazapi' && whatsapp?.tokenAPI) {
+            if (whatsapp?.tokenAPI) {
                 return {
                     tokenAPI: whatsapp.tokenAPI,
                     baseUrl: UAZAPI_BASE_URL
@@ -39,11 +42,10 @@ export const getUazapiConfig = (config) => {
             }
         }
 
-        // 2. Fallback: use prompToken directly (works when Promp backend IS Uazapi)
-        if (config?.prompToken) {
-            const cleanToken = config.prompToken.trim().replace(/^Bearer\s+/i, '');
+        // 2. Fallback: global UAZAPI_TOKEN env var
+        if (process.env.UAZAPI_TOKEN) {
             return {
-                tokenAPI: cleanToken,
+                tokenAPI: process.env.UAZAPI_TOKEN,
                 baseUrl: UAZAPI_BASE_URL
             };
         }
