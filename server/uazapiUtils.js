@@ -181,15 +181,18 @@ export const shouldShowCatalog = (userMessage) => {
  * Format per the Uazapi documentation (POST /send/menu with type: "carousel"):
  * - "[Title\nDescription]" — card text (title + body)
  * - "{imageUrl}" — card image
- * - "Button Text|button_id" — reply button
+ * - "Button Text|copy:CODE" — copy button
+ * - "Button Text|call:PHONE" — call button
  * - "Button Text|https://url" — URL button
+ * - "Button Text|button_id" — reply button
  * 
  * WhatsApp carousel supports up to 10 cards.
  * 
  * @param {Array} catalogItems - Product array from config.products
+ * @param {string} agentPhone - Optional agent phone for Call button
  * @returns {string[]} Choices array for Uazapi /send/menu carousel
  */
-export const buildCarouselChoices = (catalogItems) => {
+export const buildCarouselChoices = (catalogItems, agentPhone = '') => {
     if (!Array.isArray(catalogItems) || catalogItems.length === 0) return [];
 
     // Limit to 10 cards (WhatsApp carousel limit)
@@ -225,12 +228,24 @@ export const buildCarouselChoices = (catalogItems) => {
         }
 
         // 3. Buttons (up to 3 per card)
-        // Reply button — always present
-        choices.push(`Saber mais|info_${id}`);
-
-        // URL button — only if product has a link
+        
+        // Button 1: URL Button (if available)
         if (productUrl && (productUrl.startsWith('http://') || productUrl.startsWith('https://'))) {
             choices.push(`Ver no site|${productUrl}`);
+        } else {
+            // Fallback: Reply button
+            choices.push(`Saber mais|info_${id}`);
+        }
+
+        // Button 2: Copy Button (Product ID)
+        choices.push(`Copiar Código|copy:${id}`);
+
+        // Button 3: Call Button (if agent phone is available)
+        if (agentPhone) {
+            const cleanAgentPhone = String(agentPhone).replace(/\D/g, '');
+            if (cleanAgentPhone) {
+                choices.push(`Falar c/ Atendente|call:+${cleanAgentPhone}`);
+            }
         }
     }
 
@@ -247,9 +262,10 @@ export const buildCarouselChoices = (catalogItems) => {
  * @param {string} phone - Recipient phone number
  * @param {Array} products - Product array from config.products
  * @param {string} agentName - Agent name for the intro text
+ * @param {string} agentPhone - Agent phone for Call buttons
  * @returns {Promise<boolean>} true if sent successfully
  */
-export const sendCatalogCarousel = async (tokenAPI, phone, products, agentName) => {
+export const sendCatalogCarousel = async (tokenAPI, phone, products, agentName, agentPhone = '') => {
     if (!tokenAPI || !phone) {
         console.log('[Uazapi] Skipping Carousel: Missing tokenAPI or phone.');
         return false;
@@ -261,22 +277,28 @@ export const sendCatalogCarousel = async (tokenAPI, phone, products, agentName) 
     }
 
     try {
-        const choices = buildCarouselChoices(products);
+        const choices = buildCarouselChoices(products, agentPhone);
         if (choices.length === 0) {
             console.log('[Uazapi] Skipping Carousel: Failed to build choices.');
             return false;
         }
+
+        // Extract imageButton (first product image or null)
+        const imageButton = products.find(p => p.imageUrl || p.image || p.imagem || p.foto)?.imageUrl || 
+                           products.find(p => p.imageUrl || p.image || p.imagem || p.foto)?.image || null;
 
         const payload = {
             number: String(phone).replace(/\D/g, ''),
             type: 'carousel',
             text: `📦 Conheça nossos produtos — ${(agentName || 'Catálogo')}`,
             choices,
+            imageButton: imageButton, // Header image for the menu
             delay: 1000
         };
 
-        console.log(`[Uazapi] Sending Carousel to ${phone} via POST /send/menu (${products.slice(0, 10).length} cards, ${choices.length} choices)`);
-        console.log(`[Uazapi] Payload: ${JSON.stringify(payload, null, 2)}`);
+        console.log(`[Uazapi] Sending Carousel to ${phone} via POST /send/menu (${Math.min(products.length, 10)} cards, ${choices.length} choices)`);
+        console.log(`[Uazapi] Token used (start): ${tokenAPI.substring(0, 8)}...`);
+        // console.log(`[Uazapi] Payload: ${JSON.stringify(payload, null, 2)}`);
 
         const response = await fetch(`${UAZAPI_BASE_URL}/send/menu`, {
             method: 'POST',
@@ -291,10 +313,13 @@ export const sendCatalogCarousel = async (tokenAPI, phone, products, agentName) 
 
         if (!response.ok) {
             console.error(`[Uazapi] Carousel Failed (${response.status}):`, responseText);
+            if (response.status === 401) {
+                console.error('[Uazapi] AUTH ERROR: Please check if the token in Agent Integrations is a valid Uazapi UUID.');
+            }
             return false;
         }
 
-        console.log(`[Uazapi] Carousel Sent Successfully. Response: ${responseText}`);
+        console.log(`[Uazapi] Carousel Sent Successfully. ID: ${responseText.substring(0, 50)}...`);
         return true;
     } catch (error) {
         console.error('[Uazapi] Carousel Exception:', error.message);

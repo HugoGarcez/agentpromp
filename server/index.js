@@ -365,7 +365,11 @@ const handleWebhookRequest = async (req, res) => {
                 config.prompToken = agentToken;
             }
 
-            console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: UUID=${config.prompUuid}, Token=${config.prompToken?.substring(0, 5)}... (Source: ${source})`);
+            console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: UUID=${config.prompUuid}, PrompToken=${config.prompToken?.substring(0, 5)}... (Source: ${source})`);
+            const uazapiLog = getUazapiConfig(config);
+            if (uazapiLog) {
+                console.log(`[Webhook] Uazapi Token Resolved: ${uazapiLog.tokenAPI.substring(0, 8)}...`);
+            }
         }
 
         if (config?.followUpConfig) {
@@ -1163,10 +1167,21 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
 
         // 3. Process AI Response
         // Pass isAudioInput flag so AI can decide to reply with audio
-        const { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput, currentTicketId, tagTriggers);
+        const chatResults = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput, currentTicketId, tagTriggers);
+        let { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = chatResults;
 
-
-        console.log(`[Webhook] AI Response generated: "${aiResponse.substring(0, 50)}..."`);
+        // --- CATALOG SUPPRESSION ---
+        // If the user wants the catalog, we will send the full carousel.
+        // We suppress the single product image/caption from the AI response to avoid redundancy.
+        if (shouldShowCatalog(userMessage)) {
+            console.log('[Webhook] Catalog intent detected. Suppressing single image fallback in favor of carousel.');
+            productImageUrl = null;
+            productCaption = null;
+            // Also filter out image chunks from messageChunks if any
+            if (Array.isArray(messageChunks)) {
+                chatResults.messageChunks = messageChunks.filter(c => c.type !== 'image');
+            }
+        }
 
         // Persist Chat
         const finalOwner = dbIdentity || cleanOwner;
@@ -1314,8 +1329,8 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                     if (uazapiCfgCatalog) {
                         console.log(`[Webhook] Catalog intent detected. Sending carousel (${catalogProducts.length} products)...`);
                         // Small delay so the text response arrives first
-                        await new Promise(r => setTimeout(r, 1200));
-                        await sendCatalogCarousel(uazapiCfgCatalog.tokenAPI, cleanNumber, catalogProducts, config.name);
+                        await new Promise(r => setTimeout(r, 1500));
+                        await sendCatalogCarousel(uazapiCfgCatalog.tokenAPI, cleanNumber, catalogProducts, config.name, cleanOwner);
                     } else {
                         console.log('[Webhook] Catalog intent detected but no Uazapi/Promp credentials available.');
                     }
