@@ -327,6 +327,58 @@ export const sendCatalogCarousel = async (tokenAPI, phone, products, agentName, 
     }
 };
 
+/**
+ * Send audio as a WhatsApp voice note (PTT) via Uazapi.
+ * Uses POST /send/media with type: "ptt".
+ * 
+ * Documentation: https://docs.uazapi.com/endpoint/post/send~media
+ * 
+ * @param {string} tokenAPI - Uazapi API token
+ * @param {string} phone - Recipient phone number
+ * @param {string} audioBase64 - Audio content in Base64 (MP3/OGG)
+ * @returns {Promise<boolean>} true if sent successfully
+ */
+export const sendUazapiAudio = async (tokenAPI, phone, audioBase64) => {
+    if (!tokenAPI || !phone || !audioBase64) {
+        console.log('[Uazapi] Skipping Audio: Missing tokenAPI, phone or audio content.');
+        return false;
+    }
+
+    try {
+        const payload = {
+            number: String(phone).replace(/\D/g, ''),
+            media: `data:audio/mp3;base64,${audioBase64}`,
+            type: 'ptt',
+            delay: 0
+        };
+
+        console.log(`[Uazapi] Sending PTT Audio to ${phone} via POST /send/media`);
+        
+        const response = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'token': tokenAPI
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const responseText = await response.text().catch(() => 'No response body');
+
+        if (!response.ok) {
+            console.error(`[Uazapi] Audio Send Failed (${response.status}):`, responseText);
+            return false;
+        }
+
+        console.log(`[Uazapi] Audio Sent Successfully. ID: ${responseText.substring(0, 50)}...`);
+        return true;
+    } catch (error) {
+        console.error('[Uazapi] Audio Send Exception:', error.message);
+        return false;
+    }
+};
+
 // Legacy export for backwards compatibility
 export const sendCatalogMenu = sendCatalogCarousel;
+
 
