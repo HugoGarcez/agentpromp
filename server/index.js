@@ -5307,6 +5307,9 @@ Para N produtos = N tags [SHOW_IMAGE: ID] na resposta. Sem exceção.
             }
         }
 
+        // --- CLEANUP: WhatsApp Formatting (Markdown ** to *) ---
+        aiResponse = aiResponse.replace(/\*\*/g, '*');
+
         // --- Audio Script Extraction ---
         let textForAudio = aiResponse;
         const scriptRegex = /\[SCRIPT_AUDIO\]:([\s\S]*?)$/i;
