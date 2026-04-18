@@ -345,16 +345,24 @@ export const sendUazapiAudio = async (tokenAPI, phone, audioBase64) => {
     }
 
     try {
+        const cleanNumber = String(phone).replace(/\D/g, '');
+        const base64Content = `data:audio/ogg;base64,${audioBase64}`;
+
+        // Payload redundante para cobrir diferentes versões da API Uazapi
         const payload = {
-            number: String(phone).replace(/\D/g, ''),
-            file: `data:audio/ogg;base64,${audioBase64}`,
-            type: 'ptt',
+            number: cleanNumber,
+            file: base64Content,    // Padrão novo
+            media: base64Content,   // Padrão antigo
+            type: 'audio',          // Tipo base
+            ptt: true,              // Força o modo PTT (gravado na hora)
+            caption: '',            // Garante que não haja legenda
             delay: 0
         };
 
-        console.log(`[Uazapi] Sending PTT Audio to ${phone} using token: ${tokenAPI.substring(0, 8)}...`);
+        console.log(`[Uazapi] Sending PTT Audio to ${cleanNumber} (ptt: true)...`);
         
-        const response = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
+        // Tentamos o endpoint /send/audio que é mais específico para PTT
+        const response = await fetch(`${UAZAPI_BASE_URL}/send/audio`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -367,10 +375,18 @@ export const sendUazapiAudio = async (tokenAPI, phone, audioBase64) => {
 
         if (!response.ok) {
             console.error(`[Uazapi] Audio Send Failed (${response.status}):`, responseText);
-            return false;
+            // Se falhar no /send/audio, tentamos o /send/media como fallback imediato
+            console.log('[Uazapi] Retrying via /send/media...');
+            const retryRes = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'token': tokenAPI },
+                body: JSON.stringify({ ...payload, type: 'ptt' })
+            });
+            
+            if (!retryRes.ok) return false;
         }
 
-        console.log(`[Uazapi] Audio Sent Successfully (PTT).`);
+        console.log(`[Uazapi] Audio Sent Successfully (PTT/Audio mode).`);
         return true;
     } catch (error) {
         console.error('[Uazapi] Audio Send Exception:', error.message);
