@@ -347,12 +347,12 @@ export const sendUazapiAudio = async (tokenAPI, phone, audioBase64) => {
     try {
         const payload = {
             number: String(phone).replace(/\D/g, ''),
-            media: `data:audio/mp3;base64,${audioBase64}`,
+            media: `data:audio/ogg;base64,${audioBase64}`,
             type: 'ptt',
             delay: 0
         };
 
-        console.log(`[Uazapi] Sending PTT Audio to ${phone} via POST /send/media`);
+        console.log(`[Uazapi] Sending PTT Audio to ${phone} using token: ${tokenAPI.substring(0, 8)}...`);
         
         const response = await fetch(`${UAZAPI_BASE_URL}/send/media`, {
             method: 'POST',
@@ -370,7 +370,7 @@ export const sendUazapiAudio = async (tokenAPI, phone, audioBase64) => {
             return false;
         }
 
-        console.log(`[Uazapi] Audio Sent Successfully. ID: ${responseText.substring(0, 50)}...`);
+        console.log(`[Uazapi] Audio Sent Successfully (PTT).`);
         return true;
     } catch (error) {
         console.error('[Uazapi] Audio Send Exception:', error.message);

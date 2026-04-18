@@ -1285,18 +1285,19 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                             
                             // SE houver áudio e Uazapi configurado, envia via Uazapi (PTT)
                             if (chunkAudio && uazapiCfg) {
-                                console.log(`[Webhook]   -> Sending audio chunk via Uazapi PTT...`);
+                                console.log(`[Webhook]   -> Sending audio chunk via Uazapi PTT (Total Silence for Text)...`);
                                 chunkSent = await sendUazapiAudio(uazapiCfg.tokenAPI, cleanNumber, chunkAudio);
-                                // Se enviou áudio, o sendPrompMessage posterior não deve enviar áudio novamente
+                                // Se enviou áudio, o sendPrompMessage posterior não deve enviar NADA para este chunk
                                 if (chunkSent) {
-                                    await sendPrompMessage(config, cleanNumber, textToSend, null, null, null);
-                                    console.log(`[Webhook]   -> Audio chunk[${index}] SENT via Uazapi OK`);
+                                    console.log(`[Webhook]   -> Audio chunk[${index}] SENT via Uazapi OK. Skipping text to avoid caption/shared format.`);
+                                    // Não chamamos sendPrompMessage aqui para evitar duplicidade ou legendas
                                 }
                             }
 
                             if (!chunkSent) {
+                                console.log(`[Webhook]   -> Sending via Promp fallback (Text exists: ${!!textToSend})`);
                                 await sendPrompMessage(config, cleanNumber, textToSend, chunkAudio, null, null);
-                                console.log(`[Webhook]   -> Text/Audio chunk[${index}] SENT via Promp OK`);
+                                console.log(`[Webhook]   -> chunk[${index}] processed via Promp.`);
                             }
                         } catch (txtErr) {
                             console.error(`[Webhook]   -> chunk[${index}] FAILED:`, txtErr.message);
@@ -1329,9 +1330,10 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                 
                 let singleSent = false;
                 if (audioBase64 && uazapiCfgSingle) {
-                    console.log(`[Webhook] Sending focus audio via Uazapi PTT...`);
+                    console.log(`[Webhook] Sending focus audio via Uazapi PTT (No Caption mode)...`);
                     singleSent = await sendUazapiAudio(uazapiCfgSingle.tokenAPI, cleanNumber, audioBase64);
                     if (singleSent) {
+                        console.log(`[Webhook] Audio SENT via Uazapi. Now sending text/media separately if needed.`);
                         // Envia o texto (se houver) separadamente pois o ptt enviou o áudio
                         await sendPrompMessage(config, cleanNumber, textToSend, null, productImageUrl, productCaption, pdfBase64);
                         sentViaApi = true;
@@ -1339,6 +1341,7 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                 }
 
                 if (!singleSent) {
+                    console.log(`[Webhook] Falling back to Promp API for audio/text. Uazapi available: ${!!uazapiCfgSingle}`);
                     sentViaApi = await sendPrompMessage(config, cleanNumber, textToSend, audioBase64, productImageUrl, productCaption, pdfBase64);
                 }
             }
