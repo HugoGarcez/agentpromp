@@ -3,18 +3,14 @@
  * 
  * Provides WhatsApp integration via the Uazapi API (promp.uazapi.com):
  * - Presence simulation (composing/recording) with proportional duration
- * - Product catalog carousel via interactive menu (send/menu)
+ * - Product catalog carousel via POST /send/carousel
  * 
- * Also provides fallback via the Promp API (api.promp.com.br):
- * - Catalog menu via Promp external API sendList endpoint
- * 
- * Activated when:
- * 1. Agent has integrations.whatsapp.type === 'uazapi' (primary)
- * 2. Agent has prompUuid + prompToken (fallback via Promp API)
+ * Token resolution priority:
+ * 1. integrations.whatsapp.tokenAPI (explicit Uazapi config)
+ * 2. prompToken from channel credentials (works if Promp backend is Uazapi)
  */
 
 const UAZAPI_BASE_URL = 'https://promp.uazapi.com';
-const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
 
 // ──────────────────────────────────────────────────────────────
 // HELPERS
@@ -22,37 +18,40 @@ const PROMP_BASE_URL = process.env.PROMP_BASE_URL || 'https://api.promp.com.br';
 
 /**
  * Extract Uazapi config from agent configuration.
- * Returns { tokenAPI, baseUrl } if Uazapi is configured, or null otherwise.
+ * 
+ * Priority:
+ * 1. Explicit integrations.whatsapp.tokenAPI (when type === 'uazapi')
+ * 2. Fallback to prompToken (since Promp uses Uazapi as backend)
+ * 
+ * @returns {{ tokenAPI: string, baseUrl: string }} or null
  */
 export const getUazapiConfig = (config) => {
     try {
+        // 1. Check explicit Uazapi config in integrations
         const integrations = config?.integrations;
-        if (!integrations) return null;
+        if (integrations) {
+            const whatsapp = integrations.whatsapp || integrations.Whatsapp;
+            if (whatsapp?.type === 'uazapi' && whatsapp?.tokenAPI) {
+                return {
+                    tokenAPI: whatsapp.tokenAPI,
+                    baseUrl: UAZAPI_BASE_URL
+                };
+            }
+        }
 
-        const whatsapp = integrations.whatsapp || integrations.Whatsapp;
-        if (!whatsapp) return null;
+        // 2. Fallback: use prompToken directly (works when Promp backend IS Uazapi)
+        if (config?.prompToken) {
+            const cleanToken = config.prompToken.trim().replace(/^Bearer\s+/i, '');
+            return {
+                tokenAPI: cleanToken,
+                baseUrl: UAZAPI_BASE_URL
+            };
+        }
 
-        if (whatsapp.type !== 'uazapi' || !whatsapp.tokenAPI) return null;
-
-        return {
-            tokenAPI: whatsapp.tokenAPI,
-            baseUrl: UAZAPI_BASE_URL
-        };
+        return null;
     } catch (e) {
         return null;
     }
-};
-
-/**
- * Extract Promp channel config from agent configuration.
- * Returns { prompUuid, prompToken } if available, or null otherwise.
- */
-export const getPrompConfig = (config) => {
-    if (!config?.prompUuid || !config?.prompToken) return null;
-    return {
-        prompUuid: config.prompUuid,
-        prompToken: config.prompToken.trim().replace(/^Bearer\s+/i, '')
-    };
 };
 
 /**
@@ -83,9 +82,6 @@ export const calcPresenceDuration = (content, type = 'text') => {
 /**
  * Send presence status (composing/recording) to a WhatsApp number via Uazapi.
  * 
- * This simulates human-like behavior before sending a message.
- * Failures are logged but never thrown — presence is non-critical.
- * 
  * @param {string} tokenAPI - Uazapi API token
  * @param {string} phone - Recipient phone number
  * @param {'text'|'audio'} type - 'text' for composing, 'audio' for recording
@@ -103,7 +99,6 @@ export const sendUazapiPresence = async (tokenAPI, phone, type = 'text') => {
             presence: 'composing'
         };
 
-        // For audio, include media field
         if (type === 'audio') {
             body.media = 'audio';
         }
@@ -133,7 +128,6 @@ export const sendUazapiPresence = async (tokenAPI, phone, type = 'text') => {
 
 /**
  * Full presence flow: send composing status, wait proportionally, then return.
- * The caller should send the actual message after this resolves.
  * 
  * @param {string} tokenAPI - Uazapi API token
  * @param {string} phone - Recipient phone number
@@ -142,20 +136,16 @@ export const sendUazapiPresence = async (tokenAPI, phone, type = 'text') => {
  */
 export const sendPresenceAndWait = async (tokenAPI, phone, content, type = 'text') => {
     try {
-        // 1. Send presence
         await sendUazapiPresence(tokenAPI, phone, type);
-
-        // 2. Wait proportionally
         const duration = calcPresenceDuration(content, type);
         await new Promise(resolve => setTimeout(resolve, duration));
     } catch (error) {
-        // Presence is non-critical — never block the pipeline
         console.error('[Uazapi] sendPresenceAndWait Exception:', error.message);
     }
 };
 
 // ──────────────────────────────────────────────────────────────
-// CATALOG CAROUSEL (send/menu)
+// CATALOG CAROUSEL (POST /send/carousel)
 // ──────────────────────────────────────────────────────────────
 
 // Trigger keywords for catalog intent detection
@@ -184,98 +174,193 @@ export const shouldShowCatalog = (userMessage) => {
 };
 
 /**
- * Build the WhatsApp interactive menu payload from product catalog.
+ * Build carousel cards from the product catalog.
  * 
- * Respects WhatsApp limits:
- * - Max 10 sections
- * - Max 10 rows per section
- * - Max 24 chars for item title
- * - Max 72 chars for item description
+ * Each card has:
+ * - text: "Product Name\nDescription" (title + body)
+ * - image: product image URL
+ * - buttons: interactive buttons (reply type)
  * 
- * @param {string} phone - Recipient phone number
- * @param {Array} catalogItems - Array of product objects from config.products
- * @param {string} agentName - Agent name for the menu title
- * @returns {object} Formatted payload for Uazapi send/menu endpoint
+ * WhatsApp carousel supports up to 10 cards.
+ * Each card can have up to 3 buttons.
+ * 
+ * @param {Array} catalogItems - Product array from config.products
+ * @returns {Array} Carousel cards for POST /send/carousel
  */
-export const buildMenuPayload = (phone, catalogItems, agentName) => {
-    if (!Array.isArray(catalogItems) || catalogItems.length === 0) return null;
+export const buildCarouselCards = (catalogItems) => {
+    if (!Array.isArray(catalogItems) || catalogItems.length === 0) return [];
 
-    // Group items by category
-    const grouped = {};
-    for (const item of catalogItems) {
-        // Support multiple product schema formats from the Promp system
-        const category = item.category || item.categoria || 'Produtos';
-        if (!grouped[category]) grouped[category] = [];
-        grouped[category].push(item);
-    }
+    // Limit to 10 cards (WhatsApp carousel limit)
+    const items = catalogItems.slice(0, 10);
 
-    // Build sections (max 10)
-    const categoryEntries = Object.entries(grouped).slice(0, 10);
+    return items.map((item, index) => {
+        // Support multiple product schema formats
+        const name = item.name || item.title || item.nome || item.titulo || 'Produto';
+        const desc = item.description || item.descricao || '';
+        const price = item.price ?? item.preco ?? item.valor;
+        const imageUrl = item.imageUrl || item.image || item.imagem || item.foto || '';
+        const productUrl = item.productUrl || item.link || item.url || '';
+        const id = item.id || item.productId || `prod_${index}`;
 
-    const sections = categoryEntries.map(([category, items]) => ({
-        title: category.slice(0, 24),
-        rows: items.slice(0, 10).map(item => {
-            // Support multiple name fields
-            const name = item.name || item.title || item.nome || item.titulo || 'Produto';
-            const desc = item.description || item.descricao || '';
-            const price = item.price ?? item.preco ?? item.valor;
-            const id = item.id || item.productId || `item_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        // Build card text: name + description + price
+        const textParts = [name];
+        if (desc) textParts.push(desc.slice(0, 200));
+        if (price != null && price !== '' && price !== 0) {
+            const formattedPrice = typeof price === 'number'
+                ? `R$ ${price.toFixed(2).replace('.', ',')}`
+                : `R$ ${price}`;
+            textParts.push(`💰 ${formattedPrice}`);
+        }
 
-            // Build description: text + price
-            const descParts = [];
-            if (desc) descParts.push(desc.slice(0, 50));
-            if (price != null && price !== '' && price !== 0) {
-                const formattedPrice = typeof price === 'number'
-                    ? `R$ ${price.toFixed(2).replace('.', ',')}`
-                    : `R$ ${price}`;
-                descParts.push(formattedPrice);
-            }
+        // Build buttons (max 3 per card)
+        const buttons = [];
+        buttons.push({
+            id: `info_${id}`,
+            text: 'Saber mais',
+            type: 'REPLY'
+        });
 
-            return {
-                id: String(id).slice(0, 200),
-                title: name.slice(0, 24),
-                description: descParts.join(' | ').slice(0, 72) || 'Ver detalhes'
-            };
-        })
-    }));
+        if (productUrl) {
+            buttons.push({
+                id: `link_${id}`,
+                text: 'Ver no site',
+                type: 'URL',
+                url: productUrl
+            });
+        }
 
-    return {
-        phone: String(phone).replace(/\D/g, ''),
-        title: `Catálogo — ${(agentName || 'Assistente').slice(0, 15)}`.slice(0, 24),
-        description: 'Selecione um item para saber mais:',
-        buttonText: 'Ver produtos',
-        sections
-    };
+        const card = {
+            text: textParts.join('\n'),
+            buttons
+        };
+
+        // Only include image if we have a valid URL
+        if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
+            card.image = imageUrl;
+        }
+
+        return card;
+    });
 };
 
 /**
- * Send product catalog as an interactive WhatsApp menu via Uazapi.
+ * Send product catalog as a WhatsApp carousel via Uazapi.
+ * Uses POST /send/carousel endpoint with structured JSON.
+ * 
+ * Documentation: https://docs.uazapi.com/endpoint/post/send~carousel
  * 
  * @param {string} tokenAPI - Uazapi API token
  * @param {string} phone - Recipient phone number
  * @param {Array} products - Product array from config.products
- * @param {string} agentName - Agent name
+ * @param {string} agentName - Agent name for the intro text
  * @returns {Promise<boolean>} true if sent successfully
  */
-export const sendCatalogMenu = async (tokenAPI, phone, products, agentName) => {
+export const sendCatalogCarousel = async (tokenAPI, phone, products, agentName) => {
     if (!tokenAPI || !phone) {
-        console.log('[Uazapi] Skipping Catalog: Missing tokenAPI or phone.');
+        console.log('[Uazapi] Skipping Carousel: Missing tokenAPI or phone.');
         return false;
     }
 
     if (!Array.isArray(products) || products.length === 0) {
-        console.log('[Uazapi] Skipping Catalog: No products available.');
+        console.log('[Uazapi] Skipping Carousel: No products available.');
         return false;
     }
 
     try {
-        const payload = buildMenuPayload(phone, products, agentName);
-        if (!payload) {
-            console.log('[Uazapi] Skipping Catalog: Failed to build menu payload.');
+        const carousel = buildCarouselCards(products);
+        if (carousel.length === 0) {
+            console.log('[Uazapi] Skipping Carousel: Failed to build cards.');
             return false;
         }
 
-        console.log(`[Uazapi] Sending Catalog Menu to ${phone} (${products.length} products, ${payload.sections.length} sections)`);
+        const payload = {
+            number: String(phone).replace(/\D/g, ''),
+            text: `📦 Catálogo ${agentName || 'Nossos Produtos'} — ${carousel.length} produto${carousel.length > 1 ? 's' : ''}`,
+            carousel
+        };
+
+        console.log(`[Uazapi] Sending Carousel to ${phone} (${carousel.length} cards)`);
+
+        const response = await fetch(`${UAZAPI_BASE_URL}/send/carousel`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'token': tokenAPI
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => 'Unknown error');
+            console.error(`[Uazapi] Carousel Failed (${response.status}):`, errorText);
+
+            // Fallback: try send/menu with type: "carousel" format
+            console.log('[Uazapi] Trying fallback via /send/menu with type: carousel...');
+            return await sendCatalogMenuCarousel(tokenAPI, phone, products, agentName);
+        }
+
+        console.log('[Uazapi] Carousel Sent Successfully');
+        return true;
+    } catch (error) {
+        console.error('[Uazapi] Carousel Exception:', error.message);
+        return false;
+    }
+};
+
+/**
+ * Fallback: Send carousel via POST /send/menu with type: "carousel".
+ * Uses the string-based choices format from the Uazapi docs.
+ * 
+ * Documentation: https://docs.uazapi.com/endpoint/post/send~menu
+ * 
+ * choices format:
+ * - "[Title\nDescription]" — card text
+ * - "{imageUrl}" — card image
+ * - "Button Text|button_id" — reply button
+ */
+const sendCatalogMenuCarousel = async (tokenAPI, phone, products, agentName) => {
+    try {
+        const items = products.slice(0, 10);
+        const choices = [];
+
+        for (const item of items) {
+            const name = item.name || item.title || item.nome || item.titulo || 'Produto';
+            const desc = item.description || item.descricao || '';
+            const price = item.price ?? item.preco ?? item.valor;
+            const imageUrl = item.imageUrl || item.image || item.imagem || item.foto || '';
+            const id = item.id || item.productId || `prod_${Date.now()}`;
+
+            // Build description line
+            const descParts = [];
+            if (desc) descParts.push(desc.slice(0, 100));
+            if (price != null && price !== '' && price !== 0) {
+                const formatted = typeof price === 'number'
+                    ? `R$ ${price.toFixed(2).replace('.', ',')}`
+                    : `R$ ${price}`;
+                descParts.push(formatted);
+            }
+            const descLine = descParts.join(' - ') || 'Toque para saber mais';
+
+            // Card text: [Title\nDescription]
+            choices.push(`[${name}\n${descLine}]`);
+
+            // Card image: {url}
+            if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
+                choices.push(`{${imageUrl}}`);
+            }
+
+            // Card button: Text|id
+            choices.push(`Saber mais|${id}`);
+        }
+
+        const payload = {
+            number: String(phone).replace(/\D/g, ''),
+            type: 'carousel',
+            text: `📦 Catálogo ${agentName || 'Nossos Produtos'}`,
+            choices
+        };
+
+        console.log(`[Uazapi] Sending Menu Carousel to ${phone} (${items.length} items, ${choices.length} choices)`);
 
         const response = await fetch(`${UAZAPI_BASE_URL}/send/menu`, {
             method: 'POST',
@@ -288,137 +373,17 @@ export const sendCatalogMenu = async (tokenAPI, phone, products, agentName) => {
 
         if (!response.ok) {
             const errorText = await response.text().catch(() => 'Unknown error');
-            console.error(`[Uazapi] Catalog Menu Failed (${response.status}):`, errorText);
+            console.error(`[Uazapi] Menu Carousel Failed (${response.status}):`, errorText);
             return false;
         }
 
-        console.log('[Uazapi] Catalog Menu Sent Successfully');
+        console.log('[Uazapi] Menu Carousel Sent Successfully');
         return true;
     } catch (error) {
-        console.error('[Uazapi] Catalog Menu Exception:', error.message);
+        console.error('[Uazapi] Menu Carousel Exception:', error.message);
         return false;
     }
 };
 
-/**
- * Send product catalog as an interactive WhatsApp list via the Promp API.
- * Fallback for when Uazapi is not configured but Promp channel is available.
- * 
- * Uses the Promp external API sendList endpoint.
- * 
- * @param {object} prompCfg - { prompUuid, prompToken } from getPrompConfig()
- * @param {string} phone - Recipient phone number
- * @param {Array} products - Product array from config.products
- * @param {string} agentName - Agent name
- * @returns {Promise<boolean>} true if sent successfully
- */
-export const sendPrompListMessage = async (prompCfg, phone, products, agentName) => {
-    if (!prompCfg?.prompUuid || !prompCfg?.prompToken || !phone) {
-        console.log('[Promp-List] Skipping Catalog: Missing Promp credentials or phone.');
-        return false;
-    }
-
-    if (!Array.isArray(products) || products.length === 0) {
-        console.log('[Promp-List] Skipping Catalog: No products available.');
-        return false;
-    }
-
-    try {
-        const payload = buildMenuPayload(phone, products, agentName);
-        if (!payload) {
-            console.log('[Promp-List] Skipping Catalog: Failed to build menu payload.');
-            return false;
-        }
-
-        // Build the Promp API compatible list message payload
-        const prompPayload = {
-            number: String(phone).replace(/\D/g, ''),
-            listMessage: {
-                title: payload.title,
-                description: payload.description,
-                buttonText: payload.buttonText,
-                sections: payload.sections
-            },
-            externalKey: `catalog_${Date.now()}`
-        };
-
-        console.log(`[Promp-List] Sending List Message to ${phone} via Promp API (${products.length} products, ${payload.sections.length} sections)`);
-
-        const response = await fetch(`${PROMP_BASE_URL}/v2/api/external/${prompCfg.prompUuid}/sendList`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${prompCfg.prompToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(prompPayload)
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unknown error');
-            console.error(`[Promp-List] Send Failed (${response.status}):`, errorText);
-            
-            // If sendList endpoint doesn't exist, try sending as regular message with body
-            if (response.status === 404 || response.status === 405) {
-                console.log('[Promp-List] sendList endpoint not available. Trying inline list format...');
-                return await sendPrompInlineListFallback(prompCfg, phone, products, agentName);
-            }
-            return false;
-        }
-
-        console.log('[Promp-List] List Message Sent Successfully via Promp API');
-        return true;
-    } catch (error) {
-        console.error('[Promp-List] Exception:', error.message);
-        // Try inline format as last resort
-        return await sendPrompInlineListFallback(prompCfg, phone, products, agentName);
-    }
-};
-
-/**
- * Last-resort fallback: sends the catalog as a regular JSON body with
- * interactive list format embedded. Many WhatsApp API gateways (WPPConnect,
- * Baileys-based) accept list messages via the regular message endpoint
- * if the right payload is included.
- */
-const sendPrompInlineListFallback = async (prompCfg, phone, products, agentName) => {
-    try {
-        const payload = buildMenuPayload(phone, products, agentName);
-        if (!payload) return false;
-
-        // Try sending as regular message with list structure embedded
-        const inlinePayload = {
-            number: String(phone).replace(/\D/g, ''),
-            body: payload.description,
-            list: {
-                buttonText: payload.buttonText,
-                description: payload.description,
-                title: payload.title,
-                sections: payload.sections
-            },
-            externalKey: `catalog_inline_${Date.now()}`
-        };
-
-        console.log(`[Promp-List] Trying inline list format to ${phone}...`);
-
-        const response = await fetch(`${PROMP_BASE_URL}/v2/api/external/${prompCfg.prompUuid}`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${prompCfg.prompToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(inlinePayload)
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text().catch(() => 'Unknown error');
-            console.error(`[Promp-List] Inline list also failed (${response.status}):`, errorText);
-            return false;
-        }
-
-        console.log('[Promp-List] Inline List Message Sent Successfully');
-        return true;
-    } catch (error) {
-        console.error('[Promp-List] Inline Exception:', error.message);
-        return false;
-    }
-};
+// Legacy export for backwards compatibility
+export const sendCatalogMenu = sendCatalogCarousel;

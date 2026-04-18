@@ -45,12 +45,10 @@ import {
 } from './conditionalTransfer.js';
 import {
     getUazapiConfig,
-    getPrompConfig,
     calcPresenceDuration,
     sendPresenceAndWait,
     shouldShowCatalog,
-    sendCatalogMenu,
-    sendPrompListMessage
+    sendCatalogCarousel
 } from './uazapiUtils.js';
 
 // Load environment variables
@@ -1305,30 +1303,21 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
             console.log('[Webhook] Config missing prompUuid/Token. Falling back to JSON response.');
         }
 
-        // --- CATALOG CAROUSEL (Interactive WhatsApp List) ---
+        // --- CATALOG CAROUSEL (Interactive WhatsApp Carousel) ---
         // After sending the AI response, check if the user wants to see the catalog
-        // and send an interactive WhatsApp menu via Uazapi or Promp API
+        // and send a WhatsApp carousel via Uazapi (POST /send/carousel)
         try {
             if (shouldShowCatalog(userMessage)) {
                 const catalogProducts = config.products;
                 if (Array.isArray(catalogProducts) && catalogProducts.length > 0) {
-                    // Small delay so the text response arrives first
-                    await new Promise(r => setTimeout(r, 1200));
-
-                    // 1. Try Uazapi first (if explicitly configured)
                     const uazapiCfgCatalog = getUazapiConfig(config);
                     if (uazapiCfgCatalog) {
-                        console.log(`[Webhook] Catalog intent detected. Sending via Uazapi (${catalogProducts.length} products)...`);
-                        await sendCatalogMenu(uazapiCfgCatalog.tokenAPI, cleanNumber, catalogProducts, config.name);
+                        console.log(`[Webhook] Catalog intent detected. Sending carousel (${catalogProducts.length} products)...`);
+                        // Small delay so the text response arrives first
+                        await new Promise(r => setTimeout(r, 1200));
+                        await sendCatalogCarousel(uazapiCfgCatalog.tokenAPI, cleanNumber, catalogProducts, config.name);
                     } else {
-                        // 2. Fallback: Try Promp API sendList
-                        const prompCfg = getPrompConfig(config);
-                        if (prompCfg) {
-                            console.log(`[Webhook] Catalog intent detected. Sending via Promp API (${catalogProducts.length} products)...`);
-                            await sendPrompListMessage(prompCfg, cleanNumber, catalogProducts, config.name);
-                        } else {
-                            console.log('[Webhook] Catalog intent detected but no API credentials available for sending menu.');
-                        }
+                        console.log('[Webhook] Catalog intent detected but no Uazapi/Promp credentials available.');
                     }
                 } else {
                     console.log('[Webhook] Catalog intent detected but no products available.');
@@ -1336,7 +1325,7 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
             }
         } catch (catalogErr) {
             // Catalog is non-critical — never block the response
-            console.error('[Webhook] Catalog Menu Error (non-blocking):', catalogErr.message);
+            console.error('[Webhook] Carousel Error (non-blocking):', catalogErr.message);
         }
 
         if (sentViaApi) {
