@@ -2256,9 +2256,11 @@ const processSingleFollowUp = async (state) => {
         orderBy: { createdAt: 'desc' },
         take: 10
     });
-    const historyText = history.reverse()
-        .map(m => `${m.sender === 'user' ? 'Cliente' : 'Agente'}: ${m.text}`)
-        .join('\n') || '(sem histórico disponível)';
+    console.log(`[FollowUp] Histórico carregado para ${cleanPhone}: ${history.length} mensagem(ns).`);
+
+    const historyText = history.length > 0
+        ? history.reverse().map(m => `${m.sender === 'user' ? 'Cliente' : 'Agente'}: ${m.text}`).join('\n')
+        : null;
 
     const globalConfig = await prisma.globalConfig.findFirst();
     const openaiKey = config.openaiKey || globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
@@ -2276,38 +2278,72 @@ const processSingleFollowUp = async (state) => {
     const toneDesc = toneMap[followUpCfg.tone] || 'profissional';
     const personaName = config.persona?.name || 'Assistente';
 
-    const aiPrompt = `Você é ${personaName}. O cliente parou de responder.
-
-Analise o histórico abaixo e decida:
-- Se a última mensagem do agente AGUARDA resposta do cliente (pergunta aberta, proposta, confirmação pendente): gere uma mensagem de follow-up contextual. Tom: ${toneDesc}. Máximo 2 frases curtas. Não mencione que é uma mensagem automática.
-- Se a conversa JÁ FOI ENCERRADA ou concluída sem nenhuma pendência do cliente: responda APENAS com: NO_FOLLOWUP
-
-Histórico da conversa:
-${historyText}`;
-
     let followUpMsg = '';
-    try {
-        const aiResp = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            messages: [{ role: 'user', content: aiPrompt }],
-            max_tokens: 200,
-            temperature: 0.7
-        });
-        followUpMsg = aiResp.choices[0]?.message?.content?.trim() || '';
-    } catch (err) {
-        console.error(`[FollowUp] Erro ao chamar OpenAI para ${cleanPhone}:`, err.message);
-        return;
+
+    if (!historyText) {
+        // No history available — generate a generic contextual follow-up without asking AI to evaluate
+        console.log(`[FollowUp] Sem histórico para ${cleanPhone}. Gerando follow-up genérico via IA.`);
+        try {
+            const aiResp = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: `Você é ${personaName}. Tom: ${toneDesc}. Gere mensagens curtas e naturais.` },
+                    { role: 'user', content: `Um cliente parou de responder. Gere uma mensagem curta (máx 2 frases) para retomar o contato de forma natural. Não mencione que é automático.` }
+                ],
+                max_tokens: 150,
+                temperature: 0.7
+            });
+            followUpMsg = aiResp.choices[0]?.message?.content?.trim() || '';
+        } catch (err) {
+            console.error(`[FollowUp] Erro ao gerar follow-up genérico para ${cleanPhone}:`, err.message);
+            return;
+        }
+    } else {
+        // History available — ask AI to generate contextual follow-up
+        // The timer was started because the agent sent a message expecting a reply.
+        // The AI should default to generating a follow-up UNLESS the conversation is clearly concluded.
+        const systemPrompt = `Você é ${personaName}. Sua tarefa é recuperar clientes que pararam de responder.
+
+REGRA PRINCIPAL: O timer de follow-up só é ativado quando o agente enviou uma mensagem aguardando resposta. Portanto, presuma que a conversa está PENDENTE por padrão.
+
+Gere uma mensagem de follow-up contextual baseada no histórico. Requisitos:
+- Tom: ${toneDesc}
+- Máximo 2 frases curtas e naturais
+- Seja específico ao contexto da conversa (produto, dúvida, proposta mencionada)
+- Não mencione que é automático
+- NÃO repita a mesma informação que o agente já enviou
+
+Responda APENAS com "NO_FOLLOWUP" se o histórico mostrar explicitamente uma despedida formal de ambos os lados ou se o cliente já confirmou que não tem mais interesse.`;
+
+        try {
+            const aiResp = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: `Histórico da conversa:\n${historyText}\n\nGere o follow-up:` }
+                ],
+                max_tokens: 200,
+                temperature: 0.7
+            });
+            followUpMsg = aiResp.choices[0]?.message?.content?.trim() || '';
+            console.log(`[FollowUp] Resposta da IA para ${cleanPhone}: "${followUpMsg.substring(0, 80)}..."`);
+        } catch (err) {
+            console.error(`[FollowUp] Erro ao chamar OpenAI para ${cleanPhone}:`, err.message);
+            return;
+        }
     }
 
-    if (!followUpMsg || followUpMsg.includes('NO_FOLLOWUP')) {
+    // Only stop if AI explicitly returns NO_FOLLOWUP as the entire response
+    if (!followUpMsg || followUpMsg.trim().toUpperCase() === 'NO_FOLLOWUP') {
         console.log(`[FollowUp] IA decidiu que conversa está encerrada para ${cleanPhone}. Parando sequência.`);
         await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
         return;
     }
 
+    console.log(`[FollowUp] Enviando mensagem para ${cleanPhone}: "${followUpMsg.substring(0, 60)}..."`);
     const sent = await sendPrompMessage(config, cleanPhone, followUpMsg, null, null, null);
     if (!sent) {
-        console.error(`[FollowUp] Falha ao enviar mensagem para ${cleanPhone}.`);
+        console.error(`[FollowUp] Falha ao enviar mensagem para ${cleanPhone}. Será reprocessado no próximo ciclo.`);
         return;
     }
 
