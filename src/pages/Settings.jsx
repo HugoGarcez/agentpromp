@@ -613,9 +613,8 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                             {voice.enabled && (
                                 <div style={{ display: 'grid', gap: '24px' }}>
                                     {/* Voice Selector */}
-                                    {availableVoices.length > 0 && (
-                                        <div style={{ padding: '28px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', background: 'white' }}>
-                                            <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '20px', color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ padding: '28px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', background: 'white' }}>
+                                        <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '20px', color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <Volume2 size={18} color="var(--primary-blue)" />
                                                 Escolha a Voz do Agente
                                             </h3>
@@ -738,7 +737,6 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                                                 </p>
                                             )}
                                         </div>
-                                    )}
 
                                     {/* Trigger Rules */}
                                     <div style={{ padding: '28px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', background: 'white' }}>
