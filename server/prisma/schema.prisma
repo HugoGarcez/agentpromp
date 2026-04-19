@@ -62,6 +62,7 @@ model AgentConfig {
   followUpConfig    String?
   catalogConfig     String?
   transferConfig    String?
+  reactionConfig    String?
   company           Company         @relation("CompanyAgents", fields: [companyId], references: [id])
   history           PromptHistory[]
   prompChannels     PrompChannel[]  @relation("AgentConfigToPrompChannel")

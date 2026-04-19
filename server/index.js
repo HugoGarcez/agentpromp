@@ -49,7 +49,8 @@ import {
     sendPresenceAndWait,
     shouldShowCatalog,
     sendCatalogCarousel,
-    sendUazapiAudio
+    sendUazapiAudio,
+    reactToUserMessage
 } from './uazapiUtils.js';
 
 // Load environment variables
@@ -733,6 +734,11 @@ const handleWebhookRequest = async (req, res) => {
         console.log(`[FollowUp] Timer STOPPED for ${cleanNumber}`);
     } catch (e) {
         // Ignore error
+    }
+
+    // --- EMOJI REACTION (fire-and-forget, before AI processing) ---
+    if (config && msgId) {
+        reactToUserMessage(config, cleanNumber, msgId, userMessage);
     }
 
     let metadata = "{}";
@@ -3319,6 +3325,7 @@ const getCompanyConfig = async (companyId, agentId = null) => {
             followUpConfig: safeParse(config.followUpConfig),
             catalogConfig: parsedCatalogConfig,
             transferConfig: safeParse(config.transferConfig),
+            reactionConfig: safeParse(config.reactionConfig),
             specialists: config.company?.specialists || [],
             appointmentTypes: config.company?.appointmentTypes || [],
             googleConfig: config.company?.googleConfig || null,

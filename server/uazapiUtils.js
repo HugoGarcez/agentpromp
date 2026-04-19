@@ -397,4 +397,175 @@ export const sendUazapiAudio = async (tokenAPI, phone, audioBase64) => {
 // Legacy export for backwards compatibility
 export const sendCatalogMenu = sendCatalogCarousel;
 
+// ──────────────────────────────────────────────────────────────
+// MESSAGE REACTIONS
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * Default emoji reactions for each recognized situation.
+ * Can be overridden via config.reactionConfig in AgentConfig.
+ */
+export const DEFAULT_REACTION_CONFIG = {
+    enabled: true,
+    afirmacao: '👍',   // Client confirms or agrees
+    interesse: '🔥',   // Client shows interest in a product/service
+    explicacao: '👀',  // Client explains a situation or context
+    elogio: '🥰'       // Client compliments the company, team, or product
+};
+
+// Keywords per situation (normalized to lowercase, no accents)
+const REACTION_PATTERNS = {
+    afirmacao: [
+        'sim', 'pode ser', 'claro', 'com certeza', 'ok', 'certo', 'perfeito',
+        'combinado', 'fechado', 'ta bom', 'tudo bem', 'beleza', 'positivo',
+        'concordo', 'isso mesmo', 'exato', 'correto', 'confirmado', 'afirmativo',
+        'pode', 'pode sim', 'topo', 'aceito', 'topei'
+    ],
+    interesse: [
+        'quero', 'tenho interesse', 'me interessa', 'quero saber mais',
+        'como funciona', 'qual o preco', 'quanto custa', 'me fala mais',
+        'me conta mais', 'quero comprar', 'quero contratar', 'quero conhecer',
+        'pode me enviar', 'quero ver', 'me manda', 'me envia', 'quero adquirir',
+        'quero assinar', 'quero testar', 'gostei', 'me interessei'
+    ],
+    elogio: [
+        'otimo', 'excelente', 'parabens', 'adorei', 'muito bom', 'incrivel',
+        'fantastico', 'maravilhoso', 'amo', 'show', 'sensacional', 'demais',
+        'gostei muito', 'muito satisfeito', 'voces sao otimos', 'melhor',
+        'top', 'nota 10', 'nota dez', 'perfeitos', 'muito bom mesmo',
+        'amei', 'adorei', 'gostei bastante', 'muito eficiente', 'muito rapido'
+    ]
+};
+
+// Explanation is detected heuristically (longer message + explanation keywords)
+const EXPLICACAO_KEYWORDS = [
+    'porque', 'entao', 'o que acontece', 'explico', 'e que', 'acontece que',
+    'na verdade', 'basicamente', 'como te disse', 'o motivo', 'a razao',
+    'a situacao', 'preciso que', 'o problema', 'o caso e', 'aconteceu que',
+    'queria explicar', 'deixa eu explicar', 'vou te explicar'
+];
+
+/**
+ * Detect which reaction situation (if any) applies to a user message.
+ * Returns the situation key or null if none detected.
+ *
+ * @param {string} message - The user's text message
+ * @returns {'afirmacao'|'interesse'|'explicacao'|'elogio'|null}
+ */
+export const detectReactionSituation = (message) => {
+    if (!message || typeof message !== 'string') return null;
+
+    const normalized = message
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+
+    // Elogio — check first to avoid misclassifying as afirmacao
+    if (REACTION_PATTERNS.elogio.some(kw => normalized.includes(kw))) {
+        return 'elogio';
+    }
+
+    // Interesse
+    if (REACTION_PATTERNS.interesse.some(kw => normalized.includes(kw))) {
+        return 'interesse';
+    }
+
+    // Afirmação — short affirmative messages
+    if (
+        REACTION_PATTERNS.afirmacao.some(kw => normalized === kw || normalized.startsWith(kw + ' ') || normalized.endsWith(' ' + kw)) &&
+        normalized.length <= 60
+    ) {
+        return 'afirmacao';
+    }
+
+    // Explicação — longer message with explanation markers
+    if (normalized.length > 80 && EXPLICACAO_KEYWORDS.some(kw => normalized.includes(kw))) {
+        return 'explicacao';
+    }
+
+    return null;
+};
+
+/**
+ * Send a WhatsApp reaction emoji to a specific message via Uazapi.
+ * Uses POST /message/react.
+ *
+ * @param {string} tokenAPI - Uazapi API token
+ * @param {string} phone - Sender phone number (who sent the original message)
+ * @param {string} messageId - The WhatsApp message ID to react to
+ * @param {string} emoji - The emoji to react with
+ * @returns {Promise<boolean>} true if sent successfully
+ */
+export const sendMessageReaction = async (tokenAPI, phone, messageId, emoji) => {
+    if (!tokenAPI || !phone || !messageId || !emoji) {
+        console.log('[Uazapi] Skipping Reaction: Missing tokenAPI, phone, messageId or emoji.');
+        return false;
+    }
+
+    try {
+        const payload = {
+            number: String(phone).replace(/\D/g, ''),
+            messageId,
+            emoji
+        };
+
+        const response = await fetch(`${UAZAPI_BASE_URL}/message/react`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'token': tokenAPI
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => 'Unknown error');
+            console.error(`[Uazapi] Reaction Failed (${response.status}):`, errorText);
+            return false;
+        }
+
+        console.log(`[Uazapi] Reaction "${emoji}" sent to message ${messageId} (${phone})`);
+        return true;
+    } catch (error) {
+        console.error('[Uazapi] Reaction Exception:', error.message);
+        return false;
+    }
+};
+
+/**
+ * Detect situation in user message and, if matched, send a reaction emoji.
+ * Fire-and-forget — does not block the main response flow.
+ *
+ * @param {object} config - Agent config (must have reactionConfig and Uazapi token)
+ * @param {string} phone - Sender phone number
+ * @param {string} messageId - WhatsApp message ID to react to
+ * @param {string} userMessage - The user's text message
+ */
+export const reactToUserMessage = (config, phone, messageId, userMessage) => {
+    try {
+        const uazapiCfg = getUazapiConfig(config);
+        if (!uazapiCfg) return;
+
+        // Merge default config with any per-agent overrides
+        const reactionCfg = { ...DEFAULT_REACTION_CONFIG, ...(config.reactionConfig || {}) };
+
+        if (!reactionCfg.enabled) return;
+        if (!messageId) return;
+
+        const situation = detectReactionSituation(userMessage);
+        if (!situation) return;
+
+        const emoji = reactionCfg[situation];
+        if (!emoji) return;
+
+        console.log(`[Uazapi] Reaction detected: "${situation}" → ${emoji}`);
+
+        // Fire-and-forget: do not await so the main flow is not blocked
+        sendMessageReaction(uazapiCfg.tokenAPI, phone, messageId, emoji).catch(() => {});
+    } catch (e) {
+        console.error('[Uazapi] reactToUserMessage Exception:', e.message);
+    }
+};
+
 
