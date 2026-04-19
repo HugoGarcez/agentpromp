@@ -505,10 +505,12 @@ export const sendMessageReaction = async (tokenAPI, phone, messageId, emoji) => 
 
     try {
         const cleanPhone = String(phone).replace(/\D/g, '');
+        // Strip phone prefix if present (e.g. "5521999...:3EB0..." → "3EB0...")
+        const cleanMsgId = String(messageId).includes(':') ? String(messageId).split(':').pop() : String(messageId);
         const payload = {
             number: `${cleanPhone}@s.whatsapp.net`,
             text: emoji,
-            id: messageId
+            id: cleanMsgId
         };
 
         console.log(`[Uazapi] Sending Reaction payload:`, JSON.stringify(payload));

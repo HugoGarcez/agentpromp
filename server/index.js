@@ -385,7 +385,6 @@ const handleWebhookRequest = async (req, res) => {
     // 0. DEDUPLICATION (Prevent Triple Replies)
     // ------------------------------------------------------------------
     const msgId = payload.key?.id ||
-        payload.msg?.messageid ||
         payload.id ||
         payload.data?.id ||
         payload.msg?.id ||
