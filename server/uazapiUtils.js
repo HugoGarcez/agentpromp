@@ -504,10 +504,11 @@ export const sendMessageReaction = async (tokenAPI, phone, messageId, emoji) => 
     }
 
     try {
+        const cleanPhone = String(phone).replace(/\D/g, '');
         const payload = {
-            number: String(phone).replace(/\D/g, ''),
-            msgId: messageId,
-            emoji
+            number: `${cleanPhone}@s.whatsapp.net`,
+            text: emoji,
+            id: messageId
         };
 
         console.log(`[Uazapi] Sending Reaction payload:`, JSON.stringify(payload));

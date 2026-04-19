@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.uazapi.com)",
+      "WebSearch",
+      "WebFetch(domain:developer.z-api.io)",
+      "WebFetch(domain:www.postman.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(curl -s \"https://docs.uazapi.com/endpoint/post/message~react\")",
+      "Bash(curl -s \"https://docs.uazapi.com/assets/index-D58tG89J.js\")",
+      "Bash(curl -s \"https://docs.uazapi.com/openapi.yaml\" -o /tmp/uazapi_spec.yaml)",
+      "Read(//tmp/**)",
+      "Bash(curl -s \"https://docs.uazapi.com/spec.yaml\" -o /tmp/uazapi_spec2.yaml)",
+      "Bash(grep -oP '\"https?://[^\"]{10,200}\"')",
+      "Bash(grep -oE '\"https?://[^\"]{10,150}\"')",
+      "Bash(curl -s \"https://docs.uazapi.com/openapi-bundled.json\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); paths=d.get\\('paths',{}\\); react=[k for k in paths if 'react' in k.lower\\(\\)]; print\\('React paths:', react\\); [print\\(json.dumps\\({k: paths[k]}, indent=2\\)\\) for k in react]\")"
+    ]
+  }
+}
