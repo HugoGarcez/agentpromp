@@ -15,7 +15,11 @@
       "Bash(grep -oP '\"https?://[^\"]{10,200}\"')",
       "Bash(grep -oE '\"https?://[^\"]{10,150}\"')",
       "Bash(curl -s \"https://docs.uazapi.com/openapi-bundled.json\")",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); paths=d.get\\('paths',{}\\); react=[k for k in paths if 'react' in k.lower\\(\\)]; print\\('React paths:', react\\); [print\\(json.dumps\\({k: paths[k]}, indent=2\\)\\) for k in react]\")"
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); paths=d.get\\('paths',{}\\); react=[k for k in paths if 'react' in k.lower\\(\\)]; print\\('React paths:', react\\); [print\\(json.dumps\\({k: paths[k]}, indent=2\\)\\) for k in react]\")",
+      "Bash(git log *)",
+      "Bash(npx prisma *)",
+      "Bash(node --input-type=module --check)",
+      "Bash(node --check index.js)"
     ]
   }
 }

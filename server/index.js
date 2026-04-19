@@ -585,32 +585,35 @@ const handleWebhookRequest = async (req, res) => {
 
             // Check if Follow-up is Enabled
             if (followUpCfg && followUpCfg.enabled && followUpCfg.attempts?.length > 0) {
-                const firstAttempt = followUpCfg.attempts[0];
-                const now = new Date();
-                let nextDate = new Date();
-                if (firstAttempt.delayUnit === 'minutes') nextDate.setMinutes(now.getMinutes() + firstAttempt.delayValue);
-                if (firstAttempt.delayUnit === 'hours') nextDate.setHours(now.getHours() + firstAttempt.delayValue);
-                if (firstAttempt.delayUnit === 'days') nextDate.setDate(now.getDate() + firstAttempt.delayValue);
+                const firstAttempt = followUpCfg.attempts.find(a => a.active);
+                if (!firstAttempt) {
+                    console.log('[FollowUp] Timer IGNORED (No active attempts configured).');
+                } else {
+                    const now = new Date();
+                    const nextDate = calculateNextDate(firstAttempt);
 
-                // UPSERT STATE for the USER (Target)
-                await prisma.contactState.upsert({
-                    where: { companyId_remoteJid: { companyId, remoteJid: targetJid } },
-                    create: {
-                        companyId,
-                        remoteJid: targetJid,
-                        isActive: true,
-                        attemptIndex: 0,
-                        lastOutbound: now,
-                        nextFollowUp: nextDate
-                    },
-                    update: {
-                        isActive: true,
-                        attemptIndex: 0,
-                        lastOutbound: now,
-                        nextFollowUp: nextDate
-                    }
-                });
-                console.log(`[FollowUp] Timer STARTED for ${cleanTarget}. Next: ${nextDate.toISOString()}`);
+                    // UPSERT STATE for the USER (Target)
+                    await prisma.contactState.upsert({
+                        where: { companyId_remoteJid: { companyId, remoteJid: targetJid } },
+                        create: {
+                            companyId,
+                            remoteJid: targetJid,
+                            agentConfigId: agentId || config?.id || null,
+                            isActive: true,
+                            attemptIndex: 0,
+                            lastOutbound: now,
+                            nextFollowUp: nextDate
+                        },
+                        update: {
+                            agentConfigId: agentId || config?.id || null,
+                            isActive: true,
+                            attemptIndex: 0,
+                            lastOutbound: now,
+                            nextFollowUp: nextDate
+                        }
+                    });
+                    console.log(`[FollowUp] Timer STARTED for ${cleanTarget}. Next: ${nextDate.toISOString()}`);
+                }
             } else {
                 console.log('[FollowUp] Timer IGNORED (Disabled or No Attempts).');
             }
@@ -2206,6 +2209,144 @@ app.post('/api/integrations/xml/:id/sync', authenticateToken, async (req, res) =
         res.status(500).json({ success: false, message: err.message });
     }
 });
+
+// --- Follow-up IA ---
+
+function calculateNextDate(attempt) {
+    const now = new Date();
+    const next = new Date(now);
+    if (attempt.delayUnit === 'minutes') next.setMinutes(now.getMinutes() + Number(attempt.delayValue));
+    if (attempt.delayUnit === 'hours')   next.setHours(now.getHours() + Number(attempt.delayValue));
+    if (attempt.delayUnit === 'days')    next.setDate(now.getDate() + Number(attempt.delayValue));
+    return next;
+}
+
+const processSingleFollowUp = async (state) => {
+    const { companyId, remoteJid, attemptIndex, agentConfigId } = state;
+    const cleanPhone = String(remoteJid).replace(/\D/g, '');
+
+    const config = await getCompanyConfig(companyId, agentConfigId || null);
+    const followUpCfg = config?.followUpConfig;
+
+    if (!followUpCfg?.enabled) {
+        await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
+        return;
+    }
+
+    // Check ignored numbers list
+    const ignoreList = (followUpCfg.ignoreNumbers || '')
+        .split(',').map(n => n.trim().replace(/\D/g, '')).filter(Boolean);
+    if (ignoreList.includes(cleanPhone)) {
+        console.log(`[FollowUp] ${cleanPhone} está na lista de ignorados. Parando.`);
+        await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
+        return;
+    }
+
+    // Only active attempts
+    const activeAttempts = (followUpCfg.attempts || []).filter(a => a.active);
+    if (attemptIndex >= activeAttempts.length) {
+        console.log(`[FollowUp] Tentativas esgotadas para ${cleanPhone}.`);
+        await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
+        return;
+    }
+
+    // Load conversation history for AI context
+    const history = await prisma.testMessage.findMany({
+        where: { companyId, sessionId: cleanPhone },
+        orderBy: { createdAt: 'desc' },
+        take: 10
+    });
+    const historyText = history.reverse()
+        .map(m => `${m.sender === 'user' ? 'Cliente' : 'Agente'}: ${m.text}`)
+        .join('\n') || '(sem histórico disponível)';
+
+    const openaiKey = config.openaiKey || process.env.OPENAI_API_KEY;
+    if (!openaiKey) {
+        console.log('[FollowUp] Sem chave OpenAI. Abortando.');
+        return;
+    }
+
+    const toneMap = {
+        animated:    'curto, enérgico e direto ao ponto',
+        serious:     'profissional e consultivo',
+        ice_breaker: 'leve, amigável e descontraído'
+    };
+    const toneDesc = toneMap[followUpCfg.tone] || 'profissional';
+    const personaName = config.persona?.name || 'Assistente';
+
+    const aiPrompt = `Você é ${personaName}. O cliente parou de responder.
+
+Analise o histórico abaixo e decida:
+- Se a última mensagem do agente AGUARDA resposta do cliente (pergunta aberta, proposta, confirmação pendente): gere uma mensagem de follow-up contextual. Tom: ${toneDesc}. Máximo 2 frases curtas. Não mencione que é uma mensagem automática.
+- Se a conversa JÁ FOI ENCERRADA ou concluída sem nenhuma pendência do cliente: responda APENAS com: NO_FOLLOWUP
+
+Histórico da conversa:
+${historyText}`;
+
+    let followUpMsg = '';
+    try {
+        const aiResp = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: aiPrompt }],
+            max_tokens: 200,
+            temperature: 0.7
+        });
+        followUpMsg = aiResp.choices[0]?.message?.content?.trim() || '';
+    } catch (err) {
+        console.error(`[FollowUp] Erro ao chamar OpenAI para ${cleanPhone}:`, err.message);
+        return;
+    }
+
+    if (!followUpMsg || followUpMsg.includes('NO_FOLLOWUP')) {
+        console.log(`[FollowUp] IA decidiu que conversa está encerrada para ${cleanPhone}. Parando sequência.`);
+        await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
+        return;
+    }
+
+    const sent = await sendPrompMessage(config, cleanPhone, followUpMsg, null, null, null);
+    if (!sent) {
+        console.error(`[FollowUp] Falha ao enviar mensagem para ${cleanPhone}.`);
+        return;
+    }
+
+    console.log(`[FollowUp] Mensagem enviada para ${cleanPhone} (tentativa ${attemptIndex + 1}/${activeAttempts.length})`);
+
+    const nextIndex = attemptIndex + 1;
+    if (nextIndex >= activeAttempts.length) {
+        await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
+        console.log(`[FollowUp] Sequência concluída para ${cleanPhone}.`);
+    } else {
+        const nextAttempt = activeAttempts[nextIndex];
+        const nextDate = calculateNextDate(nextAttempt);
+        await prisma.contactState.update({
+            where: { id: state.id },
+            data: { attemptIndex: nextIndex, nextFollowUp: nextDate, lastOutbound: new Date() }
+        });
+        console.log(`[FollowUp] Próxima tentativa para ${cleanPhone}: ${nextDate.toISOString()}`);
+    }
+};
+
+// --- Follow-up IA Scheduler (runs every 60 seconds) ---
+setInterval(async () => {
+    try {
+        const now = new Date();
+        const dueStates = await prisma.contactState.findMany({
+            where: { isActive: true, nextFollowUp: { lte: now } }
+        });
+
+        if (dueStates.length > 0) {
+            console.log(`[FollowUp Scheduler] ${dueStates.length} follow-up(s) vencido(s).`);
+        }
+
+        for (const state of dueStates) {
+            processSingleFollowUp(state).catch(err =>
+                console.error(`[FollowUp] Erro ao processar ${state.remoteJid}:`, err.message)
+            );
+        }
+    } catch (err) {
+        console.error('[FollowUp Scheduler] Erro geral:', err.message);
+    }
+}, 60 * 1000);
 
 // --- XML Catalog Scheduler (runs every minute) ---
 setInterval(async () => {
