@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Bot, Cpu, Mic, Volume2, Globe, Clock, MessageCircle, Package } from 'lucide-react';
+import { Save, Bot, Cpu, Mic, Volume2, Globe, Clock, MessageCircle, Package, Play, Pause, User, Loader } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Settings = () => {
     const [activeSection, setActiveSection] = useState('integrations');
     const [agents, setAgents] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState('');
+
+    // Voice models state
+    const [availableVoices, setAvailableVoices] = useState([]);
+    const [playingVoiceId, setPlayingVoiceId] = useState(null);
+    const [loadingPreview, setLoadingPreview] = useState(null);
+    const [audioRef] = useState({ current: null });
 
 
     // State for different settings
@@ -159,6 +165,55 @@ const Settings = () => {
 
     }, [user, selectedAgentId]);
 
+    // Fetch available voice models
+    useEffect(() => {
+        const fetchVoices = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch('/api/voices', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    setAvailableVoices(data);
+                }
+            } catch (e) {
+                console.error('Error fetching voices:', e);
+            }
+        };
+        fetchVoices();
+    }, []);
+
+    const togglePlayPreview = async (voiceDbId, elevenLabsVoiceId) => {
+        // If already playing this voice, stop it
+        if (playingVoiceId === voiceDbId) {
+            if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+            setPlayingVoiceId(null);
+            return;
+        }
+        // Stop any currently playing audio
+        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+
+        setLoadingPreview(voiceDbId);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`/api/voices/${elevenLabsVoiceId}/preview`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error('Failed to generate preview');
+            const data = await res.json();
+
+            const audio = new Audio(`data:audio/mpeg;base64,${data.audio}`);
+            audio.onended = () => { setPlayingVoiceId(null); audioRef.current = null; };
+            audio.play();
+            audioRef.current = audio;
+            setPlayingVoiceId(voiceDbId);
+        } catch (e) {
+            console.error('Error playing preview:', e);
+        } finally {
+            setLoadingPreview(null);
+        }
+    };
 
     const handlePersonaChange = (e) => {
         setPersona({ ...persona, [e.target.name]: e.target.value });
@@ -557,6 +612,135 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
 
                             {voice.enabled && (
                                 <div style={{ display: 'grid', gap: '24px' }}>
+                                    {/* Voice Selector */}
+                                    {availableVoices.length > 0 && (
+                                        <div style={{ padding: '28px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', background: 'white' }}>
+                                            <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '20px', color: 'var(--text-dark)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <Volume2 size={18} color="var(--primary-blue)" />
+                                                Escolha a Voz do Agente
+                                            </h3>
+
+                                            {/* Female Voices */}
+                                            {availableVoices.filter(v => v.gender === 'female').length > 0 && (
+                                                <div style={{ marginBottom: '20px' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #F1F5F9' }}>
+                                                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#DB2777' }}>👩 Vozes Femininas</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                        {availableVoices.filter(v => v.gender === 'female').map(v => (
+                                                            <label key={v.id} style={{
+                                                                display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px',
+                                                                borderRadius: '12px', border: '1px solid',
+                                                                borderColor: voice.voiceId === v.voiceId ? '#DB2777' : '#F1F5F9',
+                                                                background: voice.voiceId === v.voiceId ? '#FDF2F8' : '#FAFAFA',
+                                                                cursor: 'pointer', transition: 'all 0.2s'
+                                                            }}>
+                                                                <input
+                                                                    type="radio"
+                                                                    name="voiceId"
+                                                                    value={v.voiceId}
+                                                                    checked={voice.voiceId === v.voiceId}
+                                                                    onChange={handleVoiceChange}
+                                                                    style={{ width: '18px', height: '18px', accentColor: '#DB2777', flexShrink: 0 }}
+                                                                />
+                                                                <div style={{
+                                                                    width: '34px', height: '34px', borderRadius: '10px',
+                                                                    background: voice.voiceId === v.voiceId ? '#DB2777' : '#FCE7F3',
+                                                                    color: voice.voiceId === v.voiceId ? 'white' : '#DB2777',
+                                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                                                                }}>
+                                                                    <User size={16} />
+                                                                </div>
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{ fontWeight: 700, fontSize: '14px', color: '#1E293B' }}>{v.name}</div>
+                                                                    <div style={{ fontSize: '11px', color: '#94A3B8', fontFamily: 'monospace' }}>{v.voiceId}</div>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => { e.preventDefault(); togglePlayPreview(v.id, v.voiceId); }}
+                                                                    disabled={loadingPreview === v.id}
+                                                                    style={{
+                                                                        background: loadingPreview === v.id ? '#94A3B8' : (playingVoiceId === v.id ? '#EF4444' : '#DB2777'),
+                                                                        color: 'white', border: 'none', width: '32px', height: '32px',
+                                                                        borderRadius: '50%', cursor: loadingPreview === v.id ? 'wait' : 'pointer', display: 'flex',
+                                                                        alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s',
+                                                                        flexShrink: 0
+                                                                    }}
+                                                                    title={loadingPreview === v.id ? 'Gerando preview...' : (playingVoiceId === v.id ? 'Pausar' : 'Ouvir Preview')}
+                                                                >
+                                                                    {loadingPreview === v.id ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : (playingVoiceId === v.id ? <Pause size={13} /> : <Play size={13} />)}
+                                                                </button>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Male Voices */}
+                                            {availableVoices.filter(v => v.gender === 'male').length > 0 && (
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #F1F5F9' }}>
+                                                        <span style={{ fontSize: '14px', fontWeight: 700, color: '#2563EB' }}>👨 Vozes Masculinas</span>
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                        {availableVoices.filter(v => v.gender === 'male').map(v => (
+                                                            <label key={v.id} style={{
+                                                                display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px',
+                                                                borderRadius: '12px', border: '1px solid',
+                                                                borderColor: voice.voiceId === v.voiceId ? '#2563EB' : '#F1F5F9',
+                                                                background: voice.voiceId === v.voiceId ? '#EFF6FF' : '#FAFAFA',
+                                                                cursor: 'pointer', transition: 'all 0.2s'
+                                                            }}>
+                                                                <input
+                                                                    type="radio"
+                                                                    name="voiceId"
+                                                                    value={v.voiceId}
+                                                                    checked={voice.voiceId === v.voiceId}
+                                                                    onChange={handleVoiceChange}
+                                                                    style={{ width: '18px', height: '18px', accentColor: '#2563EB', flexShrink: 0 }}
+                                                                />
+                                                                <div style={{
+                                                                    width: '34px', height: '34px', borderRadius: '10px',
+                                                                    background: voice.voiceId === v.voiceId ? '#2563EB' : '#DBEAFE',
+                                                                    color: voice.voiceId === v.voiceId ? 'white' : '#2563EB',
+                                                                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                                                                }}>
+                                                                    <User size={16} />
+                                                                </div>
+                                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                                    <div style={{ fontWeight: 700, fontSize: '14px', color: '#1E293B' }}>{v.name}</div>
+                                                                    <div style={{ fontSize: '11px', color: '#94A3B8', fontFamily: 'monospace' }}>{v.voiceId}</div>
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => { e.preventDefault(); togglePlayPreview(v.id, v.voiceId); }}
+                                                                    disabled={loadingPreview === v.id}
+                                                                    style={{
+                                                                        background: loadingPreview === v.id ? '#94A3B8' : (playingVoiceId === v.id ? '#EF4444' : '#2563EB'),
+                                                                        color: 'white', border: 'none', width: '32px', height: '32px',
+                                                                        borderRadius: '50%', cursor: loadingPreview === v.id ? 'wait' : 'pointer', display: 'flex',
+                                                                        alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s',
+                                                                        flexShrink: 0
+                                                                    }}
+                                                                    title={loadingPreview === v.id ? 'Gerando preview...' : (playingVoiceId === v.id ? 'Pausar' : 'Ouvir Preview')}
+                                                                >
+                                                                    {loadingPreview === v.id ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : (playingVoiceId === v.id ? <Pause size={13} /> : <Play size={13} />)}
+                                                                </button>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {availableVoices.length === 0 && (
+                                                <p style={{ textAlign: 'center', color: '#94A3B8', fontSize: '14px', padding: '16px 0' }}>
+                                                    Nenhuma voz cadastrada. Peça ao administrador para adicionar vozes.
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Trigger Rules */}
                                     <div style={{ padding: '28px', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', background: 'white' }}>
                                         <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '20px', color: 'var(--text-dark)' }}>Regras de Gatilho</h3>
 

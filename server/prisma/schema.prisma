@@ -276,6 +276,15 @@ model LeadSearch {
   @@index([companyId, createdAt])
 }
 
+model VoiceModel {
+  id         String   @id @default(uuid())
+  voiceId    String   // ElevenLabs Voice ID
+  name       String   // Friendly display name
+  gender     String   // "male" or "female"
+  previewUrl String?  // URL for audio preview sample
+  createdAt  DateTime @default(now())
+}
+
 model TransferSession {
   id                    String    @id @default(uuid())
   companyId             String

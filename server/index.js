@@ -3590,6 +3590,119 @@ app.post('/api/admin/config', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Failed to save global config' });
     }
 });
+// --- VOICE MODEL MANAGEMENT (Admin CRUD) ---
+
+// List all voice models
+app.get('/api/admin/voices', authenticateToken, async (req, res) => {
+    try {
+        const voices = await prisma.voiceModel.findMany({
+            orderBy: { createdAt: 'desc' }
+        });
+        res.json(voices);
+    } catch (e) {
+        console.error('Error fetching voices:', e);
+        res.status(500).json({ error: 'Failed to fetch voices' });
+    }
+});
+
+// Add a new voice model
+app.post('/api/admin/voices', authenticateToken, async (req, res) => {
+    try {
+        const { voiceId, name, gender, previewUrl } = req.body;
+        if (!voiceId || !name || !gender) {
+            return res.status(400).json({ error: 'voiceId, name and gender are required' });
+        }
+        const voice = await prisma.voiceModel.create({
+            data: { voiceId, name, gender, previewUrl: previewUrl || null }
+        });
+        res.json(voice);
+    } catch (e) {
+        console.error('Error creating voice:', e);
+        res.status(500).json({ error: 'Failed to create voice' });
+    }
+});
+
+// Delete a voice model
+app.delete('/api/admin/voices/:id', authenticateToken, async (req, res) => {
+    try {
+        await prisma.voiceModel.delete({ where: { id: req.params.id } });
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Error deleting voice:', e);
+        res.status(500).json({ error: 'Failed to delete voice' });
+    }
+});
+
+// Public (authenticated) endpoint for user voice selection
+app.get('/api/voices', authenticateToken, async (req, res) => {
+    try {
+        const voices = await prisma.voiceModel.findMany({
+            orderBy: [{ gender: 'asc' }, { name: 'asc' }]
+        });
+        res.json(voices);
+    } catch (e) {
+        console.error('Error fetching voices:', e);
+        res.status(500).json({ error: 'Failed to fetch voices' });
+    }
+});
+
+// Voice Preview — Generate sample audio using ElevenLabs TTS (cached 24h)
+const voicePreviewCache = new Map();
+const VOICE_PREVIEW_TTL = 24 * 60 * 60 * 1000;
+
+app.get('/api/voices/:voiceId/preview', authenticateToken, async (req, res) => {
+    const { voiceId } = req.params;
+    try {
+        // Check cache first
+        const cached = voicePreviewCache.get(voiceId);
+        if (cached && (Date.now() - cached.timestamp < VOICE_PREVIEW_TTL)) {
+            return res.json({ audio: cached.audio });
+        }
+
+        // Get ElevenLabs API Key from GlobalConfig
+        const globalConfig = await prisma.globalConfig.findFirst();
+        const apiKey = globalConfig?.elevenLabsKey;
+        if (!apiKey) {
+            return res.status(400).json({ error: 'ElevenLabs API Key não configurada.' });
+        }
+
+        const sampleText = 'Olá! Eu sou a voz do seu assistente virtual. Como posso ajudar você hoje?';
+
+        const response = await axios({
+            method: 'POST',
+            url: `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+            data: {
+                text: sampleText,
+                model_id: 'eleven_multilingual_v2',
+                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+            },
+            headers: {
+                'Accept': 'audio/mpeg',
+                'xi-api-key': apiKey,
+                'Content-Type': 'application/json'
+            },
+            responseType: 'arraybuffer'
+        });
+
+        const audioBase64 = Buffer.from(response.data).toString('base64');
+
+        // Cache result
+        voicePreviewCache.set(voiceId, { audio: audioBase64, timestamp: Date.now() });
+
+        // Cleanup old cache entries
+        if (voicePreviewCache.size > 50) {
+            const now = Date.now();
+            for (const [key, val] of voicePreviewCache.entries()) {
+                if (now - val.timestamp > VOICE_PREVIEW_TTL) voicePreviewCache.delete(key);
+            }
+        }
+
+        res.json({ audio: audioBase64 });
+    } catch (e) {
+        console.error(`[VoicePreview] Error generating preview for ${voiceId}:`, e.response?.data ? JSON.stringify(e.response.data) : e.message);
+        res.status(500).json({ error: 'Falha ao gerar preview da voz.' });
+    }
+});
 
 // --- LEAD FINDER API ---
 

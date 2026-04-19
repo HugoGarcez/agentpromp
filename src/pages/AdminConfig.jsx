@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Lock, MapPin, Loader, CheckCircle, XCircle } from 'lucide-react';
+import { Save, Lock, MapPin, Loader, CheckCircle, XCircle, Plus, Trash2, Mic, User } from 'lucide-react';
 
 const AdminConfig = () => {
     const [config, setConfig] = useState({
@@ -19,6 +19,11 @@ const AdminConfig = () => {
     const [connectionResult, setConnectionResult] = useState(null);
     const [loading, setLoading] = useState(true);
     const [showToast, setShowToast] = useState(false);
+
+    // Voice Model Management State
+    const [voices, setVoices] = useState([]);
+    const [newVoice, setNewVoice] = useState({ voiceId: '', name: '', gender: 'female' });
+    const [addingVoice, setAddingVoice] = useState(false);
 
     useEffect(() => {
         const fetchConfig = async () => {
@@ -50,7 +55,60 @@ const AdminConfig = () => {
             }
         };
         fetchConfig();
+        fetchVoices();
     }, []);
+
+    const fetchVoices = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/admin/voices', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setVoices(data);
+            }
+        } catch (e) {
+            console.error('Error fetching voices:', e);
+        }
+    };
+
+    const handleAddVoice = async () => {
+        if (!newVoice.voiceId || !newVoice.name) return;
+        setAddingVoice(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch('/api/admin/voices', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(newVoice)
+            });
+            if (res.ok) {
+                setNewVoice({ voiceId: '', name: '', gender: 'female' });
+                await fetchVoices();
+            }
+        } catch (e) {
+            console.error('Error adding voice:', e);
+        } finally {
+            setAddingVoice(false);
+        }
+    };
+
+    const handleDeleteVoice = async (id) => {
+        if (!confirm('Remover esta voz?')) return;
+        try {
+            const token = localStorage.getItem('token');
+            await fetch(`/api/admin/voices/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            await fetchVoices();
+        } catch (e) {
+            console.error('Error deleting voice:', e);
+        }
+    };
+
+
 
     const handleChange = (e) => {
         setConfig({ ...config, [e.target.name]: e.target.value });
@@ -87,6 +145,9 @@ const AdminConfig = () => {
 
     if (loading) return <div>Carregando...</div>;
 
+    const inputStyle = { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '14px', transition: 'border-color 0.2s' };
+    const labelStyle = { display: 'block', fontWeight: 600, marginBottom: '8px', fontSize: '14px', color: '#374151' };
+
     return (
         <div style={{ padding: '24px', maxWidth: '800px', margin: '0 auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
@@ -103,54 +164,155 @@ const AdminConfig = () => {
 
                 {/* OpenAI */}
                 <div style={{ marginBottom: '24px' }}>
-                    <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>OpenAI API Key (GPT)</label>
+                    <label style={labelStyle}>OpenAI API Key (GPT)</label>
                     <input
                         type="password"
                         name="openaiKey"
                         value={config.openaiKey}
                         onChange={handleChange}
                         placeholder="sk-..."
-                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        style={inputStyle}
                     />
                 </div>
 
                 {/* Gemini */}
                 <div style={{ marginBottom: '24px' }}>
-                    <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>Gemini API Key</label>
+                    <label style={labelStyle}>Gemini API Key</label>
                     <input
                         type="password"
                         name="geminiKey"
                         value={config.geminiKey}
                         onChange={handleChange}
                         placeholder="AIza..."
-                        style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
+                        style={inputStyle}
                     />
                 </div>
 
-                {/* ElevenLabs */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px' }}>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>ElevenLabs API Key</label>
-                        <input
-                            type="password"
-                            name="elevenLabsKey"
-                            value={config.elevenLabsKey}
-                            onChange={handleChange}
-                            placeholder="..."
-                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
-                        />
+                {/* ElevenLabs API Key */}
+                <div style={{ marginBottom: '24px' }}>
+                    <label style={labelStyle}>ElevenLabs API Key</label>
+                    <input
+                        type="password"
+                        name="elevenLabsKey"
+                        value={config.elevenLabsKey}
+                        onChange={handleChange}
+                        placeholder="..."
+                        style={inputStyle}
+                    />
+                </div>
+
+                {/* ===== VOICE MODEL MANAGER ===== */}
+                <div style={{ marginBottom: '24px', borderTop: '1px solid #E5E7EB', paddingTop: '24px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Mic size={20} color="#8B5CF6" />
+                        Modelos de Voz (ElevenLabs)
+                    </h3>
+                    <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '20px' }}>
+                        Cadastre os IDs de voz da ElevenLabs. Os usuários poderão escolher entre as vozes cadastradas aqui.
+                    </p>
+
+                    {/* Add Voice Form */}
+                    <div style={{
+                        background: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0',
+                        padding: '20px', marginBottom: '20px'
+                    }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                            <div>
+                                <label style={{ ...labelStyle, fontSize: '13px' }}>Nome da Voz</label>
+                                <input
+                                    type="text"
+                                    value={newVoice.name}
+                                    onChange={e => setNewVoice({ ...newVoice, name: e.target.value })}
+                                    placeholder="Ex: Rachel (Amigável)"
+                                    style={inputStyle}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ ...labelStyle, fontSize: '13px' }}>Voice ID (ElevenLabs)</label>
+                                <input
+                                    type="text"
+                                    value={newVoice.voiceId}
+                                    onChange={e => setNewVoice({ ...newVoice, voiceId: e.target.value })}
+                                    placeholder="Ex: 21m00Tcm4TlvDq8ikWAM"
+                                    style={inputStyle}
+                                />
+                            </div>
+                        </div>
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{ ...labelStyle, fontSize: '13px' }}>Gênero</label>
+                            <select
+                                value={newVoice.gender}
+                                onChange={e => setNewVoice({ ...newVoice, gender: e.target.value })}
+                                style={{ ...inputStyle, maxWidth: '250px', background: 'white', cursor: 'pointer', fontWeight: 600 }}
+                            >
+                                <option value="female">👩 Feminino</option>
+                                <option value="male">👨 Masculino</option>
+                            </select>
+                            <p style={{ fontSize: '12px', color: '#94A3B8', marginTop: '6px' }}>O preview de áudio será gerado automaticamente pela ElevenLabs.</p>
+                        </div>
+                        <button
+                            onClick={handleAddVoice}
+                            disabled={!newVoice.voiceId || !newVoice.name || addingVoice}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '8px',
+                                background: (!newVoice.voiceId || !newVoice.name) ? '#CBD5E1' : '#8B5CF6',
+                                color: 'white', border: 'none', padding: '10px 20px',
+                                borderRadius: '8px', fontWeight: 600, fontSize: '14px',
+                                cursor: (!newVoice.voiceId || !newVoice.name) ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            <Plus size={16} />
+                            {addingVoice ? 'Adicionando...' : 'Adicionar Voz'}
+                        </button>
                     </div>
-                    <div>
-                        <label style={{ display: 'block', fontWeight: 500, marginBottom: '8px' }}>ElevenLabs Voice ID</label>
-                        <input
-                            type="text"
-                            name="elevenLabsVoiceId"
-                            value={config.elevenLabsVoiceId}
-                            onChange={handleChange}
-                            placeholder="Ex: 21m00Tcm4TlvDq8ikWAM"
-                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #D1D5DB' }}
-                        />
-                    </div>
+
+                    {/* Voice List */}
+                    {voices.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '32px', color: '#94A3B8', fontSize: '14px' }}>
+                            <Mic size={32} style={{ marginBottom: '8px', opacity: 0.4 }} />
+                            <p>Nenhuma voz cadastrada ainda.</p>
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {voices.map(v => (
+                                <div key={v.id} style={{
+                                    display: 'flex', alignItems: 'center', gap: '14px',
+                                    padding: '14px 18px', background: 'white', borderRadius: '10px',
+                                    border: '1px solid #E2E8F0', transition: 'all 0.2s'
+                                }}>
+                                    <div style={{
+                                        width: '36px', height: '36px', borderRadius: '10px',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        background: v.gender === 'male' ? '#DBEAFE' : '#FCE7F3',
+                                        color: v.gender === 'male' ? '#2563EB' : '#DB2777',
+                                        flexShrink: 0
+                                    }}>
+                                        <User size={18} />
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontWeight: 700, fontSize: '14px', color: '#1E293B' }}>{v.name}</div>
+                                        <div style={{ fontSize: '12px', color: '#94A3B8', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                            <span>{v.gender === 'male' ? '👨 Masculino' : '👩 Feminino'}</span>
+                                            <span style={{ fontFamily: 'monospace' }}>ID: {v.voiceId}</span>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        onClick={() => handleDeleteVoice(v.id)}
+                                        style={{
+                                            background: 'transparent', border: 'none', color: '#EF4444',
+                                            cursor: 'pointer', padding: '6px', borderRadius: '6px',
+                                            transition: 'all 0.2s', flexShrink: 0
+                                        }}
+                                        title="Remover voz"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Google Calendar */}
