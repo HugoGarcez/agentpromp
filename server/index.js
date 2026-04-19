@@ -385,6 +385,7 @@ const handleWebhookRequest = async (req, res) => {
     // 0. DEDUPLICATION (Prevent Triple Replies)
     // ------------------------------------------------------------------
     const msgId = payload.key?.id ||
+        payload.msg?.messageid ||
         payload.id ||
         payload.data?.id ||
         payload.msg?.id ||
@@ -738,6 +739,14 @@ const handleWebhookRequest = async (req, res) => {
 
     // --- EMOJI REACTION (fire-and-forget, before AI processing) ---
     if (config && msgId) {
+        // Inject Uazapi token from webhook payload if agent config doesn't have one
+        const webhookUazapiToken = payload.ticket?.whatsapp?.tokenAPI;
+        if (webhookUazapiToken && !getUazapiConfig(config)) {
+            if (!config.integrations) config.integrations = {};
+            if (!config.integrations.whatsapp) config.integrations.whatsapp = {};
+            config.integrations.whatsapp.tokenAPI = webhookUazapiToken;
+            console.log(`[Reaction] Injected Uazapi token from webhook payload: ${webhookUazapiToken.substring(0, 8)}...`);
+        }
         reactToUserMessage(config, cleanNumber, msgId, userMessage);
     }
 
