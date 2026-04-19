@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Bot, Cpu, Mic, Volume2, Globe, Clock, MessageCircle, Package, Play, Pause, User, Loader } from 'lucide-react';
+import { Save, Bot, Cpu, Mic, Volume2, Globe, Clock, MessageCircle, Package, Play, Pause, User, Loader, Smile } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Settings = () => {
@@ -54,6 +54,14 @@ const Settings = () => {
         hidePrices: false,
         hidePricesReason: 'Sob consulta',
         customPriceHiddenReason: ''
+    });
+
+    const [reactionConfig, setReactionConfig] = useState({
+        enabled: true,
+        afirmacao: '👍',
+        interesse: '🔥',
+        explicacao: '👀',
+        elogio: '🥰'
     });
 
     const [showToast, setShowToast] = useState(false);
@@ -141,6 +149,14 @@ const Settings = () => {
                                 customPriceHiddenReason: parsedCatalog.customPriceHiddenReason || ''
                             });
                         } catch (e) { console.error("Error parsing catalogConfig", e); }
+                    }
+
+                    // Populate Reaction Config
+                    if (data.reactionConfig) {
+                        try {
+                            const parsedReaction = typeof data.reactionConfig === 'string' ? JSON.parse(data.reactionConfig) : data.reactionConfig;
+                            setReactionConfig(prev => ({ ...prev, ...parsedReaction }));
+                        } catch (e) { console.error("Error parsing reactionConfig", e); }
                     }
 
                     // CRITICAL: Preserve products from DB
@@ -350,7 +366,10 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                     followUpConfig: JSON.stringify(followUp),
 
                     // NEW: Save Catalog Config
-                    catalogConfig: JSON.stringify(catalogConfig)
+                    catalogConfig: JSON.stringify(catalogConfig),
+
+                    // NEW: Save Reaction Config
+                    reactionConfig: JSON.stringify(reactionConfig)
                 }),
             });
 
@@ -506,7 +525,8 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                         { id: 'integrations', label: 'Inteligência Artificial', icon: Cpu },
                         { id: 'voice', label: 'Voz e Áudio', icon: Mic },
                         { id: 'followup', label: 'Follow-up (IA)', icon: Clock },
-                        { id: 'catalog', label: 'Catálogo de Produtos', icon: Package }
+                        { id: 'catalog', label: 'Catálogo de Produtos', icon: Package },
+                        { id: 'reactions', label: 'Reações com Emojis', icon: Smile }
                     ].map(section => (
                         <button
                             key={section.id}
@@ -983,6 +1003,71 @@ Lembre-se: Você está conversando com um cliente real. Mantenha o personagem o 
                                         </div>
                                     </div>
                                 )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Reactions Section */}
+                    {activeSection === 'reactions' && (
+                        <div className="animate-fade-in">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ background: 'var(--primary-light)', padding: '10px', borderRadius: '12px' }}>
+                                        <Smile size={28} color="var(--primary-blue)" />
+                                    </div>
+                                    <div>
+                                        <h2 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-dark)' }}>Reações com Emojis</h2>
+                                        <p style={{ color: 'var(--text-medium)', fontSize: '14px' }}>Configure as reações automáticas às mensagens dos clientes.</p>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#F8FAFC', padding: '8px 16px', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: reactionConfig.enabled ? '#10B981' : '#64748B' }}>
+                                        {reactionConfig.enabled ? 'ATIVADO' : 'DESATIVADO'}
+                                    </span>
+                                    <input
+                                        type="checkbox"
+                                        checked={reactionConfig.enabled}
+                                        onChange={(e) => setReactionConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                                        style={{ height: '20px', width: '20px', cursor: 'pointer', accentColor: '#10B981' }}
+                                    />
+                                </div>
+                            </div>
+
+                            <p style={{ fontSize: 14, color: '#64748B', marginBottom: 24, padding: '12px 16px', background: '#F0F9FF', borderRadius: '10px', border: '1px solid #BAE6FD' }}>
+                                A IA detecta automaticamente o tipo de mensagem do cliente e reage com o emoji configurado. Você pode personalizar cada emoji abaixo.
+                            </p>
+
+                            <div style={{ display: 'grid', gap: '16px' }}>
+                                {[
+                                    { key: 'afirmacao', label: 'Afirmação / Concordância', description: 'Cliente confirma, concorda ou responde positivamente (ex: "sim", "ok", "pode ser")' },
+                                    { key: 'interesse', label: 'Interesse / Intenção de Compra', description: 'Cliente demonstra interesse em produto ou serviço (ex: "quero saber mais", "quanto custa")' },
+                                    { key: 'elogio', label: 'Elogio / Satisfação', description: 'Cliente elogia a empresa, produto ou atendimento (ex: "parabéns", "gostei muito", "incrível")' },
+                                    { key: 'explicacao', label: 'Explicação / Contexto', description: 'Cliente explica uma situação ou problema em detalhes (mensagens mais longas com contexto)' },
+                                ].map(({ key, label, description }) => (
+                                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '20px', background: '#F8FAFC', padding: '20px 24px', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 700, fontSize: '15px', color: 'var(--text-dark)', marginBottom: '4px' }}>{label}</div>
+                                            <div style={{ fontSize: '13px', color: '#64748B' }}>{description}</div>
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                                            <input
+                                                type="text"
+                                                value={reactionConfig[key] || ''}
+                                                onChange={(e) => setReactionConfig(prev => ({ ...prev, [key]: e.target.value }))}
+                                                maxLength={2}
+                                                style={{
+                                                    width: '60px', height: '60px', fontSize: '28px',
+                                                    textAlign: 'center', borderRadius: '12px',
+                                                    border: '2px solid #E2E8F0', background: 'white',
+                                                    cursor: 'text', outline: 'none'
+                                                }}
+                                                onFocus={e => e.target.style.borderColor = 'var(--primary-blue)'}
+                                                onBlur={e => e.target.style.borderColor = '#E2E8F0'}
+                                            />
+                                            <span style={{ fontSize: '11px', color: '#94A3B8' }}>Emoji</span>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     )}

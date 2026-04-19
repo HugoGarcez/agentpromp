@@ -506,9 +506,11 @@ export const sendMessageReaction = async (tokenAPI, phone, messageId, emoji) => 
     try {
         const payload = {
             number: String(phone).replace(/\D/g, ''),
-            messageId,
+            msgId: messageId,
             emoji
         };
+
+        console.log(`[Uazapi] Sending Reaction payload:`, JSON.stringify(payload));
 
         const response = await fetch(`${UAZAPI_BASE_URL}/message/react`, {
             method: 'POST',

@@ -3476,7 +3476,8 @@ app.post('/api/config', authenticateToken, async (req, res) => {
             knowledgeBase: finalKB ? JSON.stringify(finalKB) : undefined,
             followUpConfig: newConfig.followUpConfig ? (typeof newConfig.followUpConfig === 'object' ? JSON.stringify(newConfig.followUpConfig) : newConfig.followUpConfig) : undefined,
             catalogConfig: newConfig.catalogConfig ? (typeof newConfig.catalogConfig === 'object' ? JSON.stringify(newConfig.catalogConfig) : newConfig.catalogConfig) : undefined,
-            transferConfig: newConfig.transferConfig ? (typeof newConfig.transferConfig === 'object' ? JSON.stringify(newConfig.transferConfig) : newConfig.transferConfig) : undefined
+            transferConfig: newConfig.transferConfig ? (typeof newConfig.transferConfig === 'object' ? JSON.stringify(newConfig.transferConfig) : newConfig.transferConfig) : undefined,
+            reactionConfig: newConfig.reactionConfig ? (typeof newConfig.reactionConfig === 'object' ? JSON.stringify(newConfig.reactionConfig) : newConfig.reactionConfig) : undefined
         };
 
         
