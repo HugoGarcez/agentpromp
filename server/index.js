@@ -2260,11 +2260,13 @@ const processSingleFollowUp = async (state) => {
         .map(m => `${m.sender === 'user' ? 'Cliente' : 'Agente'}: ${m.text}`)
         .join('\n') || '(sem histórico disponível)';
 
-    const openaiKey = config.openaiKey || process.env.OPENAI_API_KEY;
+    const globalConfig = await prisma.globalConfig.findFirst();
+    const openaiKey = config.openaiKey || globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
     if (!openaiKey) {
-        console.log('[FollowUp] Sem chave OpenAI. Abortando.');
+        console.log('[FollowUp] Sem chave OpenAI (config do agente, globalConfig ou ENV). Abortando.');
         return;
     }
+    const openai = new OpenAI({ apiKey: openaiKey });
 
     const toneMap = {
         animated:    'curto, enérgico e direto ao ponto',
