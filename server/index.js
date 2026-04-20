@@ -2222,54 +2222,92 @@ function calculateNextDate(attempt) {
 }
 
 const processSingleFollowUp = async (state) => {
-    const { companyId, remoteJid, attemptIndex, agentConfigId } = state;
+    const { id: stateId, companyId, remoteJid, attemptIndex, agentConfigId } = state;
     const cleanPhone = String(remoteJid).replace(/\D/g, '');
 
-    const config = await getCompanyConfig(companyId, agentConfigId || null);
-    const followUpCfg = config?.followUpConfig;
+    console.log(`[FollowUp] Processando ${cleanPhone} | tentativa=${attemptIndex} | agentConfigId=${agentConfigId}`);
+
+    // --- 1. Load agent config ---
+    // If agentConfigId is set, load that specific agent. Otherwise, find the first agent
+    // in this company with Follow-up enabled.
+    let config = agentConfigId ? await getCompanyConfig(companyId, agentConfigId) : null;
+    let followUpCfg = config?.followUpConfig;
 
     if (!followUpCfg?.enabled) {
-        await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
-        return;
+        // Fallback: search all agents for the company that have followUp enabled
+        console.log(`[FollowUp] Config do agente ${agentConfigId} não tem followUp ativo. Buscando alternativa...`);
+        const allAgentConfigs = await prisma.agentConfig.findMany({ where: { companyId } });
+        const safeParse = (str) => { try { return str ? JSON.parse(str) : null; } catch { return null; } };
+        const agentWithFollowUp = allAgentConfigs.find(a => {
+            const cfg = safeParse(a.followUpConfig);
+            return cfg?.enabled === true;
+        });
+        if (!agentWithFollowUp) {
+            console.log(`[FollowUp] Nenhum agente da empresa ${companyId} tem Follow-up ativo. Parando.`);
+            await prisma.contactState.update({ where: { id: stateId }, data: { isActive: false } });
+            return;
+        }
+        config = await getCompanyConfig(companyId, agentWithFollowUp.id);
+        followUpCfg = config?.followUpConfig;
+        console.log(`[FollowUp] Usando config do agente ${agentWithFollowUp.id} para ${cleanPhone}.`);
     }
 
-    // Check ignored numbers list
+    console.log(`[FollowUp] followUpCfg.enabled=${followUpCfg?.enabled} | tone=${followUpCfg?.tone} | attempts=${followUpCfg?.attempts?.length}`);
+
+    // --- 2. Check ignored numbers ---
     const ignoreList = (followUpCfg.ignoreNumbers || '')
         .split(',').map(n => n.trim().replace(/\D/g, '')).filter(Boolean);
     if (ignoreList.includes(cleanPhone)) {
         console.log(`[FollowUp] ${cleanPhone} está na lista de ignorados. Parando.`);
-        await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
+        await prisma.contactState.update({ where: { id: stateId }, data: { isActive: false } });
         return;
     }
 
-    // Only active attempts
+    // --- 3. Check active attempts ---
     const activeAttempts = (followUpCfg.attempts || []).filter(a => a.active);
+    console.log(`[FollowUp] Tentativas ativas: ${activeAttempts.length} | índice atual: ${attemptIndex}`);
     if (attemptIndex >= activeAttempts.length) {
         console.log(`[FollowUp] Tentativas esgotadas para ${cleanPhone}.`);
-        await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
+        await prisma.contactState.update({ where: { id: stateId }, data: { isActive: false } });
         return;
     }
 
-    // Load conversation history for AI context
+    // --- 4. Load conversation history ---
     const history = await prisma.testMessage.findMany({
         where: { companyId, sessionId: cleanPhone },
         orderBy: { createdAt: 'desc' },
         take: 10
     });
-    console.log(`[FollowUp] Histórico carregado para ${cleanPhone}: ${history.length} mensagem(ns).`);
+    console.log(`[FollowUp] Histórico encontrado para ${cleanPhone}: ${history.length} mensagem(ns).`);
+
+    // If the most recent message is from the client, the STOP timer failed to fire.
+    // The conversation is no longer waiting for a response — stop the sequence.
+    if (history.length > 0) {
+        const lastMsg = history[0]; // already desc order, so [0] is newest
+        if (lastMsg.sender === 'user') {
+            console.log(`[FollowUp] Última mensagem é do cliente. Conversa já foi retomada. Parando.`);
+            await prisma.contactState.update({ where: { id: stateId }, data: { isActive: false } });
+            return;
+        }
+    }
 
     const historyText = history.length > 0
-        ? history.reverse().map(m => `${m.sender === 'user' ? 'Cliente' : 'Agente'}: ${m.text}`).join('\n')
+        ? history.slice().reverse().map(m => `${m.sender === 'user' ? 'Cliente' : 'Agente'}: ${m.text}`).join('\n')
         : null;
 
+    // --- 5. Get OpenAI key ---
     const globalConfig = await prisma.globalConfig.findFirst();
     const openaiKey = config.openaiKey || globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
+    console.log(`[FollowUp] Chave OpenAI encontrada: ${openaiKey ? 'SIM' : 'NÃO'}`);
     if (!openaiKey) {
-        console.log('[FollowUp] Sem chave OpenAI (config do agente, globalConfig ou ENV). Abortando.');
+        console.log('[FollowUp] Sem chave OpenAI. Abortando sem penalizar a tentativa.');
         return;
     }
     const openai = new OpenAI({ apiKey: openaiKey });
 
+    // --- 6. Generate follow-up message via AI ---
+    // The AI's ONLY job is to GENERATE the message. The decision to send was already made
+    // by the timer system (timer is active = conversation is waiting for client response).
     const toneMap = {
         animated:    'curto, enérgico e direto ao ponto',
         serious:     'profissional e consultivo',
@@ -2278,72 +2316,40 @@ const processSingleFollowUp = async (state) => {
     const toneDesc = toneMap[followUpCfg.tone] || 'profissional';
     const personaName = config.persona?.name || 'Assistente';
 
+    const systemMsg = `Você é ${personaName}. Tom: ${toneDesc}. Gere mensagens de follow-up curtas e naturais para retomar conversas com clientes. Máximo 2 frases. Não mencione que é automático. Não repita informações já enviadas.`;
+
+    const userMsg = historyText
+        ? `O cliente parou de responder após nossa última mensagem. Baseado no contexto abaixo, gere uma mensagem de follow-up para retomá-la:\n\n${historyText}`
+        : `Um cliente parou de responder. Gere uma mensagem curta e natural para retomar o contato.`;
+
     let followUpMsg = '';
-
-    if (!historyText) {
-        // No history available — generate a generic contextual follow-up without asking AI to evaluate
-        console.log(`[FollowUp] Sem histórico para ${cleanPhone}. Gerando follow-up genérico via IA.`);
-        try {
-            const aiResp = await openai.chat.completions.create({
-                model: 'gpt-4o-mini',
-                messages: [
-                    { role: 'system', content: `Você é ${personaName}. Tom: ${toneDesc}. Gere mensagens curtas e naturais.` },
-                    { role: 'user', content: `Um cliente parou de responder. Gere uma mensagem curta (máx 2 frases) para retomar o contato de forma natural. Não mencione que é automático.` }
-                ],
-                max_tokens: 150,
-                temperature: 0.7
-            });
-            followUpMsg = aiResp.choices[0]?.message?.content?.trim() || '';
-        } catch (err) {
-            console.error(`[FollowUp] Erro ao gerar follow-up genérico para ${cleanPhone}:`, err.message);
-            return;
-        }
-    } else {
-        // History available — ask AI to generate contextual follow-up
-        // The timer was started because the agent sent a message expecting a reply.
-        // The AI should default to generating a follow-up UNLESS the conversation is clearly concluded.
-        const systemPrompt = `Você é ${personaName}. Sua tarefa é recuperar clientes que pararam de responder.
-
-REGRA PRINCIPAL: O timer de follow-up só é ativado quando o agente enviou uma mensagem aguardando resposta. Portanto, presuma que a conversa está PENDENTE por padrão.
-
-Gere uma mensagem de follow-up contextual baseada no histórico. Requisitos:
-- Tom: ${toneDesc}
-- Máximo 2 frases curtas e naturais
-- Seja específico ao contexto da conversa (produto, dúvida, proposta mencionada)
-- Não mencione que é automático
-- NÃO repita a mesma informação que o agente já enviou
-
-Responda APENAS com "NO_FOLLOWUP" se o histórico mostrar explicitamente uma despedida formal de ambos os lados ou se o cliente já confirmou que não tem mais interesse.`;
-
-        try {
-            const aiResp = await openai.chat.completions.create({
-                model: 'gpt-4o-mini',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: `Histórico da conversa:\n${historyText}\n\nGere o follow-up:` }
-                ],
-                max_tokens: 200,
-                temperature: 0.7
-            });
-            followUpMsg = aiResp.choices[0]?.message?.content?.trim() || '';
-            console.log(`[FollowUp] Resposta da IA para ${cleanPhone}: "${followUpMsg.substring(0, 80)}..."`);
-        } catch (err) {
-            console.error(`[FollowUp] Erro ao chamar OpenAI para ${cleanPhone}:`, err.message);
-            return;
-        }
-    }
-
-    // Only stop if AI explicitly returns NO_FOLLOWUP as the entire response
-    if (!followUpMsg || followUpMsg.trim().toUpperCase() === 'NO_FOLLOWUP') {
-        console.log(`[FollowUp] IA decidiu que conversa está encerrada para ${cleanPhone}. Parando sequência.`);
-        await prisma.contactState.update({ where: { id: state.id }, data: { isActive: false } });
+    try {
+        const aiResp = await openai.chat.completions.create({
+            model: config.model || 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: systemMsg },
+                { role: 'user', content: userMsg }
+            ],
+            max_tokens: 200,
+            temperature: 0.7
+        });
+        followUpMsg = aiResp.choices[0]?.message?.content?.trim() || '';
+        console.log(`[FollowUp] Mensagem gerada para ${cleanPhone}: "${followUpMsg}"`);
+    } catch (err) {
+        console.error(`[FollowUp] Erro ao chamar OpenAI para ${cleanPhone}:`, err.message);
         return;
     }
 
-    console.log(`[FollowUp] Enviando mensagem para ${cleanPhone}: "${followUpMsg.substring(0, 60)}..."`);
+    if (!followUpMsg) {
+        console.error(`[FollowUp] OpenAI retornou resposta vazia para ${cleanPhone}. Abortando.`);
+        return;
+    }
+
+    // --- 7. Send via Promp ---
+    console.log(`[FollowUp] Enviando via Promp para ${cleanPhone}. prompUuid=${config.prompUuid ? 'ok' : 'AUSENTE'} | prompToken=${config.prompToken ? 'ok' : 'AUSENTE'}`);
     const sent = await sendPrompMessage(config, cleanPhone, followUpMsg, null, null, null);
     if (!sent) {
-        console.error(`[FollowUp] Falha ao enviar mensagem para ${cleanPhone}. Será reprocessado no próximo ciclo.`);
+        console.error(`[FollowUp] sendPrompMessage retornou false para ${cleanPhone} (credenciais ausentes). Parando.`);
         return;
     }
 
