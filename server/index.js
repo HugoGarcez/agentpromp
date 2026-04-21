@@ -26,6 +26,7 @@ const logFlow = (msg) => {
     } catch (e) { /* ignore */ }
 };
 import { initScheduler } from './scheduler.js';
+import { appendConversationHistory, runCRMAutomationJob, listCrmPipelines, listCrmOpportunities, updateCrmOpportunity, deleteCrmOpportunity, createCrmOpportunity } from './crmAutomation.js';
 import { extractFromUrl } from './extractor.js';
 import {
     generateAuthUrl,
@@ -738,6 +739,9 @@ const handleWebhookRequest = async (req, res) => {
     } catch (e) {
         // Ignore error
     }
+
+    // --- CRM: record inbound message to conversation history ---
+    appendConversationHistory(prisma, companyId, cleanNumber, 'user', userMessage).catch(() => {});
 
     // --- EMOJI REACTION (fire-and-forget, before AI processing) ---
     if (config && msgId) {
@@ -2391,6 +2395,11 @@ setInterval(async () => {
         console.error('[FollowUp Scheduler] Erro geral:', err.message);
     }
 }, 60 * 1000);
+
+// --- CRM Pipeline Automation Job (runs every 5 minutes) ---
+setInterval(() => {
+    runCRMAutomationJob(prisma).catch(e => console.error('[CRM Job] Unhandled error:', e.message));
+}, 5 * 60 * 1000);
 
 // --- XML Catalog Scheduler (runs every minute) ---
 setInterval(async () => {
@@ -6553,6 +6562,192 @@ app.delete('/api/channels/:id', authenticateToken, async (req, res) => {
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// ─── CRM Automation Routes ──────────────────────────────────────────────────
+
+// GET /api/crm-automation/pipelines — lista pipelines do tenant
+app.get('/api/crm-automation/pipelines', authenticateToken, async (req, res) => {
+    try {
+        const company = await prisma.company.findUnique({
+            where: { id: req.user.companyId },
+            select: { prompUuid: true, prompToken: true },
+        });
+        if (!company?.prompUuid || !company?.prompToken) {
+            return res.status(400).json({ success: false, message: 'Credenciais Promp não configuradas para esta empresa.' });
+        }
+        const data = await listCrmPipelines(company.prompUuid, company.prompToken);
+        res.json(data);
+    } catch (e) {
+        console.error('[CRM] listPipelines error:', e.message);
+        res.status(502).json({ success: false, message: 'Não foi possível conectar ao CRM. Verifique suas credenciais.' });
+    }
+});
+
+// GET /api/crm-automation/opportunities — lista oportunidades abertas
+app.get('/api/crm-automation/opportunities', authenticateToken, async (req, res) => {
+    try {
+        const company = await prisma.company.findUnique({
+            where: { id: req.user.companyId },
+            select: { prompUuid: true, prompToken: true },
+        });
+        if (!company?.prompUuid || !company?.prompToken) {
+            return res.status(400).json({ success: false, message: 'Credenciais Promp não configuradas.' });
+        }
+        const { page = '1', limit = '40', status = 'open', pipelineId } = req.query;
+        const data = await listCrmOpportunities(company.prompUuid, company.prompToken, {
+            page: Number(page), limit: Number(limit), status, pipelineId: pipelineId ? Number(pipelineId) : undefined,
+        });
+        res.json(data);
+    } catch (e) {
+        console.error('[CRM] listOpportunities error:', e.message);
+        res.status(502).json({ success: false, message: 'Erro ao buscar oportunidades.' });
+    }
+});
+
+// GET /api/crm-automation/config — retorna config de automação salva
+app.get('/api/crm-automation/config', authenticateToken, async (req, res) => {
+    try {
+        const { pipelineId } = req.query;
+        const where = { companyId: req.user.companyId };
+        if (pipelineId) where.pipelineId = Number(pipelineId);
+        const automations = await prisma.pipelineAutomation.findMany({ where });
+        res.json({ success: true, data: automations });
+    } catch (e) {
+        console.error('[CRM] getConfig error:', e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+// POST /api/crm-automation/config — cria nova automação de funil
+app.post('/api/crm-automation/config', authenticateToken, async (req, res) => {
+    try {
+        const { pipelineId, pipelineName, stages, entryTrigger, isActive } = req.body;
+        if (!pipelineId || !pipelineName || !stages) {
+            return res.status(400).json({ success: false, message: 'pipelineId, pipelineName e stages são obrigatórios.' });
+        }
+        const existing = await prisma.pipelineAutomation.findFirst({
+            where: { companyId: req.user.companyId, pipelineId: Number(pipelineId) },
+        });
+        if (existing) {
+            return res.status(409).json({ success: false, message: 'Já existe automação para este pipeline. Use PUT para atualizar.' });
+        }
+        const automation = await prisma.pipelineAutomation.create({
+            data: {
+                companyId: req.user.companyId,
+                pipelineId: Number(pipelineId),
+                pipelineName,
+                stages: JSON.stringify(stages),
+                entryTrigger: entryTrigger ? JSON.stringify(entryTrigger) : null,
+                isActive: isActive !== false,
+            },
+        });
+        res.json({ success: true, data: automation });
+    } catch (e) {
+        console.error('[CRM] createConfig error:', e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+// PUT /api/crm-automation/config/:id — atualiza automação existente
+app.put('/api/crm-automation/config/:id', authenticateToken, async (req, res) => {
+    try {
+        const automation = await prisma.pipelineAutomation.findFirst({
+            where: { id: req.params.id, companyId: req.user.companyId },
+        });
+        if (!automation) return res.status(404).json({ success: false, message: 'Automação não encontrada.' });
+
+        const { pipelineName, stages, entryTrigger, isActive } = req.body;
+        const updated = await prisma.pipelineAutomation.update({
+            where: { id: req.params.id },
+            data: {
+                ...(pipelineName && { pipelineName }),
+                ...(stages && { stages: JSON.stringify(stages) }),
+                ...(entryTrigger !== undefined && { entryTrigger: entryTrigger ? JSON.stringify(entryTrigger) : null }),
+                ...(isActive !== undefined && { isActive }),
+            },
+        });
+        res.json({ success: true, data: updated });
+    } catch (e) {
+        console.error('[CRM] updateConfig error:', e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+// GET /api/crm-automation/monitor — oportunidades ativas com histórico e logs
+app.get('/api/crm-automation/monitor', authenticateToken, async (req, res) => {
+    try {
+        const { pipelineId } = req.query;
+        const where = { companyId: req.user.companyId, isActive: true };
+        if (pipelineId) {
+            const automation = await prisma.pipelineAutomation.findFirst({
+                where: { companyId: req.user.companyId, pipelineId: Number(pipelineId) },
+            });
+            if (automation) where.automationId = automation.id;
+        }
+        const opportunities = await prisma.activeOpportunity.findMany({
+            where,
+            include: { logs: { orderBy: { createdAt: 'desc' }, take: 5 } },
+            orderBy: { updatedAt: 'desc' },
+        });
+        res.json({ success: true, data: opportunities });
+    } catch (e) {
+        console.error('[CRM] monitor error:', e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+// POST /api/crm-automation/evaluate/:opportunityId — força avaliação manual
+app.post('/api/crm-automation/evaluate/:opportunityId', authenticateToken, async (req, res) => {
+    try {
+        const opp = await prisma.activeOpportunity.findFirst({
+            where: { id: req.params.opportunityId, companyId: req.user.companyId },
+            include: { automation: true },
+        });
+        if (!opp) return res.status(404).json({ success: false, message: 'Oportunidade não encontrada.' });
+
+        const company = await prisma.company.findUnique({
+            where: { id: req.user.companyId },
+            select: { prompUuid: true, prompToken: true },
+        });
+
+        const { evaluateLeadProgression } = await import('./crmAutomation.js');
+        const globalConfig = await prisma.globalConfig.findFirst();
+        const openaiKey = globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
+        if (!openaiKey) return res.status(400).json({ success: false, message: 'Chave OpenAI não configurada.' });
+
+        const { OpenAI } = await import('openai');
+        const openai = new OpenAI({ apiKey: openaiKey });
+
+        const stages = JSON.parse(opp.automation.stages || '[]');
+        const stageConfig = stages.find(s => s.stageId === opp.currentStageId);
+        if (!stageConfig?.advanceCondition) {
+            return res.status(400).json({ success: false, message: 'Etapa sem condição de avanço configurada.' });
+        }
+        const nextStages = stages
+            .filter(s => s.stageOrder > stageConfig.stageOrder)
+            .sort((a, b) => a.stageOrder - b.stageOrder);
+
+        const history = opp.conversationHistory ? JSON.parse(opp.conversationHistory) : [];
+        const lead = {
+            contactName: opp.contactName,
+            contactNumber: opp.contactNumber,
+            opportunityName: opp.opportunityName,
+            currentStage: opp.currentStageName,
+            daysInCurrentStage: Math.floor((Date.now() - new Date(opp.stageEnteredAt).getTime()) / 86_400_000),
+            conversationHistory: history.length ? history.slice(-20).map(m => `[${m.role}]: ${m.content}`).join('\n') : null,
+        };
+
+        const evaluation = await evaluateLeadProgression(
+            lead, stageConfig.advanceCondition,
+            nextStages.map(s => ({ id: s.stageId, name: s.stageName, order: s.stageOrder })),
+            openai
+        );
+        res.json({ success: true, evaluation });
+    } catch (e) {
+        console.error('[CRM] evaluate error:', e.message);
+        res.status(500).json({ success: false, message: e.message });
     }
 });
 

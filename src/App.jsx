@@ -15,6 +15,7 @@ import AdminConfig from './pages/AdminConfig';
 import TagAutomation from './pages/TagAutomation';
 import Integrations from './pages/Integrations';
 import LeadFinder from './pages/LeadFinder';
+import CRMAutomation from './pages/CRMAutomation';
 
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -68,6 +69,7 @@ function App() {
               <Route path="settings" element={<Settings />} />
               <Route path="integrations" element={<Integrations />} />
               <Route path="lead-finder" element={<LeadFinder />} />
+              <Route path="crm-automation" element={<CRMAutomation />} />
 
               <Route path="admin" element={
                 <AdminRoute>

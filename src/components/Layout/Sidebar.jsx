@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Settings, Moon, Sun, Shield, Lock, Tag, Puzzle, Search } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Settings, Moon, Sun, Shield, Lock, Tag, Puzzle, Search, KanbanSquare } from 'lucide-react';
 import styles from './Sidebar.module.css';
 import logo from '../../assets/logo.png';
 import logoDark from '../../assets/logo-dark.png';
@@ -98,6 +98,15 @@ const Sidebar = ({ isOpen, onClose }) => {
           <MessageSquare size={20} className={styles.navIcon} />
           <span>Atendimento</span>
         </a>
+
+        <NavLink
+          to="/crm-automation"
+          onClick={handleItemClick}
+          className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+        >
+          <KanbanSquare size={20} className={styles.navIcon} />
+          <span>CRM IA</span>
+        </NavLink>
 
         <NavLink
           to="/lead-finder"

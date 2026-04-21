@@ -27,6 +27,58 @@ model Company {
   leadSearchBalance Int                @default(0)
   asaasCustomerId   String?
   leadSearches      LeadSearch[]
+  pipelineAutomations PipelineAutomation[]
+  activeOpportunities ActiveOpportunity[]
+}
+
+model PipelineAutomation {
+  id            String              @id @default(uuid())
+  companyId     String
+  pipelineId    Int
+  pipelineName  String
+  stages        String              // JSON: StageAutomation[]
+  entryTrigger  String?             // JSON: EntryTrigger
+  isActive      Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  company       Company             @relation(fields: [companyId], references: [id])
+  opportunities ActiveOpportunity[]
+}
+
+model ActiveOpportunity {
+  id                  String             @id @default(uuid())
+  companyId           String
+  automationId        String
+  opportunityId       Int
+  contactNumber       String
+  contactName         String
+  opportunityName     String
+  currentStageId      Int
+  currentStageName    String
+  stageEnteredAt      DateTime           @default(now())
+  conversationHistory String?            // JSON: [{role,content,timestamp}]
+  lastEvaluatedAt     DateTime?
+  isActive            Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  company             Company            @relation(fields: [companyId], references: [id])
+  automation          PipelineAutomation @relation(fields: [automationId], references: [id])
+  logs                AutomationLog[]
+
+  @@unique([companyId, opportunityId])
+}
+
+model AutomationLog {
+  id            String            @id @default(uuid())
+  companyId     String
+  opportunityId String
+  action        String
+  fromStageId   Int?
+  toStageId     Int?
+  reasoning     String?
+  confidence    Float?
+  createdAt     DateTime          @default(now())
+  opportunity   ActiveOpportunity @relation(fields: [opportunityId], references: [id])
 }
 
 model User {
