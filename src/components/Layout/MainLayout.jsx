@@ -14,7 +14,6 @@ const MainLayout = () => {
             case '/ai-config': return 'Configuração IA';
             case '/test-ai': return 'Testar IA';
             case '/products': return 'Produtos';
-            case '/settings': return 'Configurações';
             case '/crm-automation': return 'CRM IA';
             case '/': return 'Painel';
             default: return 'Painel';

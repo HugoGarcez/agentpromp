@@ -6,7 +6,6 @@ import AIConfig from './pages/AIConfig';
 import ProductConfig from './pages/ProductConfig';
 import SchedulingConfig from './pages/SchedulingConfig';
 import TestAI from './pages/TestAI';
-import Settings from './pages/Settings';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
@@ -66,7 +65,6 @@ function App() {
               <Route path="products" element={<ProductConfig />} />
               <Route path="automation" element={<TagAutomation />} />
               <Route path="scheduling" element={<SchedulingConfig />} />
-              <Route path="settings" element={<Settings />} />
               <Route path="integrations" element={<Integrations />} />
               <Route path="lead-finder" element={<LeadFinder />} />
               <Route path="crm-automation" element={<CRMAutomation />} />

@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Settings, Moon, Sun, Shield, Lock, Tag, Puzzle, Search, KanbanSquare } from 'lucide-react';
+import { LayoutDashboard, MessageSquare, Bot, ShoppingBag, Moon, Sun, Shield, Lock, Tag, Puzzle, Search, KanbanSquare } from 'lucide-react';
 import styles from './Sidebar.module.css';
 import logo from '../../assets/logo.png';
 import logoDark from '../../assets/logo-dark.png';
@@ -115,15 +115,6 @@ const Sidebar = ({ isOpen, onClose }) => {
         >
           <Search size={20} className={styles.navIcon} />
           <span>Lead Finder</span>
-        </NavLink>
-
-        <NavLink
-          to="/settings"
-          onClick={handleItemClick}
-          className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
-        >
-          <Settings size={20} className={styles.navIcon} />
-          <span>Configurações</span>
         </NavLink>
 
         {user?.role === 'ADMIN' && (
