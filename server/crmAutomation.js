@@ -85,32 +85,61 @@ export async function appendConversationHistory(prisma, companyId, contactNumber
     }
 }
 
-// ─── AI: description generator ───────────────────────────────────────────────
+// ─── AI: opportunity analyser (description + value) ─────────────────────────
 
 /**
- * Gera ou atualiza a descrição da oportunidade com os pontos-chave da conversa.
- * Chamado ao criar a oportunidade no tracking, ao avançar de etapa e ao fechar (win/lose).
+ * Analisa a conversa e retorna, em uma única chamada de IA:
+ *  - description: bullet points com pontos-chave da negociação
+ *  - value: soma dos produtos/serviços de interesse do lead (null se incerto)
+ *  - valueItems: lista dos itens que compõem o valor (para rastreabilidade)
+ *
+ * Chamado ao rastrear nova oportunidade, ao avançar de etapa e ao fechar (win/lose).
  */
-export async function generateOpportunityDescription(historyArray, existingDescription, openai, model = 'gpt-4o-mini') {
-    if (!historyArray || historyArray.length === 0) return existingDescription || null;
+export async function analyzeOpportunityFromHistory(historyArray, existingDescription, existingValue, openai, model = 'gpt-4o-mini') {
+    if (!historyArray || historyArray.length === 0) {
+        return { description: existingDescription || null, value: null, valueItems: [] };
+    }
 
     const historyText = historyArray
         .slice(-30)
         .map(m => `[${m.role === 'user' ? 'Cliente' : 'Agente'}]: ${m.content}`)
         .join('\n');
 
+    const contextBlock = [
+        existingDescription ? `Descrição atual: ${existingDescription}` : '',
+        existingValue != null ? `Valor atual registrado: R$ ${existingValue}` : '',
+    ].filter(Boolean).join('\n');
+
     const systemPrompt = `Você é um assistente especialista em CRM de vendas.
-Com base no histórico de conversa, gere uma descrição concisa para o campo "Descrição" de uma oportunidade de venda.
-Use bullet points (•) em português. Inclua apenas informações relevantes para a negociação:
+Analise o histórico de conversa e retorne APENAS JSON válido sem markdown com os campos:
+{
+  "description": "string com bullet points (•) em português — pontos cruciais da negociação (máx. 6 bullets)",
+  "value": number | null,
+  "valueItems": ["string"]
+}
+
+Regras para "description":
 - Interesse e necessidade do cliente
-- Dados importantes mencionados (empresa, CNPJ/CPF, produto desejado, prazo, orçamento)
+- Dados importantes (empresa, CNPJ/CPF, produto/serviço desejado, prazo, restrições)
 - Objeções ou dúvidas levantadas
 - Status atual e próximo passo
-Máximo 6 bullet points. Seja objetivo. Não repita informações da descrição atual que continuam válidas.`;
+- Mantenha informações ainda válidas da descrição atual; acrescente apenas o que é novo
 
-    const userPrompt = existingDescription
-        ? `Descrição atual da oportunidade:\n${existingDescription}\n\nHistórico recente da conversa:\n${historyText}\n\nAtualize a descrição com novas informações importantes. Mantenha o que ainda é relevante.`
-        : `Histórico da conversa:\n${historyText}\n\nGere a descrição inicial da oportunidade com os pontos cruciais da negociação.`;
+Regras para "value":
+- Some o valor TOTAL dos produtos e serviços pelos quais o cliente demonstrou interesse CLARO na conversa
+- Se preços foram mencionados explicitamente (ex: "R$ 300", "custa 1500"), use-os
+- Se quantidades foram combinadas (ex: "quero 3 unidades"), multiplique pela unidade
+- Se o valor não puder ser determinado com segurança a partir da conversa, retorne null — nunca invente
+- Não inclua valores hipotéticos ou que o cliente rejeitou
+- Retorne number (sem R$ ou formatação) ou null
+
+Regras para "valueItems":
+- Lista dos itens/serviços que compõem o valor (ex: ["2x Produto X – R$200 cada", "Serviço Y – R$500"])
+- Vazio [] se value for null`;
+
+    const userPrompt = contextBlock
+        ? `${contextBlock}\n\nHistórico recente da conversa:\n${historyText}`
+        : `Histórico da conversa:\n${historyText}`;
 
     const resp = await openai.chat.completions.create({
         model,
@@ -118,11 +147,21 @@ Máximo 6 bullet points. Seja objetivo. Não repita informações da descrição
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
         ],
-        max_tokens: 400,
-        temperature: 0.3,
+        max_tokens: 500,
+        temperature: 0.2,
     });
 
-    return resp.choices[0]?.message?.content?.trim() || existingDescription || null;
+    try {
+        const raw = resp.choices[0]?.message?.content?.trim() || '{}';
+        const parsed = JSON.parse(raw);
+        return {
+            description: parsed.description || existingDescription || null,
+            value: typeof parsed.value === 'number' ? Math.round(parsed.value * 100) / 100 : null,
+            valueItems: Array.isArray(parsed.valueItems) ? parsed.valueItems : [],
+        };
+    } catch {
+        return { description: existingDescription || null, value: null, valueItems: [] };
+    }
 }
 
 // ─── AI: lead progression evaluator ─────────────────────────────────────────
@@ -277,37 +316,43 @@ export async function runCRMAutomationJob(prisma) {
                 update: { lastEvaluatedAt: new Date() },
             });
 
-            // ── New opportunity first seen with history → push initial description ──
+            // ── New opportunity first seen with history → push initial description + value ──
             if (isNewTracking && historyArray.length > 0) {
                 try {
-                    const desc = await generateOpportunityDescription(
-                        historyArray, opp.description, openai, model
+                    const analysis = await analyzeOpportunityFromHistory(
+                        historyArray, opp.description, opp.value, openai, model
                     );
-                    if (desc) {
-                        await updateCrmOpportunity(prompUuid, prompToken, {
-                            opportunityId: opp.id,
-                            description: desc,
-                        });
-                        console.log(`[CRM Job] Initial description set for opportunity ${opp.id}`);
+                    const updatePayload = { opportunityId: opp.id };
+                    if (analysis.description) updatePayload.description = analysis.description;
+                    if (analysis.value !== null) updatePayload.value = analysis.value;
+
+                    if (updatePayload.description || updatePayload.value != null) {
+                        await updateCrmOpportunity(prompUuid, prompToken, updatePayload);
+                        const logParts = [];
+                        if (analysis.value !== null) logParts.push(`value=R$${analysis.value}`);
+                        if (analysis.valueItems.length) logParts.push(analysis.valueItems.join(', '));
+                        console.log(`[CRM Job] Initial analysis set for opportunity ${opp.id}${logParts.length ? ` (${logParts.join(' | ')})` : ''}`);
                     }
                 } catch (e) {
-                    console.error(`[CRM Job] Failed to set initial description for ${opp.id}:`, e.message);
+                    console.error(`[CRM Job] Failed to set initial analysis for ${opp.id}:`, e.message);
                 }
             }
 
             // ── Advance to next stage ─────────────────────────────────────────────
             if (evaluation.action === 'advance' && evaluation.shouldAdvance && evaluation.targetStageId) {
                 try {
-                    // Generate updated description with latest conversation insights
-                    const desc = await generateOpportunityDescription(
-                        historyArray, opp.description, openai, model
+                    const analysis = await analyzeOpportunityFromHistory(
+                        historyArray, opp.description, opp.value, openai, model
                     );
 
-                    await updateCrmOpportunity(prompUuid, prompToken, {
+                    const updatePayload = {
                         opportunityId: opp.id,
                         stageId: evaluation.targetStageId,
-                        description: desc || `[IA] ${evaluation.reasoning}`,
-                    });
+                        description: analysis.description || `[IA] ${evaluation.reasoning}`,
+                    };
+                    if (analysis.value !== null) updatePayload.value = analysis.value;
+
+                    await updateCrmOpportunity(prompUuid, prompToken, updatePayload);
 
                     const targetStage = stages.find(s => s.stageId === evaluation.targetStageId);
                     await prisma.activeOpportunity.update({
@@ -329,7 +374,8 @@ export async function runCRMAutomationJob(prisma) {
                             confidence: evaluation.confidence,
                         },
                     });
-                    console.log(`[CRM Job] Opportunity ${opp.id} advanced → stage ${evaluation.targetStageId}`);
+                    const valueLog = analysis.value !== null ? ` | value=R$${analysis.value}` : '';
+                    console.log(`[CRM Job] Opportunity ${opp.id} advanced → stage ${evaluation.targetStageId}${valueLog}`);
                 } catch (e) {
                     console.error(`[CRM Job] Failed to advance opportunity ${opp.id}:`, e.message);
                 }
@@ -337,16 +383,18 @@ export async function runCRMAutomationJob(prisma) {
             // ── Mark as won or lost ───────────────────────────────────────────────
             } else if (evaluation.action === 'mark_win' || evaluation.action === 'mark_lose') {
                 try {
-                    // Generate final description summarising the full negotiation
-                    const desc = await generateOpportunityDescription(
-                        historyArray, opp.description, openai, model
+                    const analysis = await analyzeOpportunityFromHistory(
+                        historyArray, opp.description, opp.value, openai, model
                     );
 
-                    await updateCrmOpportunity(prompUuid, prompToken, {
+                    const updatePayload = {
                         opportunityId: opp.id,
                         status: evaluation.action === 'mark_win' ? 'win' : 'lose',
-                        description: desc || `[IA] ${evaluation.reasoning}`,
-                    });
+                        description: analysis.description || `[IA] ${evaluation.reasoning}`,
+                    };
+                    if (analysis.value !== null) updatePayload.value = analysis.value;
+
+                    await updateCrmOpportunity(prompUuid, prompToken, updatePayload);
                     await prisma.activeOpportunity.update({
                         where: { id: savedOpp.id },
                         data: { isActive: false },
@@ -361,7 +409,8 @@ export async function runCRMAutomationJob(prisma) {
                             confidence: evaluation.confidence,
                         },
                     });
-                    console.log(`[CRM Job] Opportunity ${opp.id} marked as ${evaluation.action}`);
+                    const valueLog = analysis.value !== null ? ` | value=R$${analysis.value}` : '';
+                    console.log(`[CRM Job] Opportunity ${opp.id} marked as ${evaluation.action}${valueLog}`);
                 } catch (e) {
                     console.error(`[CRM Job] Failed to close opportunity ${opp.id}:`, e.message);
                 }
