@@ -192,13 +192,13 @@ const CRMAutomation = () => {
                 setAutomationId(existing.id);
                 setIsActive(existing.isActive);
                 const savedStages = JSON.parse(existing.stages || '[]');
-                // Merge saved conditions into pipeline stages
-                const merged = (pipeline.stages || []).map((ps, i) => {
+                const sortedApiStages = [...(pipeline.stages || [])].sort((a, b) => a.id - b.id);
+                const merged = sortedApiStages.map((ps, i) => {
                     const saved = savedStages.find(s => s.stageId === ps.id);
                     return {
                         stageId: ps.id,
                         stageName: ps.name,
-                        stageOrder: ps.order ?? i,
+                        stageOrder: i,
                         advanceCondition: saved?.advanceCondition || '',
                         waitingDays: saved?.waitingDays ?? 0,
                     };
@@ -209,10 +209,10 @@ const CRMAutomation = () => {
                 setAutomationId(null);
                 setIsActive(true);
                 setEntryTrigger(null);
-                const fresh = (pipeline.stages || []).map((ps, i) => ({
+                const fresh = [...(pipeline.stages || [])].sort((a, b) => a.id - b.id).map((ps, i) => ({
                     stageId: ps.id,
                     stageName: ps.name,
-                    stageOrder: ps.order ?? i,
+                    stageOrder: i,
                     advanceCondition: '',
                     waitingDays: 0,
                 }));
