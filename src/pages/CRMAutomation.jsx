@@ -17,9 +17,9 @@ const StageModal = ({ stage, onSave, onClose }) => {
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-            <div style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', padding: 24, width: '100%', maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ background: 'var(--bg-white)', borderRadius: 'var(--radius-lg)', padding: 24, width: '100%', maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <h3 style={{ color: 'var(--text-primary)', margin: 0 }}>
+                    <h3 style={{ color: 'var(--text-dark)', margin: 0 }}>
                         <Settings2 size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
                         Configurar: {stage.stageName}
                     </h3>
@@ -39,7 +39,7 @@ const StageModal = ({ stage, onSave, onClose }) => {
                     style={{
                         width: '100%', padding: 10, borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--border-color)', background: 'var(--bg-main)',
-                        color: 'var(--text-primary)', fontSize: 14, resize: 'vertical', boxSizing: 'border-box',
+                        color: 'var(--text-dark)', fontSize: 14, resize: 'vertical', boxSizing: 'border-box',
                     }}
                 />
 
@@ -54,7 +54,7 @@ const StageModal = ({ stage, onSave, onClose }) => {
                     style={{
                         width: 100, padding: 8, borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--border-color)', background: 'var(--bg-main)',
-                        color: 'var(--text-primary)', fontSize: 14,
+                        color: 'var(--text-dark)', fontSize: 14,
                     }}
                 />
 
@@ -64,7 +64,7 @@ const StageModal = ({ stage, onSave, onClose }) => {
                     </button>
                     <button
                         onClick={() => onSave({ ...stage, advanceCondition: condition, waitingDays })}
-                        style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--accent-color)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                        style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--primary-blue)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                     >
                         <Save size={15} /> Salvar Condição
                     </button>
@@ -83,9 +83,9 @@ const EntryTriggerModal = ({ trigger, stages, onSave, onClose }) => {
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-            <div style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', padding: 24, width: '100%', maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ background: 'var(--bg-white)', borderRadius: 'var(--radius-lg)', padding: 24, width: '100%', maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <h3 style={{ color: 'var(--text-primary)', margin: 0 }}>
+                    <h3 style={{ color: 'var(--text-dark)', margin: 0 }}>
                         <Zap size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
                         Gatilho de Entrada no Funil
                     </h3>
@@ -105,7 +105,7 @@ const EntryTriggerModal = ({ trigger, stages, onSave, onClose }) => {
                     style={{
                         width: '100%', padding: 10, borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--border-color)', background: 'var(--bg-main)',
-                        color: 'var(--text-primary)', fontSize: 14, resize: 'vertical', boxSizing: 'border-box',
+                        color: 'var(--text-dark)', fontSize: 14, resize: 'vertical', boxSizing: 'border-box',
                     }}
                 />
 
@@ -115,7 +115,7 @@ const EntryTriggerModal = ({ trigger, stages, onSave, onClose }) => {
                         <select
                             value={defaultStageId}
                             onChange={e => setDefaultStageId(Number(e.target.value))}
-                            style={{ width: '100%', padding: 8, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 14 }}
+                            style={{ width: '100%', padding: 8, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)', fontSize: 14 }}
                         >
                             {stages.map(s => <option key={s.stageId} value={s.stageId}>{s.stageName}</option>)}
                         </select>
@@ -128,7 +128,7 @@ const EntryTriggerModal = ({ trigger, stages, onSave, onClose }) => {
                             value={defaultValue}
                             onChange={e => setDefaultValue(Number(e.target.value))}
                             placeholder="0"
-                            style={{ width: '100%', padding: 8, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                            style={{ width: '100%', padding: 8, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)', fontSize: 14, boxSizing: 'border-box' }}
                         />
                     </div>
                 </div>
@@ -139,7 +139,7 @@ const EntryTriggerModal = ({ trigger, stages, onSave, onClose }) => {
                     </button>
                     <button
                         onClick={() => onSave({ condition, defaultStageId: Number(defaultStageId), defaultValue: defaultValue || undefined })}
-                        style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--accent-color)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                        style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--primary-blue)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                     >
                         <Save size={15} /> Salvar Gatilho
                     </button>
@@ -329,7 +329,7 @@ const CRMAutomation = () => {
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
                 <div>
-                    <h1 style={{ color: 'var(--text-primary)', margin: 0, fontSize: 22, display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h1 style={{ color: 'var(--text-dark)', margin: 0, fontSize: 22, display: 'flex', alignItems: 'center', gap: 10 }}>
                         <KanbanSquare size={24} /> CRM IA
                     </h1>
                     <p style={{ color: 'var(--text-medium)', margin: '4px 0 0', fontSize: 14 }}>
@@ -350,8 +350,8 @@ const CRMAutomation = () => {
                         style={{
                             padding: '10px 20px', border: 'none', cursor: 'pointer',
                             background: 'transparent', display: 'flex', alignItems: 'center', gap: 6,
-                            color: tab === t.key ? 'var(--accent-color)' : 'var(--text-medium)',
-                            borderBottom: tab === t.key ? '2px solid var(--accent-color)' : '2px solid transparent',
+                            color: tab === t.key ? 'var(--primary-blue)' : 'var(--text-medium)',
+                            borderBottom: tab === t.key ? '2px solid var(--primary-blue)' : '2px solid transparent',
                             marginBottom: -2, fontSize: 14, fontWeight: tab === t.key ? 600 : 400,
                         }}
                     >
@@ -364,12 +364,12 @@ const CRMAutomation = () => {
             {tab === 'config' && (
                 <>
                     {/* Pipeline selector */}
-                    <div style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 20, border: '1px solid var(--border-color)' }}>
+                    <div style={{ background: 'var(--bg-white)', borderRadius: 'var(--radius-lg)', padding: 20, marginBottom: 20, border: '1px solid var(--border-color)' }}>
                         <label style={{ display: 'block', marginBottom: 8, color: 'var(--text-medium)', fontSize: 13 }}>Pipeline</label>
                         <select
                             value={selectedPipeline?.id || ''}
                             onChange={handlePipelineChange}
-                            style={{ width: '100%', maxWidth: 380, padding: 10, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-primary)', fontSize: 14 }}
+                            style={{ width: '100%', maxWidth: 380, padding: 10, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)', fontSize: 14 }}
                         >
                             <option value="">Selecionar pipeline...</option>
                             {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -394,7 +394,7 @@ const CRMAutomation = () => {
                     {selectedPipeline && !loading && stages.length > 0 && (
                         <>
                             <div style={{ marginBottom: 12 }}>
-                                <h3 style={{ color: 'var(--text-primary)', margin: '0 0 4px', fontSize: 16 }}>Etapas do Funil</h3>
+                                <h3 style={{ color: 'var(--text-dark)', margin: '0 0 4px', fontSize: 16 }}>Etapas do Funil</h3>
                                 <p style={{ color: 'var(--text-medium)', margin: 0, fontSize: 13 }}>
                                     {configuredCount}/{stages.length} etapas configuradas
                                 </p>
@@ -404,15 +404,15 @@ const CRMAutomation = () => {
                                 {stages.map((stage, i) => (
                                     <div key={stage.stageId} style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                                         <div style={{
-                                            background: 'var(--bg-card)', border: `2px solid ${stage.advanceCondition ? 'var(--accent-color)' : 'var(--border-color)'}`,
+                                            background: 'var(--bg-white)', border: `2px solid ${stage.advanceCondition ? 'var(--primary-blue)' : 'var(--border-color)'}`,
                                             borderRadius: 'var(--radius-lg)', padding: 16, width: 160,
                                         }}>
                                             <div style={{ fontSize: 12, color: 'var(--text-medium)', marginBottom: 4 }}>Etapa {i + 1}</div>
-                                            <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, wordBreak: 'break-word' }}>
+                                            <div style={{ fontWeight: 600, color: 'var(--text-dark)', fontSize: 14, marginBottom: 10, wordBreak: 'break-word' }}>
                                                 {stage.stageName}
                                             </div>
                                             {stage.advanceCondition ? (
-                                                <div style={{ fontSize: 11, color: 'var(--accent-color)', marginBottom: 10, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                                <div style={{ fontSize: 11, color: 'var(--primary-blue)', marginBottom: 10, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                                                     {stage.advanceCondition}
                                                 </div>
                                             ) : (
@@ -432,9 +432,9 @@ const CRMAutomation = () => {
                             </div>
 
                             {/* Entry trigger */}
-                            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: 16, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ background: 'var(--bg-white)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: 16, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
-                                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>
+                                    <div style={{ fontWeight: 600, color: 'var(--text-dark)', fontSize: 14 }}>
                                         <Zap size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
                                         Gatilho de Entrada
                                     </div>
@@ -454,7 +454,7 @@ const CRMAutomation = () => {
                             <button
                                 onClick={handleSave}
                                 disabled={saving}
-                                style={{ padding: '10px 24px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--accent-color)', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, opacity: saving ? 0.7 : 1 }}
+                                style={{ padding: '10px 24px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--primary-blue)', color: '#fff', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, fontWeight: 600, opacity: saving ? 0.7 : 1 }}
                             >
                                 <Save size={16} /> {saving ? 'Salvando...' : 'Salvar Configuração'}
                             </button>
@@ -475,7 +475,7 @@ const CRMAutomation = () => {
             {tab === 'monitor' && (
                 <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                        <h3 style={{ color: 'var(--text-primary)', margin: 0 }}>Oportunidades em Automação</h3>
+                        <h3 style={{ color: 'var(--text-dark)', margin: 0 }}>Oportunidades em Automação</h3>
                         <button
                             onClick={loadMonitor}
                             style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-medium)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}
@@ -509,10 +509,10 @@ const CRMAutomation = () => {
                                         const lastEval = opp.lastEvaluatedAt ? new Date(opp.lastEvaluatedAt).toLocaleString('pt-BR') : '—';
                                         return (
                                             <tr key={opp.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                                                <td style={{ padding: '10px 12px', color: 'var(--text-primary)', fontWeight: 600 }}>{opp.contactName}</td>
+                                                <td style={{ padding: '10px 12px', color: 'var(--text-dark)', fontWeight: 600 }}>{opp.contactName}</td>
                                                 <td style={{ padding: '10px 12px', color: 'var(--text-medium)' }}>{opp.opportunityName}</td>
                                                 <td style={{ padding: '10px 12px' }}>
-                                                    <span style={{ background: 'var(--bg-main)', padding: '3px 8px', borderRadius: 20, fontSize: 12, color: 'var(--accent-color)' }}>
+                                                    <span style={{ background: 'var(--bg-main)', padding: '3px 8px', borderRadius: 20, fontSize: 12, color: 'var(--primary-blue)' }}>
                                                         {opp.currentStageName}
                                                     </span>
                                                 </td>
@@ -522,7 +522,7 @@ const CRMAutomation = () => {
                                                     <button
                                                         onClick={() => handleForceEvaluate(opp.id)}
                                                         title="Forçar avaliação da IA"
-                                                        style={{ padding: '5px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--accent-color)', cursor: 'pointer', fontSize: 12 }}
+                                                        style={{ padding: '5px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--primary-blue)', cursor: 'pointer', fontSize: 12 }}
                                                     >
                                                         Avaliar
                                                     </button>
