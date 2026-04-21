@@ -534,19 +534,42 @@ const AIConfig = () => {
     }
 
     // ─── Edit View ─────────────────────────────────────────────────────────────
-    const tabs = [
-        { id: 'prompt',    label: 'Persona',               icon: Bot },
-        { id: 'channels',  label: 'Canais de Atendimento',  icon: MessageSquare },
-        { id: 'catalog',   label: 'Catálogo',               icon: Package },
-        { id: 'transfer',  label: 'Transferência',          icon: ArrowRight },
-        { id: 'files',     label: 'Arquivos',               icon: FileText },
-        { id: 'links',     label: 'Links',                  icon: Globe },
-        { id: 'qa',        label: 'Q&A',                    icon: HelpCircle },
-        { id: 'ai',        label: 'Inteligência Artificial', icon: Cpu },
-        { id: 'voice',     label: 'Voz e Áudio',            icon: Mic },
-        { id: 'followup',  label: 'Follow-up (IA)',          icon: Clock },
-        { id: 'reactions', label: 'Reações com Emojis',     icon: Smile },
+    const tabGroups = [
+        {
+            id: 'identity',
+            label: 'Identidade & Comportamento',
+            emoji: '🤖',
+            tabs: [
+                { id: 'prompt',  label: 'Persona',               icon: Bot },
+                { id: 'ai',      label: 'Inteligência Artificial', icon: Cpu },
+                { id: 'voice',   label: 'Voz e Áudio',            icon: Mic },
+            ]
+        },
+        {
+            id: 'content',
+            label: 'Conteúdo & Conhecimento',
+            emoji: '📦',
+            tabs: [
+                { id: 'catalog', label: 'Catálogo', icon: Package },
+                { id: 'files',   label: 'Arquivos', icon: FileText },
+                { id: 'links',   label: 'Links',    icon: Globe },
+                { id: 'qa',      label: 'Q&A',      icon: HelpCircle },
+            ]
+        },
+        {
+            id: 'communication',
+            label: 'Comunicação & Canais',
+            emoji: '💬',
+            tabs: [
+                { id: 'channels',  label: 'Canais de Atendimento', icon: MessageSquare },
+                { id: 'transfer',  label: 'Transferência',          icon: ArrowRight },
+                { id: 'followup',  label: 'Follow-up (IA)',          icon: Clock },
+                { id: 'reactions', label: 'Reações com Emojis',     icon: Smile },
+            ]
+        }
     ];
+
+    const activeGroup = tabGroups.find(g => g.tabs.some(t => t.id === activeTab)) ?? tabGroups[0];
 
     return (
         <div style={{ background: 'var(--bg-white)', padding: '32px', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border-color)' }}>
@@ -588,14 +611,39 @@ const AIConfig = () => {
                 </button>
             </div>
 
-            {/* Tab Bar */}
-            <div style={{ borderBottom: '1px solid #E5E7EB', marginBottom: '32px', display: 'flex', gap: '32px', overflowX: 'auto' }}>
-                {tabs.map(tab => (
+            {/* Group Selector */}
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '0', padding: '4px', background: '#F1F5F9', borderRadius: '12px' }}>
+                {tabGroups.map(group => {
+                    const isActive = activeGroup.id === group.id;
+                    return (
+                        <button
+                            key={group.id}
+                            onClick={() => setActiveTab(group.tabs[0].id)}
+                            style={{
+                                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                gap: '8px', padding: '10px 16px', borderRadius: '10px',
+                                fontWeight: 600, fontSize: '13px', cursor: 'pointer', border: 'none',
+                                transition: 'all 0.2s',
+                                background: isActive ? 'white' : 'transparent',
+                                color: isActive ? 'var(--text-dark)' : 'var(--text-medium)',
+                                boxShadow: isActive ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                            }}
+                        >
+                            <span style={{ fontSize: '15px' }}>{group.emoji}</span>
+                            <span>{group.label}</span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Sub-tabs */}
+            <div style={{ borderBottom: '1px solid #E5E7EB', marginBottom: '32px', marginTop: '16px', display: 'flex', gap: '24px' }}>
+                {activeGroup.tabs.map(tab => (
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         style={{
-                            display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 4px',
+                            display: 'flex', alignItems: 'center', gap: '7px', padding: '10px 4px',
                             borderBottom: activeTab === tab.id ? '3px solid var(--primary-blue)' : '3px solid transparent',
                             color: activeTab === tab.id ? 'var(--primary-blue)' : 'var(--text-medium)',
                             fontWeight: 600, background: 'none',
@@ -603,7 +651,7 @@ const AIConfig = () => {
                             cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.2s'
                         }}
                     >
-                        <tab.icon size={18} />
+                        <tab.icon size={17} />
                         {tab.label}
                     </button>
                 ))}
