@@ -312,7 +312,7 @@ const CRMAutomation = () => {
     const configuredCount = stages.filter(s => s.advanceCondition).length;
 
     return (
-        <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
+        <div style={{ padding: 24 }}>
 
             {/* Toast */}
             {toast && (
