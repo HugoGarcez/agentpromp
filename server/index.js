@@ -708,9 +708,23 @@ const handleWebhookRequest = async (req, res) => {
         }
     }
 
+    // Detect media-only messages (file/image sent without caption) so conditional transfer
+    // file collection fields can receive them even when there is no accompanying text.
+    const mediaMessageTypes = ['ImageMessage', 'DocumentMessage', 'VideoMessage'];
+    const hasMediaInPayload = !!(
+        mediaMessageTypes.includes(payload.msg?.messageType) ||
+        mediaMessageTypes.map(t => t.toLowerCase()).includes((payload.type || '').toLowerCase()) ||
+        payload.msg?.content?.mimetype || payload.msg?.content?.mimeType ||
+        payload.content?.mimetype || payload.content?.mimeType
+    );
+
     if (!userMessage) {
-        console.log(`[Webhook] Payload from ${cleanSender} missing text content. Ignoring.`);
-        return res.json({ status: 'ignored_no_text' });
+        if (hasMediaInPayload) {
+            userMessage = '[arquivo]';
+        } else {
+            console.log(`[Webhook] Payload from ${cleanSender} missing text content. Ignoring.`);
+            return res.json({ status: 'ignored_no_text' });
+        }
     }
 
     // Support both N8N structure (ticket.id), Wuzapi (wuzapi.id), and pure Promp structure
@@ -1032,6 +1046,13 @@ const handleWebhookRequest = async (req, res) => {
             }
         } catch (ctErr) {
             console.error('[Webhook] Conditional Transfer Session Error:', ctErr);
+        }
+
+        // If the message was a media-only payload (no caption) and wasn't consumed by an
+        // active ConditionalTransfer session, don't forward the placeholder to the AI.
+        if (userMessage === '[arquivo]') {
+            console.log(`[Webhook] Media-only message from ${cleanNumber} not consumed by transfer session. Ignoring.`);
+            return res.json({ status: 'ignored_media_no_session' });
         }
 
         let transferConfigs = config?.transferConfig;
