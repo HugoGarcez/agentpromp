@@ -79,8 +79,8 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
 
             if (evaluation.matches) {
                 const payload = {
-                    pipelineId: automation.pipelineId,
-                    stageId: trigger.defaultStageId,
+                    pipelineId: Number(automation.pipelineId),
+                    stageId: Number(trigger.defaultStageId),
                     number: String(contactNumber),
                     contactName: String(contactName),
                     name: `Oportunidade - ${contactName}`,
@@ -102,7 +102,10 @@ export async function createCrmOpportunity(prompUuid, prompToken, payload) {
         headers: crmHeaders(prompToken),
         body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`Promp createOpportunity ${res.status}`);
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Promp createOpportunity ${res.status}: ${text}`);
+    }
     return res.json();
 }
 
