@@ -138,7 +138,97 @@ Regras:
                 continue;
             }
 
-            // ── 2b. Sem oportunidade local → avaliar criação ──────────────────
+            // ── 2b. Fallback: busca na API do Promp por oportunidade existente ─
+            //      (cobre oportunidades criadas antes do banco local)
+            let resolvedLocalOpp = null;
+            try {
+                const oppsList = await listCrmOpportunities(prompUuid, prompToken, {
+                    page: 1, limit: 100, status: 'open', pipelineId: automation.pipelineId
+                });
+                const apiOpps = oppsList?.data?.data || oppsList?.data || [];
+                const expectedName = `Oportunidade - ${contactName}`;
+                const found = Array.isArray(apiOpps) ? apiOpps.find(o =>
+                    o.name === expectedName ||
+                    (o.name && o.name.toLowerCase().includes(String(contactName).toLowerCase()))
+                ) : null;
+
+                if (found && found.id) {
+                    console.log(`[CRM Update] Found existing opp #${found.id} via API for ${contactName}. Syncing to local DB...`);
+                    const stageInfo = automation.stages ? JSON.parse(automation.stages) : [];
+                    const stageObj = stageInfo.find(s => s.stageId === (found.stageId || Number(trigger.defaultStageId)));
+                    resolvedLocalOpp = await prisma.activeOpportunity.create({
+                        data: {
+                            companyId: String(companyId),
+                            automationId: automation.id,
+                            opportunityId: Number(found.id),
+                            contactNumber: normalizedNumber,
+                            contactName: String(contactName),
+                            opportunityName: found.name || expectedName,
+                            currentStageId: found.stageId || Number(trigger.defaultStageId),
+                            currentStageName: stageObj?.stageName || String(found.stageId || trigger.defaultStageId),
+                            isActive: true,
+                        },
+                    });
+                    console.log(`[CRM Update] Synced opp #${found.id} to local DB.`);
+                }
+            } catch (apiErr) {
+                console.warn(`[CRM Update] API fallback lookup failed: ${apiErr.message}`);
+            }
+
+            if (resolvedLocalOpp) {
+                // Oportunidade encontrada via API → avaliar atualização
+                console.log(`[CRM Update] Evaluating update for API-found opp #${resolvedLocalOpp.opportunityId}...`);
+                try {
+                    const updatePrompt = `Você é um analista de CRM especializado em vendas.
+Analise o histórico de conversa e extraia informações para atualizar a oportunidade.
+Retorne SOMENTE um objeto JSON:
+{
+  "value": número ou null,
+  "description": "resumo relevante para vendas",
+  "hasUpdate": true ou false
+}
+Regras: "value" só se houver preço/produto identificável. "description" sempre que houver algo relevante. Se nada de novo, retorne { "hasUpdate": false }`;
+
+                    const updateResp = await openai.chat.completions.create({
+                        model: 'gpt-4o-mini',
+                        messages: [
+                            { role: 'system', content: updatePrompt },
+                            { role: 'user', content: `Histórico:\n${conversation}` }
+                        ],
+                        response_format: { type: 'json_object' },
+                        temperature: 0.1
+                    });
+                    const updateEval = JSON.parse(updateResp.choices[0].message.content);
+                    console.log(`[CRM Update] AI eval for #${resolvedLocalOpp.opportunityId}:`, updateEval);
+
+                    if (updateEval.hasUpdate) {
+                        const closingDate = new Date();
+                        closingDate.setMonth(closingDate.getMonth() + 6);
+                        const updatePayload = {
+                            opportunityId: resolvedLocalOpp.opportunityId,
+                            name: resolvedLocalOpp.opportunityName,
+                            pipelineId: Number(automation.pipelineId),
+                            stageId: resolvedLocalOpp.currentStageId,
+                            status: 'open',
+                            closingForecast: closingDate.toISOString().split('T')[0],
+                        };
+                        if (updateEval.value !== null && updateEval.value !== undefined && Number(updateEval.value) > 0) {
+                            updatePayload.value = Number(updateEval.value);
+                        }
+                        if (updateEval.description) {
+                            updatePayload.description = String(updateEval.description);
+                        }
+                        console.log(`[CRM Update] Updating #${resolvedLocalOpp.opportunityId}:`, JSON.stringify(updatePayload));
+                        await updateCrmOpportunity(prompUuid, prompToken, updatePayload);
+                        console.log(`[CRM Update] Opp #${resolvedLocalOpp.opportunityId} updated.`);
+                    }
+                } catch (ue) {
+                    console.error(`[CRM Update] Failed to update #${resolvedLocalOpp.opportunityId}:`, ue.message);
+                }
+                continue;
+            }
+
+            // ── 2c. Sem oportunidade local nem na API → avaliar criação ────────
             const systemPrompt = `Você é um avaliador de funil de vendas.\nO usuário quer saber se o histórico de conversa atende à seguinte condição para entrar no funil:\n"${trigger.condition}"\nResponda APENAS com um objeto JSON válido no formato:\n{ "matches": true ou false, "reasoning": "sua justificativa" }`;
             const messages = [
                 { role: "system", content: systemPrompt },
