@@ -50,16 +50,78 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
             const trigger = JSON.parse(automation.entryTrigger);
             if (!trigger || !trigger.condition || !trigger.defaultStageId) continue;
 
+            // Normaliza número: Promp armazena/retorna com código do país (55...)
+            let normalizedNumber = String(contactNumber).replace(/\D/g, '');
+            if (!normalizedNumber.startsWith('55')) {
+                normalizedNumber = '55' + normalizedNumber;
+            }
+
             const oppsList = await listCrmOpportunities(prompUuid, prompToken, {
                 page: 1, limit: 100, status: 'open', pipelineId: automation.pipelineId
             });
             const opportunities = oppsList?.data?.data || [];
-            const exists = opportunities.some(o => 
-                (o.contactName && o.contactName.toLowerCase() === contactName?.toLowerCase()) || 
-                (o.ticketId && String(o.ticketId) === String(ticketId)) ||
-                (o.contactNumber && String(o.contactNumber) === String(contactNumber))
-            );
-            if (exists) continue;
+            const existingOpp = opportunities.find(o => {
+                const oNum = o.contactNumber ? String(o.contactNumber).replace(/\D/g, '') : '';
+                return oNum === normalizedNumber ||
+                    (o.ticketId && String(o.ticketId) === String(ticketId));
+            });
+
+            if (existingOpp) {
+                // ── Oportunidade já existe: avaliar atualizações ──────────────
+                console.log(`[CRM Update] Opportunity #${existingOpp.id} found for ${normalizedNumber}. Evaluating updates...`);
+                try {
+                    const conversation = history.map(h =>
+                        `${h.role === 'user' ? 'Cliente' : 'Atendente/IA'}: ${h.content}`
+                    ).join('\n');
+
+                    const updatePrompt = `Você é um analista de CRM especializado em vendas.
+Analise o histórico de conversa abaixo e extraia informações relevantes para atualizar uma oportunidade de venda.
+
+Retorne SOMENTE um objeto JSON com os campos que devem ser ATUALIZADOS (omita campos sem informação nova):
+{
+  "value": número (valor total dos produtos/serviços mencionados, apenas se o cliente demonstrou interesse claro com valor identificável),
+  "description": "texto resumindo o interesse e contexto da conversa (sempre retorne este campo se houver qualquer informação relevante)",
+  "hasUpdate": true ou false (true se há qualquer campo a atualizar)
+}
+
+Regras:
+- "value": só preencha se o cliente mencionou preços, produtos específicos com valor ou demonstrou interesse em comprar algo com valor estimável. Use 0 se não houver valor claro.
+- "description": sempre resuma o que foi discutido de relevante para vendas.
+- Se não há nada de novo relevante, retorne { "hasUpdate": false }`;
+
+                    const updateResp = await openai.chat.completions.create({
+                        model: 'gpt-4o-mini',
+                        messages: [
+                            { role: 'system', content: updatePrompt },
+                            { role: 'user', content: `Histórico:\n${conversation}` }
+                        ],
+                        response_format: { type: 'json_object' },
+                        temperature: 0.1
+                    });
+
+                    const updateEval = JSON.parse(updateResp.choices[0].message.content);
+                    console.log(`[CRM Update] AI evaluation for #${existingOpp.id}:`, updateEval);
+
+                    if (updateEval.hasUpdate) {
+                        const updatePayload = { id: existingOpp.id };
+                        if (updateEval.value !== undefined && updateEval.value > 0) {
+                            updatePayload.value = Number(updateEval.value);
+                        }
+                        if (updateEval.description) {
+                            updatePayload.description = String(updateEval.description);
+                        }
+                        console.log(`[CRM Update] Updating opportunity #${existingOpp.id}:`, JSON.stringify(updatePayload));
+                        await updateCrmOpportunity(prompUuid, prompToken, updatePayload);
+                        console.log(`[CRM Update] Opportunity #${existingOpp.id} updated successfully.`);
+                    } else {
+                        console.log(`[CRM Update] No relevant updates for opportunity #${existingOpp.id}. Skipping.`);
+                    }
+                } catch (ue) {
+                    console.error(`[CRM Update] Failed to update opportunity #${existingOpp.id}:`, ue.message);
+                }
+                continue;
+            }
+
 
             const systemPrompt = `Você é um avaliador de funil de vendas.\nO usuário quer saber se o histórico de conversa atende à seguinte condição para entrar no funil:\n"${trigger.condition}"\nResponda APENAS com um objeto JSON válido no formato:\n{ "matches": true ou false, "reasoning": "sua justificativa" }`;
             const conversation = history.map(h => `${h.role === 'user' ? 'Cliente' : 'Atendente/IA'}: ${h.content}`).join('\n');
@@ -78,12 +140,6 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
             console.log(`[CRM Entry] Evaluation for ${contactName}:`, evaluation);
 
             if (evaluation.matches) {
-                // Promp API espera número com código do país: 55 + DDD + número
-                let normalizedNumber = String(contactNumber).replace(/\D/g, '');
-                if (!normalizedNumber.startsWith('55')) {
-                    normalizedNumber = '55' + normalizedNumber;
-                }
-
                 // Resolve responsibleId: específico ou aleatório via listUsers
                 let responsibleId = trigger.responsibleId && trigger.responsibleId !== 'random'
                     ? Number(trigger.responsibleId)
