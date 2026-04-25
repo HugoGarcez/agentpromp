@@ -81,9 +81,11 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
                 const payload = {
                     pipelineId: automation.pipelineId,
                     stageId: trigger.defaultStageId,
-                    ticketId: Number(ticketId),
+                    number: String(contactNumber),
+                    contactName: String(contactName),
                     name: `Oportunidade - ${contactName}`,
-                    value: trigger.defaultValue ? Number(trigger.defaultValue) : 0
+                    value: trigger.defaultValue ? Number(trigger.defaultValue) : 0,
+                    status: "open"
                 };
                 await createCrmOpportunity(prompUuid, prompToken, payload);
                 console.log(`[CRM Entry] Created opportunity for ${contactName}`);
