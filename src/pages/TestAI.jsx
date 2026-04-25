@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, User, Bot, Sparkles, Save, Trash2, ChevronDown } from 'lucide-react';
+import { Send, User, Bot, Sparkles, Save, Trash2, ChevronDown, Smartphone } from 'lucide-react';
 import PromptTab from '../components/AIConfig/PromptTab';
 
 const TestAI = () => {
@@ -14,6 +14,10 @@ const TestAI = () => {
 
     const [agents, setAgents] = useState([]);
     const [selectedAgentId, setSelectedAgentId] = useState('');
+
+    const [activeTab, setActiveTab] = useState('chat');
+    const [channels, setChannels] = useState([]);
+    const [channelTestStates, setChannelTestStates] = useState({});
 
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
@@ -105,9 +109,64 @@ const TestAI = () => {
         }
     };
 
+    const fetchChannels = async () => {
+        const token = localStorage.getItem('token');
+        try {
+            const res = await fetch('/api/channels', { headers: { 'Authorization': `Bearer ${token}` } });
+            if (res.ok) {
+                const data = await res.json();
+                setChannels(data);
+                const stateMap = {};
+                data.forEach(ch => {
+                    stateMap[ch.id] = {
+                        enabled: ch.whatsappTestMode || false,
+                        phoneNumber: ch.whatsappTestNumber || '',
+                        saving: false
+                    };
+                });
+                setChannelTestStates(stateMap);
+            }
+        } catch (e) {
+            console.error('Error fetching channels:', e);
+        }
+    };
+
+    const handleTestModeToggle = async (channelId, enabled) => {
+        const current = channelTestStates[channelId] || {};
+        setChannelTestStates(prev => ({ ...prev, [channelId]: { ...prev[channelId], enabled, saving: true } }));
+        const token = localStorage.getItem('token');
+        try {
+            await fetch(`/api/channels/${channelId}/whatsapp-test`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ enabled, phoneNumber: current.phoneNumber || '' })
+            });
+        } catch (e) {
+            console.error(e);
+        }
+        setChannelTestStates(prev => ({ ...prev, [channelId]: { ...prev[channelId], saving: false } }));
+    };
+
+    const handleTestNumberSave = async (channelId) => {
+        const current = channelTestStates[channelId] || {};
+        setChannelTestStates(prev => ({ ...prev, [channelId]: { ...prev[channelId], saving: true } }));
+        const token = localStorage.getItem('token');
+        try {
+            await fetch(`/api/channels/${channelId}/whatsapp-test`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ enabled: current.enabled, phoneNumber: current.phoneNumber || '' })
+            });
+        } catch (e) {
+            console.error(e);
+        }
+        setChannelTestStates(prev => ({ ...prev, [channelId]: { ...prev[channelId], saving: false } }));
+    };
+
     // Initial Load
     React.useEffect(() => {
         fetchAgents();
+        fetchChannels();
     }, []);
 
     const handleClearHistory = async () => {
@@ -257,6 +316,34 @@ const TestAI = () => {
                 flexDirection: 'column',
                 overflow: 'hidden'
             }}>
+                {/* Tab bar */}
+                <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', background: '#F9FAFB' }}>
+                    {[
+                        { id: 'chat', label: 'Chat', icon: <Bot size={15} /> },
+                        { id: 'whatsapp', label: 'WhatsApp', icon: <Smartphone size={15} /> }
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '12px 20px',
+                                border: 'none',
+                                borderBottom: activeTab === tab.id ? '2px solid var(--primary-blue)' : '2px solid transparent',
+                                background: 'none',
+                                color: activeTab === tab.id ? 'var(--primary-blue)' : 'var(--text-medium)',
+                                fontWeight: activeTab === tab.id ? 600 : 400,
+                                fontSize: '14px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {tab.icon}
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+
+                {activeTab === 'chat' && (
                 <div style={{
                     padding: '16px 24px',
                     borderBottom: '1px solid var(--border-color)',
@@ -268,7 +355,7 @@ const TestAI = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <Bot size={20} color="var(--primary-blue)" />
-                            <select 
+                            <select
                                 value={selectedAgentId}
                                 onChange={handleAgentChange}
                                 style={{
@@ -288,7 +375,7 @@ const TestAI = () => {
                                 ))}
                             </select>
                         </div>
-                        <button 
+                        <button
                             onClick={handleClearHistory}
                             title="Limpar Chat"
                             style={{
@@ -334,8 +421,112 @@ const TestAI = () => {
                         </button>
                     </div>
                 </div>
+                )}
 
-                <div 
+                {activeTab === 'whatsapp' && (
+                    <div style={{ flex: 1, overflowY: 'auto', padding: '24px', background: 'var(--bg-main)' }}>
+                        <div style={{ marginBottom: '16px' }}>
+                            <h3 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-dark)', marginBottom: '4px' }}>Testar via WhatsApp</h3>
+                            <p style={{ fontSize: '13px', color: 'var(--text-medium)' }}>
+                                Ative o modo de teste em um canal para que a IA responda apenas ao número informado.
+                            </p>
+                        </div>
+                        {channels.length === 0 ? (
+                            <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-medium)', fontSize: '14px' }}>
+                                Nenhum canal integrado via Promp encontrado.
+                            </div>
+                        ) : channels.map(ch => {
+                            const state = channelTestStates[ch.id] || { enabled: false, phoneNumber: '', saving: false };
+                            return (
+                                <div key={ch.id} style={{
+                                    background: 'var(--bg-white)',
+                                    border: `1px solid ${state.enabled ? 'var(--primary-blue)' : 'var(--border-color)'}`,
+                                    borderRadius: 'var(--radius-md)',
+                                    padding: '16px',
+                                    marginBottom: '12px'
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: state.enabled ? '12px' : 0 }}>
+                                        <div>
+                                            <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-dark)', margin: 0 }}>{ch.name}</p>
+                                            <p style={{ fontSize: '12px', color: 'var(--text-medium)', margin: '2px 0 0' }}>{ch.prompIdentity}</p>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{ fontSize: '12px', color: state.enabled ? 'var(--primary-blue)' : 'var(--text-medium)', fontWeight: 500 }}>
+                                                {state.enabled ? 'Ativo' : 'Inativo'}
+                                            </span>
+                                            <button
+                                                onClick={() => handleTestModeToggle(ch.id, !state.enabled)}
+                                                disabled={state.saving}
+                                                style={{
+                                                    width: '36px', height: '20px',
+                                                    background: state.enabled ? 'var(--primary-blue)' : '#D1D5DB',
+                                                    borderRadius: '10px',
+                                                    position: 'relative',
+                                                    cursor: state.saving ? 'wait' : 'pointer',
+                                                    border: 'none',
+                                                    transition: 'all 0.2s'
+                                                }}
+                                            >
+                                                <div style={{
+                                                    width: '14px', height: '14px',
+                                                    background: 'white',
+                                                    borderRadius: '50%',
+                                                    position: 'absolute',
+                                                    top: '3px',
+                                                    left: state.enabled ? '19px' : '3px',
+                                                    transition: 'left 0.2s',
+                                                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                                                }} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {state.enabled && (
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                            <input
+                                                type="text"
+                                                placeholder="Ex: 5511999999999"
+                                                value={state.phoneNumber}
+                                                onChange={e => setChannelTestStates(prev => ({
+                                                    ...prev,
+                                                    [ch.id]: { ...prev[ch.id], phoneNumber: e.target.value }
+                                                }))}
+                                                style={{
+                                                    flex: 1,
+                                                    padding: '8px 12px',
+                                                    border: '1px solid var(--border-color)',
+                                                    borderRadius: '8px',
+                                                    fontSize: '13px',
+                                                    outline: 'none',
+                                                    background: 'var(--bg-main)',
+                                                    color: 'var(--text-dark)'
+                                                }}
+                                            />
+                                            <button
+                                                onClick={() => handleTestNumberSave(ch.id)}
+                                                disabled={state.saving}
+                                                style={{
+                                                    padding: '8px 16px',
+                                                    background: 'var(--primary-blue)',
+                                                    color: 'white',
+                                                    border: 'none',
+                                                    borderRadius: '8px',
+                                                    fontSize: '13px',
+                                                    fontWeight: 500,
+                                                    cursor: state.saving ? 'wait' : 'pointer',
+                                                    opacity: state.saving ? 0.6 : 1
+                                                }}
+                                            >
+                                                {state.saving ? 'Salvando...' : 'Salvar'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {activeTab === 'chat' && <div
                     ref={chatContainerRef}
                     style={{ flex: 1, padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px', background: 'var(--bg-main)' }}
                 >
@@ -407,9 +598,9 @@ const TestAI = () => {
                             </div>
                         </div>
                     ))}
-                </div>
+                </div>}
 
-                <form onSubmit={handleSendMessage} style={{ padding: '16px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-white)', display: 'flex', gap: '12px' }}>
+                {activeTab === 'chat' && <form onSubmit={handleSendMessage} style={{ padding: '16px', borderTop: '1px solid var(--border-color)', background: 'var(--bg-white)', display: 'flex', gap: '12px' }}>
                     <input
                         type="text"
                         placeholder="Digite sua mensagem..."
@@ -442,7 +633,7 @@ const TestAI = () => {
                     >
                         <Send size={20} />
                     </button>
-                </form>
+                </form>}
             </div>
 
             {/* Advanced Panel */}

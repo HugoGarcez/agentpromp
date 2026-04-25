@@ -19,7 +19,9 @@
       "Bash(git log *)",
       "Bash(npx prisma *)",
       "Bash(node --input-type=module --check)",
-      "Bash(node --check index.js)"
+      "Bash(node --check index.js)",
+      "Bash(node -e \"const fs = require\\('fs'\\); const src = fs.readFileSync\\('/Users/hugogarcez/Documents/promp/agente-promp/src/pages/TestAI.jsx', 'utf8'\\); console.log\\('Lines:', src.split\\('\\\\n'\\).length\\); const opens = \\(src.match\\(/<div/g\\)||[]\\).length; const closes = \\(src.match\\(/<\\\\/div>/g\\)||[]\\).length; console.log\\('div opens:', opens, 'closes:', closes\\);\")",
+      "Bash(npx vite *)"
     ]
   }
 }

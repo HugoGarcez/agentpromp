@@ -127,11 +127,13 @@ model PrompChannel {
   prompIdentity     String
   prompConnectionId String
   prompUuid         String
-  prompToken        String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  company           Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  agents            AgentConfig[] @relation("AgentConfigToPrompChannel")
+  prompToken         String?
+  whatsappTestMode   Boolean  @default(false)
+  whatsappTestNumber String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  company            Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  agents             AgentConfig[] @relation("AgentConfigToPrompChannel")
 
   @@unique([companyId, prompUuid])
 }

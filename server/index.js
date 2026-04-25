@@ -235,6 +235,15 @@ const handleWebhookRequest = async (req, res) => {
 
         matchedChannel = matchedByDest || matchedByOwner;
 
+        // WhatsApp Test Mode: only respond to the configured test number
+        if (matchedChannel?.whatsappTestMode) {
+            const testNum = matchedChannel.whatsappTestNumber?.replace(/\D/g, '');
+            if (testNum && cleanSender !== testNum) {
+                console.log(`[Webhook] Test mode active on ${matchedChannel.name}. Ignoring sender ${cleanSender} (allowed: ${testNum})`);
+                return res.json({ status: 'ignored_test_mode_active' });
+            }
+        }
+
         // 4. BYPASS NATIVO (Se o canal for o DESTINATÁRIO)
         let isCrossChannelSend = false;
         let targetChannel = null;
@@ -6581,6 +6590,28 @@ app.delete('/api/channels/:id', authenticateToken, async (req, res) => {
             where: { id: req.params.id }
         });
         res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.put('/api/channels/:id/whatsapp-test', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { enabled, phoneNumber } = req.body;
+        const channel = await prisma.prompChannel.findFirst({
+            where: { id, companyId: req.user.companyId }
+        });
+        if (!channel) return res.status(404).json({ error: 'Canal não encontrado' });
+        const updated = await prisma.prompChannel.update({
+            where: { id },
+            data: {
+                whatsappTestMode: !!enabled,
+                whatsappTestNumber: phoneNumber ? String(phoneNumber).replace(/\D/g, '') : null
+            }
+        });
+        lastChannelsCacheTime = 0;
+        res.json(updated);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
