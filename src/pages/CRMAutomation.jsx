@@ -80,10 +80,29 @@ const EntryTriggerModal = ({ trigger, stages, onSave, onClose }) => {
     const [condition, setCondition] = useState(trigger?.condition || '');
     const [defaultStageId, setDefaultStageId] = useState(trigger?.defaultStageId || stages[0]?.stageId || '');
     const [defaultValue, setDefaultValue] = useState(trigger?.defaultValue || '');
+    const [responsibleId, setResponsibleId] = useState(trigger?.responsibleId || 'random');
+    const [users, setUsers] = useState([]);
+    const [loadingUsers, setLoadingUsers] = useState(true);
+
+    useEffect(() => {
+        API('/api/crm-automation/users?pageNumber=1')
+            .then(data => {
+                const list = data?.data?.data || data?.data || [];
+                setUsers(Array.isArray(list) ? list : []);
+            })
+            .catch(() => setUsers([]))
+            .finally(() => setLoadingUsers(false));
+    }, []);
+
+    const selectStyle = {
+        width: '100%', padding: 8, borderRadius: 'var(--radius-md)',
+        border: '1px solid var(--border-color)', background: 'var(--bg-main)',
+        color: 'var(--text-dark)', fontSize: 14,
+    };
 
     return (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-            <div style={{ background: 'var(--bg-white)', borderRadius: 'var(--radius-lg)', padding: 24, width: '100%', maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ background: 'var(--bg-white)', borderRadius: 'var(--radius-lg)', padding: 24, width: '100%', maxWidth: 540, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <h3 style={{ color: 'var(--text-dark)', margin: 0 }}>
                         <Zap size={18} style={{ marginRight: 8, verticalAlign: 'middle' }} />
@@ -112,25 +131,38 @@ const EntryTriggerModal = ({ trigger, stages, onSave, onClose }) => {
                 <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
                     <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', marginBottom: 6, color: 'var(--text-medium)', fontSize: 13 }}>Etapa inicial</label>
-                        <select
-                            value={defaultStageId}
-                            onChange={e => setDefaultStageId(Number(e.target.value))}
-                            style={{ width: '100%', padding: 8, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)', fontSize: 14 }}
-                        >
+                        <select value={defaultStageId} onChange={e => setDefaultStageId(Number(e.target.value))} style={selectStyle}>
                             {stages.map(s => <option key={s.stageId} value={s.stageId}>{s.stageName}</option>)}
                         </select>
                     </div>
                     <div style={{ flex: 1 }}>
                         <label style={{ display: 'block', marginBottom: 6, color: 'var(--text-medium)', fontSize: 13 }}>Valor padrão (R$)</label>
                         <input
-                            type="number"
-                            min={0}
-                            value={defaultValue}
+                            type="number" min={0} value={defaultValue}
                             onChange={e => setDefaultValue(Number(e.target.value))}
                             placeholder="0"
-                            style={{ width: '100%', padding: 8, borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)', background: 'var(--bg-main)', color: 'var(--text-dark)', fontSize: 14, boxSizing: 'border-box' }}
+                            style={{ ...selectStyle, boxSizing: 'border-box' }}
                         />
                     </div>
+                </div>
+
+                <div style={{ marginTop: 16 }}>
+                    <label style={{ display: 'block', marginBottom: 6, color: 'var(--text-medium)', fontSize: 13 }}>
+                        Responsável pela oportunidade
+                    </label>
+                    <select value={responsibleId} onChange={e => setResponsibleId(e.target.value)} style={selectStyle} disabled={loadingUsers}>
+                        <option value="random">🎲 Aleatório (distribuição automática)</option>
+                        {users.map(u => (
+                            <option key={u.id} value={String(u.id)}>
+                                {u.name || u.email || `Usuário #${u.id}`}
+                            </option>
+                        ))}
+                    </select>
+                    {loadingUsers && (
+                        <span style={{ fontSize: 12, color: 'var(--text-medium)', marginTop: 4, display: 'block' }}>
+                            Carregando atendentes...
+                        </span>
+                    )}
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24 }}>
@@ -138,7 +170,12 @@ const EntryTriggerModal = ({ trigger, stages, onSave, onClose }) => {
                         Cancelar
                     </button>
                     <button
-                        onClick={() => onSave({ condition, defaultStageId: Number(defaultStageId), defaultValue: defaultValue || undefined })}
+                        onClick={() => onSave({
+                            condition,
+                            defaultStageId: Number(defaultStageId),
+                            defaultValue: defaultValue || undefined,
+                            responsibleId: responsibleId || 'random',
+                        })}
                         style={{ padding: '8px 18px', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--primary-blue)', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                     >
                         <Save size={15} /> Salvar Gatilho
@@ -148,6 +185,7 @@ const EntryTriggerModal = ({ trigger, stages, onSave, onClose }) => {
         </div>
     );
 };
+
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 

@@ -26,7 +26,7 @@ const logFlow = (msg) => {
     } catch (e) { /* ignore */ }
 };
 import { initScheduler } from './scheduler.js';
-import { appendConversationHistory, runCRMAutomationJob, listCrmPipelines, listCrmOpportunities, updateCrmOpportunity, deleteCrmOpportunity, createCrmOpportunity, evaluateOpportunityCreation } from './crmAutomation.js';
+import { appendConversationHistory, runCRMAutomationJob, listCrmPipelines, listCrmOpportunities, updateCrmOpportunity, deleteCrmOpportunity, createCrmOpportunity, evaluateOpportunityCreation, listCrmUsers } from './crmAutomation.js';
 import { extractFromUrl } from './extractor.js';
 import {
     generateAuthUrl,
@@ -6652,7 +6652,26 @@ app.get('/api/crm-automation/pipelines', authenticateToken, async (req, res) => 
     }
 });
 
-// GET /api/crm-automation/opportunities — lista oportunidades abertas
+// GET /api/crm-automation/users — lista atendentes do tenant no Promp
+app.get('/api/crm-automation/users', authenticateToken, async (req, res) => {
+    try {
+        const company = await prisma.company.findUnique({
+            where: { id: req.user.companyId },
+            select: { prompUuid: true, prompToken: true },
+        });
+        if (!company?.prompUuid || !company?.prompToken) {
+            return res.status(400).json({ success: false, message: 'Credenciais Promp não configuradas.' });
+        }
+        const { pageNumber = '1', searchParam = '' } = req.query;
+        const data = await listCrmUsers(company.prompUuid, company.prompToken, Number(pageNumber), searchParam);
+        res.json(data);
+    } catch (e) {
+        console.error('[CRM] listUsers error:', e.message);
+        res.status(502).json({ success: false, message: 'Erro ao buscar usuários.' });
+    }
+});
+
+
 app.get('/api/crm-automation/opportunities', authenticateToken, async (req, res) => {
     try {
         const company = await prisma.company.findUnique({

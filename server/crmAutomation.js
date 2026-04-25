@@ -84,7 +84,33 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
                     normalizedNumber = '55' + normalizedNumber;
                 }
 
-                // Busca ticketId real do contato se não veio no webhook
+                // Resolve responsibleId: específico ou aleatório via listUsers
+                let responsibleId = trigger.responsibleId && trigger.responsibleId !== 'random'
+                    ? Number(trigger.responsibleId)
+                    : null;
+
+                if (!responsibleId) {
+                    try {
+                        const cleanToken = prompToken?.trim().replace(/^Bearer\s+/i, '');
+                        const uRes = await fetch(`${PROMP_BASE_URL}/v2/api/external/${prompUuid}/listUsers?pageNumber=1`, {
+                            headers: { 'Authorization': `Bearer ${cleanToken}`, 'Content-Type': 'application/json' }
+                        });
+                        if (uRes.ok) {
+                            const uData = await uRes.json();
+                            const users = uData?.data?.data || uData?.data || [];
+                            const active = Array.isArray(users) ? users.filter(u => u.id) : [];
+                            if (active.length > 0) {
+                                const picked = active[Math.floor(Math.random() * active.length)];
+                                responsibleId = Number(picked.id);
+                                console.log(`[CRM Entry] Randomly assigned responsibleId=${responsibleId} (${picked.name || picked.email})`);
+                            }
+                        }
+                    } catch (ue) {
+                        console.warn(`[CRM Entry] Could not fetch users: ${ue.message}`);
+                    }
+                }
+
+                // Busca ticketId real do contato na Promp se não veio no webhook
                 let resolvedTicketId = ticketId ? Number(ticketId) : undefined;
                 if (!resolvedTicketId) {
                     try {
@@ -105,15 +131,24 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
                     }
                 }
 
+                // Data de fechamento: 6 meses à frente por padrão
+                const closingDate = new Date();
+                closingDate.setMonth(closingDate.getMonth() + 6);
+                const closingForecast = closingDate.toISOString().split('T')[0];
+
                 const payload = {
-                    pipelineId: Number(automation.pipelineId),
-                    stageId: Number(trigger.defaultStageId),
                     number: normalizedNumber,
                     contactName: String(contactName),
+                    email: `lead_${normalizedNumber}@promp.auto`,
                     name: `Oportunidade - ${contactName}`,
                     value: trigger.defaultValue ? Number(trigger.defaultValue) : 0,
-                    status: "open"
+                    status: 'open',
+                    pipelineId: Number(automation.pipelineId),
+                    stageId: Number(trigger.defaultStageId),
+                    closingForecast,
+                    description: `Oportunidade criada automaticamente pela IA`,
                 };
+                if (responsibleId) payload.responsibleId = responsibleId;
                 if (resolvedTicketId) payload.ticketId = resolvedTicketId;
 
                 console.log(`[CRM Entry] Sending payload to Promp:`, JSON.stringify(payload));
@@ -124,6 +159,16 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
             console.error(`[CRM Entry] Failed for pipeline ${automation.pipelineId}:`, e.message);
         }
     }
+}
+
+export async function listCrmUsers(prompUuid, prompToken, pageNumber = 1, searchParam = '') {
+    const q = new URLSearchParams({ pageNumber: String(pageNumber) });
+    if (searchParam) q.append('searchParam', searchParam);
+    const res = await fetch(`${crmBase(prompUuid)}/listUsers?${q}`, {
+        headers: crmHeaders(prompToken),
+    });
+    if (!res.ok) throw new Error(`Promp listUsers ${res.status}`);
+    return res.json();
 }
 
 export async function createCrmOpportunity(prompUuid, prompToken, payload) {
