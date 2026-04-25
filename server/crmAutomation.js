@@ -78,11 +78,33 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
             console.log(`[CRM Entry] Evaluation for ${contactName}:`, evaluation);
 
             if (evaluation.matches) {
-                // Normaliza número: remove 55 do inicio apenas se tiver 13 dígitos (55 + DDD + 9 dígitos)
+                // Promp API espera número com código do país: 55 + DDD + número
                 let normalizedNumber = String(contactNumber).replace(/\D/g, '');
-                if (normalizedNumber.startsWith('55') && normalizedNumber.length >= 12) {
-                    normalizedNumber = normalizedNumber.slice(2);
+                if (!normalizedNumber.startsWith('55')) {
+                    normalizedNumber = '55' + normalizedNumber;
                 }
+
+                // Busca ticketId real do contato se não veio no webhook
+                let resolvedTicketId = ticketId ? Number(ticketId) : undefined;
+                if (!resolvedTicketId) {
+                    try {
+                        const cleanToken = prompToken?.trim().replace(/^Bearer\s+/i, '');
+                        const tq = new URLSearchParams({ number: normalizedNumber, page: '1', limit: '5', status: 'open' });
+                        const ticketRes = await fetch(`${PROMP_BASE_URL}/v2/api/external/${prompUuid}/listTickets?${tq}`, {
+                            headers: { 'Authorization': `Bearer ${cleanToken}`, 'Content-Type': 'application/json' }
+                        });
+                        if (ticketRes.ok) {
+                            const ticketData = await ticketRes.json();
+                            const tickets = ticketData?.data?.data || ticketData?.data || [];
+                            const firstTicket = Array.isArray(tickets) ? tickets[0] : null;
+                            if (firstTicket?.id) resolvedTicketId = Number(firstTicket.id);
+                            console.log(`[CRM Entry] Resolved ticketId=${resolvedTicketId} for ${normalizedNumber}`);
+                        }
+                    } catch (te) {
+                        console.warn(`[CRM Entry] Could not fetch ticketId: ${te.message}`);
+                    }
+                }
+
                 const payload = {
                     pipelineId: Number(automation.pipelineId),
                     stageId: Number(trigger.defaultStageId),
@@ -92,6 +114,8 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
                     value: trigger.defaultValue ? Number(trigger.defaultValue) : 0,
                     status: "open"
                 };
+                if (resolvedTicketId) payload.ticketId = resolvedTicketId;
+
                 console.log(`[CRM Entry] Sending payload to Promp:`, JSON.stringify(payload));
                 await createCrmOpportunity(prompUuid, prompToken, payload);
                 console.log(`[CRM Entry] Created opportunity for ${contactName}`);

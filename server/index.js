@@ -1236,12 +1236,15 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
         }
 
         // Evaluate CRM Opportunity Creation (Non-blocking)
+        const crmContactName = payload.contact?.name || payload.ticket?.contact?.name ||
+            payload.msg?.pushName || payload.data?.pushName || payload.pushName ||
+            payload.sender?.name || cleanNumber || 'Contato';
         evaluateOpportunityCreation(
             prisma,
             config.prompUuid,
             config.prompToken,
             currentTicketId,
-            payload.contact?.name || 'Cliente',
+            crmContactName,
             cleanNumber,
             [...history, { role: 'user', content: userMessage }, { role: 'assistant', content: aiResponse }],
             companyId
