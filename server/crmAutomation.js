@@ -34,6 +34,65 @@ export async function listCrmOpportunities(prompUuid, prompToken, { page = 1, li
     return res.json();
 }
 
+export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken, ticketId, contactName, contactNumber, history, companyId) {
+    const automations = await prisma.pipelineAutomation.findMany({
+        where: { companyId: String(companyId), isActive: true, entryTrigger: { not: null } },
+    });
+    if (!automations.length) return;
+
+    const globalConfig = await prisma.globalConfig.findFirst();
+    const openaiKey = globalConfig?.openaiKey || process.env.OPENAI_API_KEY;
+    if (!openaiKey) return;
+    const openai = new OpenAI({ apiKey: openaiKey });
+
+    for (const automation of automations) {
+        try {
+            const trigger = JSON.parse(automation.entryTrigger);
+            if (!trigger || !trigger.condition || !trigger.defaultStageId) continue;
+
+            const oppsList = await listCrmOpportunities(prompUuid, prompToken, {
+                page: 1, limit: 100, status: 'open', pipelineId: automation.pipelineId
+            });
+            const exists = oppsList?.data?.some(o => 
+                (o.contactName && o.contactName.toLowerCase() === contactName?.toLowerCase()) || 
+                (o.ticketId && String(o.ticketId) === String(ticketId)) ||
+                (o.contactNumber && String(o.contactNumber) === String(contactNumber))
+            );
+            if (exists) continue;
+
+            const systemPrompt = `Você é um avaliador de funil de vendas.\nO usuário quer saber se o histórico de conversa atende à seguinte condição para entrar no funil:\n"${trigger.condition}"\nResponda APENAS com um objeto JSON válido no formato:\n{ "matches": true ou false, "reasoning": "sua justificativa" }`;
+            const conversation = history.map(h => `${h.role === 'user' ? 'Cliente' : 'Atendente/IA'}: ${h.content}`).join('\n');
+            const messages = [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: `Histórico:\n${conversation}` }
+            ];
+            
+            const response = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                messages,
+                response_format: { type: 'json_object' },
+                temperature: 0.1
+            });
+            const evaluation = JSON.parse(response.choices[0].message.content);
+            console.log(`[CRM Entry] Evaluation for ${contactName}:`, evaluation);
+
+            if (evaluation.matches) {
+                const payload = {
+                    pipelineId: automation.pipelineId,
+                    stageId: trigger.defaultStageId,
+                    ticketId: Number(ticketId),
+                    name: `Oportunidade - ${contactName}`,
+                    value: trigger.defaultValue ? Number(trigger.defaultValue) : 0
+                };
+                await createCrmOpportunity(prompUuid, prompToken, payload);
+                console.log(`[CRM Entry] Created opportunity for ${contactName}`);
+            }
+        } catch (e) {
+            console.error(`[CRM Entry] Failed for pipeline ${automation.pipelineId}:`, e.message);
+        }
+    }
+}
+
 export async function createCrmOpportunity(prompUuid, prompToken, payload) {
     const res = await fetch(`${crmBase(prompUuid)}/createOpportunity`, {
         method: 'POST',

@@ -26,7 +26,7 @@ const logFlow = (msg) => {
     } catch (e) { /* ignore */ }
 };
 import { initScheduler } from './scheduler.js';
-import { appendConversationHistory, runCRMAutomationJob, listCrmPipelines, listCrmOpportunities, updateCrmOpportunity, deleteCrmOpportunity, createCrmOpportunity } from './crmAutomation.js';
+import { appendConversationHistory, runCRMAutomationJob, listCrmPipelines, listCrmOpportunities, updateCrmOpportunity, deleteCrmOpportunity, createCrmOpportunity, evaluateOpportunityCreation } from './crmAutomation.js';
 import { extractFromUrl } from './extractor.js';
 import {
     generateAuthUrl,
@@ -1234,6 +1234,18 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                 chatResults.messageChunks = messageChunks.filter(c => c.type !== 'image');
             }
         }
+
+        // Evaluate CRM Opportunity Creation (Non-blocking)
+        evaluateOpportunityCreation(
+            prisma,
+            config.prompUuid,
+            config.prompToken,
+            currentTicketId,
+            payload.contact?.name || 'Cliente',
+            cleanNumber,
+            [...history, { role: 'user', content: userMessage }, { role: 'assistant', content: aiResponse }],
+            companyId
+        ).catch(e => console.error('[CRM Entry] Error in evaluateOpportunityCreation:', e));
 
         // Persist Chat
         const finalOwner = dbIdentity || cleanOwner;
