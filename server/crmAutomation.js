@@ -103,7 +103,19 @@ Regras:
                     console.log(`[CRM Update] AI eval for #${localOpp.opportunityId}:`, updateEval);
 
                     if (updateEval.hasUpdate) {
-                        const updatePayload = { id: localOpp.opportunityId };
+                        // Payload exato exigido pela API do Promp para updateOpportunity
+                        const closingDate = new Date();
+                        closingDate.setMonth(closingDate.getMonth() + 6);
+                        const closingForecast = closingDate.toISOString().split('T')[0];
+
+                        const updatePayload = {
+                            opportunityId: localOpp.opportunityId,
+                            name: localOpp.opportunityName,
+                            pipelineId: Number(automation.pipelineId),
+                            stageId: localOpp.currentStageId,
+                            status: 'open',
+                            closingForecast,
+                        };
                         if (updateEval.value !== null && updateEval.value !== undefined && Number(updateEval.value) > 0) {
                             updatePayload.value = Number(updateEval.value);
                         }
@@ -270,7 +282,10 @@ export async function updateCrmOpportunity(prompUuid, prompToken, payload) {
         headers: crmHeaders(prompToken),
         body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`Promp updateOpportunity ${res.status}`);
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Promp updateOpportunity ${res.status}: ${text}`);
+    }
     return res.json();
 }
 
