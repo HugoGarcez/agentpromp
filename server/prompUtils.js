@@ -542,6 +542,10 @@ export const createTicketNote = async (config, ticketId, notes) => {
         const url = `${PROMP_BASE_URL}/v2/api/external/${config.prompUuid}/createNotes`;
         const payload = {
             notes: notes,
+            note: notes,
+            body: notes,
+            text: notes,
+            content: notes,
             ticketId: Number(ticketId)
         };
 

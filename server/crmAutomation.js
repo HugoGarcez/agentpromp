@@ -248,7 +248,7 @@ export async function runCRMAutomationJob(prisma) {
         let result;
         try {
             result = await listCrmOpportunities(prompUuid, prompToken, {
-                page: 1, limit: 100, status: 'open', pipelineId: automation.pipelineId,
+                page: 1, limit: 40, status: 'open', pipelineId: automation.pipelineId,
             });
         } catch (e) {
             console.error(`[CRM Job] Failed to fetch opportunities (pipeline ${automation.pipelineId}):`, e.message);
