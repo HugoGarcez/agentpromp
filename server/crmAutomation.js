@@ -53,7 +53,8 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
             const oppsList = await listCrmOpportunities(prompUuid, prompToken, {
                 page: 1, limit: 100, status: 'open', pipelineId: automation.pipelineId
             });
-            const exists = oppsList?.data?.some(o => 
+            const opportunities = oppsList?.data?.data || [];
+            const exists = opportunities.some(o => 
                 (o.contactName && o.contactName.toLowerCase() === contactName?.toLowerCase()) || 
                 (o.ticketId && String(o.ticketId) === String(ticketId)) ||
                 (o.contactNumber && String(o.contactNumber) === String(contactNumber))
