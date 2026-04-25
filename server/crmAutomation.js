@@ -168,18 +168,21 @@ Regras:
                             console.log(`[CRM Update] Re-sync found active opp #${found.id}. Updating...`);
                             const stageInfo = automation.stages ? JSON.parse(automation.stages) : [];
                             const stageObj = stageInfo.find(s => s.stageId === (found.stageId || Number(trigger.defaultStageId)));
-                            const newLocalOpp = await prisma.activeOpportunity.create({
-                                data: {
-                                    companyId: String(companyId),
-                                    automationId: automation.id,
-                                    opportunityId: Number(found.id),
-                                    contactNumber: normalizedNumber,
-                                    contactName: String(contactName),
-                                    opportunityName: found.name || expectedName,
-                                    currentStageId: found.stageId || Number(trigger.defaultStageId),
-                                    currentStageName: stageObj?.stageName || String(found.stageId || trigger.defaultStageId),
-                                    isActive: true,
-                                },
+                            const upsertData = {
+                                companyId: String(companyId),
+                                automationId: automation.id,
+                                opportunityId: Number(found.id),
+                                contactNumber: normalizedNumber,
+                                contactName: String(contactName),
+                                opportunityName: found.name || expectedName,
+                                currentStageId: found.stageId || Number(trigger.defaultStageId),
+                                currentStageName: stageObj?.stageName || String(found.stageId || trigger.defaultStageId),
+                                isActive: true,
+                            };
+                            const newLocalOpp = await prisma.activeOpportunity.upsert({
+                                where: { companyId_opportunityId: { companyId: String(companyId), opportunityId: Number(found.id) } },
+                                create: upsertData,
+                                update: { isActive: true, contactNumber: normalizedNumber, updatedAt: new Date() },
                             });
 
                             const updateEval2 = await buildUpdateEval();
