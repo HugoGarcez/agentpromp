@@ -74,7 +74,46 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
                 // ── 2a. Oportunidade encontrada no banco local → avaliar atualização ──
                 console.log(`[CRM Update] Opp #${localOpp.opportunityId} found for ${normalizedNumber}. Evaluating updates...`);
 
-                // Monta avaliação de update uma única vez (reutilizada no fallback)
+                // Stages configuradas para este pipeline (com advanceCondition)
+                const stageList = automation.stages ? JSON.parse(automation.stages) : [];
+                // Apenas stages APÓS a etapa atual (avanço forward)
+                const currentStageIdx = stageList.findIndex(s => s.stageId === localOpp.currentStageId);
+                const nextStages = currentStageIdx >= 0 ? stageList.slice(currentStageIdx + 1) : stageList;
+                const advancableStages = nextStages.filter(s => s.advanceCondition && s.advanceCondition.trim());
+
+                // Avalia avanço de etapa com base nas condições configuradas
+                const evaluateStageAdvance = async () => {
+                    if (!advancableStages.length) return null;
+                    const stagesDesc = advancableStages.map((s, i) =>
+                        `Etapa ${i + 1} — "${s.stageName}" (stageId: ${s.stageId}): Condição: "${s.advanceCondition}"`
+                    ).join('\n');
+
+                    const stagePrompt = `Você é um avaliador de funil de vendas CRM.
+Analise o histórico de conversa e determine se o lead atende à condição de avanço de alguma das etapas abaixo.
+Retorne SOMENTE um objeto JSON:
+{
+  "advanceToStageId": número ou null,
+  "advanceToStageName": "nome da etapa" ou null,
+  "reasoning": "justificativa breve"
+}
+Se nenhuma condição for atendida, retorne { "advanceToStageId": null, "advanceToStageName": null, "reasoning": "..." }
+
+Etapas disponíveis para avanço:
+${stagesDesc}`;
+
+                    const resp = await openai.chat.completions.create({
+                        model: 'gpt-4o-mini',
+                        messages: [
+                            { role: 'system', content: stagePrompt },
+                            { role: 'user', content: `Histórico:\n${conversation}` }
+                        ],
+                        response_format: { type: 'json_object' },
+                        temperature: 0.1
+                    });
+                    return JSON.parse(resp.choices[0].message.content);
+                };
+
+                // Avalia campos de conteúdo (value, description)
                 const buildUpdateEval = async () => {
                     const updatePrompt = `Você é um analista de CRM especializado em vendas.
 Analise o histórico de conversa abaixo e extraia informações relevantes para atualizar uma oportunidade de venda.
@@ -124,21 +163,42 @@ Regras:
                 };
 
                 try {
-                    const updateEval = await buildUpdateEval();
-                    console.log(`[CRM Update] AI eval for #${localOpp.opportunityId}:`, updateEval);
+                    // Executa as duas avaliações em paralelo para economizar tempo
+                    const [updateEval, stageEval] = await Promise.all([
+                        buildUpdateEval(),
+                        evaluateStageAdvance(),
+                    ]);
 
-                    if (updateEval.hasUpdate) {
+                    console.log(`[CRM Update] AI eval for #${localOpp.opportunityId}:`, updateEval);
+                    if (stageEval) console.log(`[CRM Stage] Stage eval for #${localOpp.opportunityId}:`, stageEval);
+
+                    const targetStageId = stageEval?.advanceToStageId
+                        ? Number(stageEval.advanceToStageId)
+                        : localOpp.currentStageId;
+
+                    const shouldUpdate = updateEval.hasUpdate || (stageEval?.advanceToStageId && targetStageId !== localOpp.currentStageId);
+
+                    if (shouldUpdate) {
                         const updatePayload = buildUpdatePayload(
                             localOpp.opportunityId,
                             localOpp.opportunityName,
-                            localOpp.currentStageId,
+                            targetStageId,
                             updateEval
                         );
                         console.log(`[CRM Update] Updating #${localOpp.opportunityId}:`, JSON.stringify(updatePayload));
                         await updateCrmOpportunity(prompUuid, prompToken, updatePayload);
+
+                        // Atualiza banco local com nova etapa se avançou
+                        const dbUpdateData = { lastEvaluatedAt: new Date(), updatedAt: new Date() };
+                        if (targetStageId !== localOpp.currentStageId) {
+                            dbUpdateData.currentStageId = targetStageId;
+                            dbUpdateData.currentStageName = stageEval.advanceToStageName || String(targetStageId);
+                            dbUpdateData.stageEnteredAt = new Date();
+                            console.log(`[CRM Stage] Advanced opp #${localOpp.opportunityId} → stage "${stageEval.advanceToStageName}" (#${targetStageId})`);
+                        }
                         await prisma.activeOpportunity.update({
                             where: { id: localOpp.id },
-                            data: { lastEvaluatedAt: new Date(), updatedAt: new Date() },
+                            data: dbUpdateData,
                         });
                         console.log(`[CRM Update] Opp #${localOpp.opportunityId} updated.`);
                     } else {
