@@ -78,15 +78,21 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
             console.log(`[CRM Entry] Evaluation for ${contactName}:`, evaluation);
 
             if (evaluation.matches) {
+                // Normaliza número: remove 55 do inicio apenas se tiver 13 dígitos (55 + DDD + 9 dígitos)
+                let normalizedNumber = String(contactNumber).replace(/\D/g, '');
+                if (normalizedNumber.startsWith('55') && normalizedNumber.length >= 12) {
+                    normalizedNumber = normalizedNumber.slice(2);
+                }
                 const payload = {
                     pipelineId: Number(automation.pipelineId),
                     stageId: Number(trigger.defaultStageId),
-                    number: String(contactNumber),
+                    number: normalizedNumber,
                     contactName: String(contactName),
                     name: `Oportunidade - ${contactName}`,
                     value: trigger.defaultValue ? Number(trigger.defaultValue) : 0,
                     status: "open"
                 };
+                console.log(`[CRM Entry] Sending payload to Promp:`, JSON.stringify(payload));
                 await createCrmOpportunity(prompUuid, prompToken, payload);
                 console.log(`[CRM Entry] Created opportunity for ${contactName}`);
             }
