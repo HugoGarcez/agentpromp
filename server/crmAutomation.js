@@ -56,38 +56,38 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
                 normalizedNumber = '55' + normalizedNumber;
             }
 
-            const oppsList = await listCrmOpportunities(prompUuid, prompToken, {
-                page: 1, limit: 100, status: 'open', pipelineId: automation.pipelineId
-            });
-            const opportunities = oppsList?.data?.data || [];
-            const existingOpp = opportunities.find(o => {
-                const oNum = o.contactNumber ? String(o.contactNumber).replace(/\D/g, '') : '';
-                return oNum === normalizedNumber ||
-                    (o.ticketId && String(o.ticketId) === String(ticketId));
+            // ── 1. Verifica no banco local (fonte de verdade confiável) ─────
+            const localOpp = await prisma.activeOpportunity.findFirst({
+                where: {
+                    companyId: String(companyId),
+                    automationId: automation.id,
+                    contactNumber: normalizedNumber,
+                    isActive: true,
+                },
             });
 
-            if (existingOpp) {
-                // ── Oportunidade já existe: avaliar atualizações ──────────────
-                console.log(`[CRM Update] Opportunity #${existingOpp.id} found for ${normalizedNumber}. Evaluating updates...`);
+            const conversation = history.map(h =>
+                `${h.role === 'user' ? 'Cliente' : 'Atendente/IA'}: ${h.content}`
+            ).join('\n');
+
+            if (localOpp) {
+                // ── 2a. Oportunidade já existe → avaliar atualização ─────────
+                console.log(`[CRM Update] Opp #${localOpp.opportunityId} found for ${normalizedNumber}. Evaluating updates...`);
                 try {
-                    const conversation = history.map(h =>
-                        `${h.role === 'user' ? 'Cliente' : 'Atendente/IA'}: ${h.content}`
-                    ).join('\n');
-
                     const updatePrompt = `Você é um analista de CRM especializado em vendas.
 Analise o histórico de conversa abaixo e extraia informações relevantes para atualizar uma oportunidade de venda.
 
-Retorne SOMENTE um objeto JSON com os campos que devem ser ATUALIZADOS (omita campos sem informação nova):
+Retorne SOMENTE um objeto JSON:
 {
-  "value": número (valor total dos produtos/serviços mencionados, apenas se o cliente demonstrou interesse claro com valor identificável),
-  "description": "texto resumindo o interesse e contexto da conversa (sempre retorne este campo se houver qualquer informação relevante)",
-  "hasUpdate": true ou false (true se há qualquer campo a atualizar)
+  "value": número (valor total em reais dos produtos/serviços que o cliente demonstrou interesse com valor identificável, ou null se não houver),
+  "description": "resumo do contexto e interesses relevantes para vendas",
+  "hasUpdate": true ou false
 }
 
 Regras:
-- "value": só preencha se o cliente mencionou preços, produtos específicos com valor ou demonstrou interesse em comprar algo com valor estimável. Use 0 se não houver valor claro.
-- "description": sempre resuma o que foi discutido de relevante para vendas.
-- Se não há nada de novo relevante, retorne { "hasUpdate": false }`;
+- "value": só preencha se o cliente mencionou preços, produtos ou serviços com valor estimável. null se não houver.
+- "description": resuma o que foi discutido de relevante. Sempre preencha se houver algo relevante.
+- Se não há nada novo relevante, retorne { "hasUpdate": false }`;
 
                     const updateResp = await openai.chat.completions.create({
                         model: 'gpt-4o-mini',
@@ -100,31 +100,34 @@ Regras:
                     });
 
                     const updateEval = JSON.parse(updateResp.choices[0].message.content);
-                    console.log(`[CRM Update] AI evaluation for #${existingOpp.id}:`, updateEval);
+                    console.log(`[CRM Update] AI eval for #${localOpp.opportunityId}:`, updateEval);
 
                     if (updateEval.hasUpdate) {
-                        const updatePayload = { id: existingOpp.id };
-                        if (updateEval.value !== undefined && updateEval.value > 0) {
+                        const updatePayload = { id: localOpp.opportunityId };
+                        if (updateEval.value !== null && updateEval.value !== undefined && Number(updateEval.value) > 0) {
                             updatePayload.value = Number(updateEval.value);
                         }
                         if (updateEval.description) {
                             updatePayload.description = String(updateEval.description);
                         }
-                        console.log(`[CRM Update] Updating opportunity #${existingOpp.id}:`, JSON.stringify(updatePayload));
+                        console.log(`[CRM Update] Updating #${localOpp.opportunityId}:`, JSON.stringify(updatePayload));
                         await updateCrmOpportunity(prompUuid, prompToken, updatePayload);
-                        console.log(`[CRM Update] Opportunity #${existingOpp.id} updated successfully.`);
+                        await prisma.activeOpportunity.update({
+                            where: { id: localOpp.id },
+                            data: { lastEvaluatedAt: new Date(), updatedAt: new Date() },
+                        });
+                        console.log(`[CRM Update] Opp #${localOpp.opportunityId} updated.`);
                     } else {
-                        console.log(`[CRM Update] No relevant updates for opportunity #${existingOpp.id}. Skipping.`);
+                        console.log(`[CRM Update] No relevant updates for #${localOpp.opportunityId}.`);
                     }
                 } catch (ue) {
-                    console.error(`[CRM Update] Failed to update opportunity #${existingOpp.id}:`, ue.message);
+                    console.error(`[CRM Update] Failed to update #${localOpp.opportunityId}:`, ue.message);
                 }
                 continue;
             }
 
-
+            // ── 2b. Sem oportunidade local → avaliar criação ──────────────────
             const systemPrompt = `Você é um avaliador de funil de vendas.\nO usuário quer saber se o histórico de conversa atende à seguinte condição para entrar no funil:\n"${trigger.condition}"\nResponda APENAS com um objeto JSON válido no formato:\n{ "matches": true ou false, "reasoning": "sua justificativa" }`;
-            const conversation = history.map(h => `${h.role === 'user' ? 'Cliente' : 'Atendente/IA'}: ${h.content}`).join('\n');
             const messages = [
                 { role: "system", content: systemPrompt },
                 { role: "user", content: `Histórico:\n${conversation}` }
@@ -208,8 +211,29 @@ Regras:
                 if (resolvedTicketId) payload.ticketId = resolvedTicketId;
 
                 console.log(`[CRM Entry] Sending payload to Promp:`, JSON.stringify(payload));
-                await createCrmOpportunity(prompUuid, prompToken, payload);
-                console.log(`[CRM Entry] Created opportunity for ${contactName}`);
+                const created = await createCrmOpportunity(prompUuid, prompToken, payload);
+                const createdId = created?.data?.id;
+                console.log(`[CRM Entry] Created opportunity #${createdId} for ${contactName}`);
+
+                // ── Salva no banco local para evitar duplicatas futuras ─────
+                if (createdId) {
+                    const stageInfo = automation.stages ? JSON.parse(automation.stages) : [];
+                    const stageObj = stageInfo.find(s => s.stageId === Number(trigger.defaultStageId));
+                    await prisma.activeOpportunity.create({
+                        data: {
+                            companyId: String(companyId),
+                            automationId: automation.id,
+                            opportunityId: Number(createdId),
+                            contactNumber: normalizedNumber,
+                            contactName: String(contactName),
+                            opportunityName: payload.name,
+                            currentStageId: Number(trigger.defaultStageId),
+                            currentStageName: stageObj?.stageName || String(trigger.defaultStageId),
+                            isActive: true,
+                        },
+                    });
+                    console.log(`[CRM Entry] Saved ActiveOpportunity to local DB for ${normalizedNumber}`);
+                }
             }
         } catch (e) {
             console.error(`[CRM Entry] Failed for pipeline ${automation.pipelineId}:`, e.message);
