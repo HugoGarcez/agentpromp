@@ -71,9 +71,11 @@ export async function evaluateOpportunityCreation(prisma, prompUuid, prompToken,
             ).join('\n');
 
             if (localOpp) {
-                // ── 2a. Oportunidade já existe → avaliar atualização ─────────
+                // ── 2a. Oportunidade encontrada no banco local → avaliar atualização ──
                 console.log(`[CRM Update] Opp #${localOpp.opportunityId} found for ${normalizedNumber}. Evaluating updates...`);
-                try {
+
+                // Monta avaliação de update uma única vez (reutilizada no fallback)
+                const buildUpdateEval = async () => {
                     const updatePrompt = `Você é um analista de CRM especializado em vendas.
 Analise o histórico de conversa abaixo e extraia informações relevantes para atualizar uma oportunidade de venda.
 
@@ -98,30 +100,40 @@ Regras:
                         response_format: { type: 'json_object' },
                         temperature: 0.1
                     });
+                    return JSON.parse(updateResp.choices[0].message.content);
+                };
 
-                    const updateEval = JSON.parse(updateResp.choices[0].message.content);
+                const buildUpdatePayload = (oppId, oppName, stageId, updateEval) => {
+                    const closingDate = new Date();
+                    closingDate.setMonth(closingDate.getMonth() + 6);
+                    const payload = {
+                        opportunityId: oppId,
+                        name: oppName,
+                        pipelineId: Number(automation.pipelineId),
+                        stageId: stageId,
+                        status: 'open',
+                        closingForecast: closingDate.toISOString().split('T')[0],
+                    };
+                    if (updateEval.value !== null && updateEval.value !== undefined && Number(updateEval.value) > 0) {
+                        payload.value = Number(updateEval.value);
+                    }
+                    if (updateEval.description) {
+                        payload.description = String(updateEval.description);
+                    }
+                    return payload;
+                };
+
+                try {
+                    const updateEval = await buildUpdateEval();
                     console.log(`[CRM Update] AI eval for #${localOpp.opportunityId}:`, updateEval);
 
                     if (updateEval.hasUpdate) {
-                        // Payload exato exigido pela API do Promp para updateOpportunity
-                        const closingDate = new Date();
-                        closingDate.setMonth(closingDate.getMonth() + 6);
-                        const closingForecast = closingDate.toISOString().split('T')[0];
-
-                        const updatePayload = {
-                            opportunityId: localOpp.opportunityId,
-                            name: localOpp.opportunityName,
-                            pipelineId: Number(automation.pipelineId),
-                            stageId: localOpp.currentStageId,
-                            status: 'open',
-                            closingForecast,
-                        };
-                        if (updateEval.value !== null && updateEval.value !== undefined && Number(updateEval.value) > 0) {
-                            updatePayload.value = Number(updateEval.value);
-                        }
-                        if (updateEval.description) {
-                            updatePayload.description = String(updateEval.description);
-                        }
+                        const updatePayload = buildUpdatePayload(
+                            localOpp.opportunityId,
+                            localOpp.opportunityName,
+                            localOpp.currentStageId,
+                            updateEval
+                        );
                         console.log(`[CRM Update] Updating #${localOpp.opportunityId}:`, JSON.stringify(updatePayload));
                         await updateCrmOpportunity(prompUuid, prompToken, updatePayload);
                         await prisma.activeOpportunity.update({
@@ -133,7 +145,61 @@ Regras:
                         console.log(`[CRM Update] No relevant updates for #${localOpp.opportunityId}.`);
                     }
                 } catch (ue) {
-                    console.error(`[CRM Update] Failed to update #${localOpp.opportunityId}:`, ue.message);
+                    console.warn(`[CRM Update] Opp #${localOpp.opportunityId} update failed (may be deleted): ${ue.message}`);
+                    // ── Oportunidade deletada no Promp → invalida banco local e re-sincroniza ──
+                    await prisma.activeOpportunity.update({
+                        where: { id: localOpp.id },
+                        data: { isActive: false, updatedAt: new Date() },
+                    });
+                    console.log(`[CRM Update] Marked local opp #${localOpp.opportunityId} as inactive. Re-syncing from API...`);
+
+                    try {
+                        const oppsList = await listCrmOpportunities(prompUuid, prompToken, {
+                            page: 1, limit: 100, status: 'open', pipelineId: automation.pipelineId
+                        });
+                        const apiOpps = oppsList?.data?.data || oppsList?.data || [];
+                        const expectedName = `Oportunidade - ${contactName}`;
+                        const found = Array.isArray(apiOpps) ? apiOpps.find(o =>
+                            o.name === expectedName ||
+                            (o.name && o.name.toLowerCase().includes(String(contactName).toLowerCase()))
+                        ) : null;
+
+                        if (found && found.id) {
+                            console.log(`[CRM Update] Re-sync found active opp #${found.id}. Updating...`);
+                            const stageInfo = automation.stages ? JSON.parse(automation.stages) : [];
+                            const stageObj = stageInfo.find(s => s.stageId === (found.stageId || Number(trigger.defaultStageId)));
+                            const newLocalOpp = await prisma.activeOpportunity.create({
+                                data: {
+                                    companyId: String(companyId),
+                                    automationId: automation.id,
+                                    opportunityId: Number(found.id),
+                                    contactNumber: normalizedNumber,
+                                    contactName: String(contactName),
+                                    opportunityName: found.name || expectedName,
+                                    currentStageId: found.stageId || Number(trigger.defaultStageId),
+                                    currentStageName: stageObj?.stageName || String(found.stageId || trigger.defaultStageId),
+                                    isActive: true,
+                                },
+                            });
+
+                            const updateEval2 = await buildUpdateEval();
+                            if (updateEval2.hasUpdate) {
+                                const updatePayload2 = buildUpdatePayload(
+                                    newLocalOpp.opportunityId,
+                                    newLocalOpp.opportunityName,
+                                    newLocalOpp.currentStageId,
+                                    updateEval2
+                                );
+                                console.log(`[CRM Update] Updating re-synced #${found.id}:`, JSON.stringify(updatePayload2));
+                                await updateCrmOpportunity(prompUuid, prompToken, updatePayload2);
+                                console.log(`[CRM Update] Re-synced opp #${found.id} updated.`);
+                            }
+                        } else {
+                            console.log(`[CRM Update] No active opp found via API for ${contactName}. Will create on next trigger evaluation.`);
+                        }
+                    } catch (syncErr) {
+                        console.error(`[CRM Update] Re-sync failed: ${syncErr.message}`);
+                    }
                 }
                 continue;
             }
