@@ -1223,16 +1223,15 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
         let { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = chatResults;
 
         // --- CATALOG SUPPRESSION ---
-        // If the user wants the catalog, we will send the full carousel.
-        // We suppress the single product image/caption from the AI response to avoid redundancy.
+        // When catalog intent detected, replace AI response with a brief intro.
+        // The carousel will deliver the full product list — no need for AI to also list them in text.
         if (shouldShowCatalog(userMessage)) {
-            console.log('[Webhook] Catalog intent detected. Suppressing single image fallback in favor of carousel.');
+            console.log('[Webhook] Catalog intent detected. Replacing AI response with carousel intro.');
+            aiResponse = 'Claro! Aqui estão nossos produtos disponíveis 👇';
+            chatResults.messageChunks = [{ type: 'text', content: aiResponse }];
             productImageUrl = null;
             productCaption = null;
-            // Also filter out image chunks from messageChunks if any
-            if (Array.isArray(messageChunks)) {
-                chatResults.messageChunks = messageChunks.filter(c => c.type !== 'image');
-            }
+            audioBase64 = null;
         }
 
         // Evaluate CRM Opportunity Creation (Non-blocking)
@@ -1422,19 +1421,24 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
         // and send a WhatsApp carousel via Uazapi (POST /send/carousel)
         try {
             if (shouldShowCatalog(userMessage)) {
-                const catalogProducts = config.products;
-                if (Array.isArray(catalogProducts) && catalogProducts.length > 0) {
+                // Only show physical products in carousel — exclude services
+                const allProducts = Array.isArray(config.products) ? config.products : [];
+                const catalogProducts = allProducts.filter(p => p.type !== 'service');
+                if (catalogProducts.length > 0) {
                     const uazapiCfgCatalog = getUazapiConfig(config);
                     if (uazapiCfgCatalog) {
-                        console.log(`[Webhook] Catalog intent detected. Sending carousel (${catalogProducts.length} products)...`);
-                        // Small delay so the text response arrives first
+                        console.log(`[Webhook] Catalog intent: ${allProducts.length} total, ${catalogProducts.length} products (${allProducts.length - catalogProducts.length} services filtered).`);
+                        catalogProducts.forEach(p => {
+                            const img = p.imageUrl || p.image || p.imagem || p.foto || null;
+                            console.log(`[Carousel] Product "${p.name || p.title}" — image: ${img ? img.substring(0, 80) : 'NONE'}`);
+                        });
                         await new Promise(r => setTimeout(r, 1500));
                         await sendCatalogCarousel(uazapiCfgCatalog.tokenAPI, cleanNumber, catalogProducts, config.name, cleanOwner);
                     } else {
                         console.log('[Webhook] Catalog intent detected but no Uazapi/Promp credentials available.');
                     }
                 } else {
-                    console.log('[Webhook] Catalog intent detected but no products available.');
+                    console.log('[Webhook] Catalog intent detected but no products available (after filtering services).');
                 }
             }
         } catch (catalogErr) {
