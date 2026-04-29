@@ -1220,13 +1220,14 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
         // 3. Process AI Response
         // Pass isAudioInput flag so AI can decide to reply with audio
         const chatResults = await processChatResponse(config, userMessage, history, dbSessionId, isAudioInput, currentTicketId, tagTriggers);
-        let { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks } = chatResults;
+        let { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks, calledCatalog } = chatResults;
 
         // --- CATALOG SUPPRESSION ---
-        // When catalog intent detected, replace AI response with a brief intro.
-        // The carousel will deliver the full product list — no need for AI to also list them in text.
-        if (shouldShowCatalog(userMessage)) {
-            console.log('[Webhook] Catalog intent detected. Replacing AI response with carousel intro.');
+        // When AI called list_available_products OR keyword matches, replace the AI text response with
+        // a brief intro. The carousel delivers the product list — no need for AI to also list in text.
+        const isCatalogRequest = calledCatalog || shouldShowCatalog(userMessage);
+        if (isCatalogRequest) {
+            console.log(`[Webhook] Catalog intent (calledCatalog=${calledCatalog}). Replacing AI response with carousel intro.`);
             aiResponse = 'Claro! Aqui estão nossos produtos disponíveis 👇';
             chatResults.messageChunks = [{ type: 'text', content: aiResponse }];
             productImageUrl = null;
@@ -1420,7 +1421,7 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
         // After sending the AI response, check if the user wants to see the catalog
         // and send a WhatsApp carousel via Uazapi (POST /send/carousel)
         try {
-            if (shouldShowCatalog(userMessage)) {
+            if (isCatalogRequest) {
                 // Only show physical products in carousel — exclude services
                 const allProducts = Array.isArray(config.products) ? config.products : [];
                 const catalogProducts = allProducts.filter(p => p.type !== 'service');
@@ -5578,6 +5579,7 @@ Para N produtos = N tags [SHOW_IMAGE: ID] na resposta. Sem exceção.
         let aiResponse = "";
         let turns = 0;
         const maxTurns = 3;
+        let calledCatalog = false; // Set true when list_available_products is called
         // Check if Google Config exists and has token
         const hasCalendar = config.googleConfig && config.googleConfig.accessToken;
         // ALWAYS enable tools (we need list_available_products to work)
@@ -5696,6 +5698,7 @@ Para N produtos = N tags [SHOW_IMAGE: ID] na resposta. Sem exceção.
                             }
                         }
                         else if (fnName === 'list_available_products') {
+                            calledCatalog = true;
                             console.log('[Function: list_available_products] CALLED with args:', JSON.stringify(args));
                             const requestedType = args.type || 'todos';
                             console.log('[Function: list_available_products] Requested type:', requestedType);
@@ -6163,7 +6166,7 @@ Para N produtos = N tags [SHOW_IMAGE: ID] na resposta. Sem exceção.
             }
         }
 
-        return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName, messageChunks };
+        return { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, pdfName, messageChunks, calledCatalog };
 
     } catch (error) {
         console.error('[ProcessChat] Critical Error:', error);
