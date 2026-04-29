@@ -5913,14 +5913,60 @@ Para N produtos = N tags [SHOW_IMAGE: ID] na resposta. Sem exceção.
 
 
         } else {
-            // No images — split on [BREAK] markers to create separate WhatsApp messages.
-            // Each chunk will get a "typing" presence indicator before being sent (handled by the send loop).
-            if (/\[BREAK\]/i.test(aiResponse)) {
-                const parts = aiResponse.split(/\[BREAK\]/gi)
+            // --- AUTO-SPLIT LOGIC ---
+            // Priority 1: [BREAK] marker (explicit from AI)
+            // Priority 2: Automatic paragraph split on \n\n when response is long
+            // Each chunk gets a "typing" presence before being sent (handled by the send loop)
+
+            const CHAR_THRESHOLD = 160; // Split only if total response is longer than this
+
+            // Helper: strip [BREAK] and split, or split on \n\n
+            const splitIntoChunks = (text) => {
+                // Remove any leftover [BREAK] markers first
+                const cleaned = text.replace(/\[BREAK\]/gi, '\n\n').trim();
+
+                // Split on double newlines (paragraph breaks)
+                const rawParts = cleaned.split(/\n\n+/)
                     .map(p => p.trim())
                     .filter(p => p.length > 0);
-                console.log(`[Split] [BREAK] detected — splitting into ${parts.length} message chunks.`);
-                parts.forEach(part => messageChunks.push({ type: 'text', content: part }));
+
+                if (rawParts.length <= 1) return [cleaned];
+
+                // Merge very short paragraphs (< 60 chars) with the next one
+                // to avoid micro-messages like "Sim." or "Claro!"
+                const merged = [];
+                let buffer = '';
+                for (const part of rawParts) {
+                    if (buffer && (buffer.length + part.length) < 120) {
+                        buffer += ' ' + part;
+                    } else {
+                        if (buffer) merged.push(buffer);
+                        buffer = part;
+                    }
+                }
+                if (buffer) merged.push(buffer);
+
+                // Cap at 3 chunks max to avoid flooding the client
+                if (merged.length > 3) {
+                    const capped = merged.slice(0, 2);
+                    capped.push(merged.slice(2).join(' '));
+                    return capped;
+                }
+
+                return merged;
+            };
+
+            const hasBreakMarker = /\[BREAK\]/i.test(aiResponse);
+            const isLongResponse = aiResponse.length > CHAR_THRESHOLD;
+
+            if (hasBreakMarker || isLongResponse) {
+                const parts = splitIntoChunks(aiResponse);
+                if (parts.length > 1) {
+                    console.log(`[Split] Auto-split into ${parts.length} chunks (trigger: ${hasBreakMarker ? '[BREAK]' : 'length=' + aiResponse.length}).`);
+                    parts.forEach(part => messageChunks.push({ type: 'text', content: part }));
+                } else {
+                    messageChunks.push({ type: 'text', content: aiResponse });
+                }
             } else {
                 messageChunks.push({ type: 'text', content: aiResponse });
             }
