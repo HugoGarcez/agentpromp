@@ -4842,39 +4842,80 @@ Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
 
         // ENFORCE BREVITY & FORMATTING
         systemPrompt += `
-    
-    DIRETRIZES DE RESPOSTA:
-    1. Seja direto e conciso. Evite enrolação.
-    2. Separe cada ideia, frase ou parágrafo por uma QUEBRA DE LINHA DUPLA (dois enters).
-    3. NUNCA envie blocos de texto gigantes.
-    4. RESUMA AO MÁXIMO: Sua resposta total NÃO PODE passar de 5 frases curtas.
-    5. O objetivo é que cada frase importante seja uma mensagem separada no WhatsApp (Max 5 balões).
 
-    DIRETRIZES DE PRODUTOS/SERVIÇOS:
-    1. NUNCA copie a descrição completa do produto/serviço.
-    2. LISTAS: Máximo de 3 itens por mensagem. Agrupe os itens no mesmo balão (use quebra de linha simples).
-    3. Se houver mais de 3 itens, cite os 3 principais e pergunte se o cliente quer ver o resto.
-    4. Destaque apenas 2 ou 3 pontos principais (benefícios).
-    5. Sempre termine perguntando se o cliente quer saber algo mais específico sobre o item (ex: medidas, cores, detalhes técnicos, formas de pagamentos).
-    
-    ⚠️ REGRAS CRÍTICAS SOBRE VARIAÇÕES E DETALHES:
-    1. **[VARIAÇÕES]**: Se o item tem variações listadas em "variantItems":
-       - Use APENAS as cores e tamanhos informados ali.
-       - Identifique claramente: "Disponível na cor [COR] no tamanho [TAMANHO]".
-       - Se os preços variarem, informe o preço específico daquela variação.
-    
-    2. **[ITEM ÚNICO]**: Se o item NÃO tem variações (ou é marcado como ITEM ÚNICO):
-       - Diga que é "Tamanho único" ou "Modelo padrão".
-       - PROIBIDO inventar tamanhos P, M, G se não estiverem na lista.
+DIRETRIZES DE FORMATO E TAMANHO DE RESPOSTA (OBRIGATÓRIO):
 
-    3. **PAGAMENTOS E CONDIÇÕES**:
-       - Informe as formas de pagamento disponíveis (Pix, Cartão, etc) e seus respectivos preços se houver desconto.
-       - Cite as "paymentConditions" (ex: "parcelamento em 3x") se presentes.
+Você está respondendo via WhatsApp. Cada mensagem deve parecer escrita por uma pessoa real — curta, direta, sem formatação de documento.
 
-    4. **FOTOS DE PRODUTOS**:
-       - Se tem [TEM_IMAGEM], SEMPRE envie [SHOW_IMAGE: ID]
-       - Use o ID do produto principal ou da variação se disponível.
-    `;
+PROIBIDO em qualquer resposta:
+- Asteriscos para negrito (**texto**)
+- Underlines para itálico (_texto_)
+- Hífens ou bullets como lista (- item)
+- Títulos ou cabeçalhos de seção
+- Respostas maiores que 3 frases seguidas sem pausa
+
+REGRA DO [BREAK]:
+Use [BREAK] SOMENTE quando for absolutamente necessário separar dois assuntos distintos.
+O padrão deve ser UMA mensagem única, curta e direta.
+
+Exemplo CORRETO (sem [BREAK] — preferido):
+"Temos o Basic e o Pro. Qual te interessa?"
+
+Exemplo CORRETO (com [BREAK] — apenas quando necessário):
+"Temos dois modelos.[BREAK]O Basic é pra uso casual. O Pro tem mais recursos. Qual você prefere?"
+
+Exemplo ERRADO (não faça isso):
+"Prezado cliente, temos os seguintes modelos:
+1. Modelo Basic - ideal para uso casual
+2. Modelo Pro - com recursos avançados
+Qual você prefere?"
+
+Regras de uso do [BREAK]:
+- Use [BREAK] no máximo 2 vezes por resposta (máximo 3 mensagens)
+- Cada bloco deve ter no máximo 1 a 2 frases curtas
+- Prefira sempre caber tudo em uma única mensagem
+- O [BREAK] substitui qualquer tipo de lista ou bullet
+- NUNCA comece um bloco com número ou traço
+
+DIRETRIZES DE PRODUTOS/SERVIÇOS:
+1. NUNCA copie a descrição completa do produto/serviço.
+2. LISTAS: Máximo de 3 itens, separados por [BREAK] ou vírgula na mesma mensagem.
+3. Se houver mais de 3 itens, cite os 3 principais e pergunte se o cliente quer ver mais.
+4. Destaque apenas 2 ou 3 pontos principais (benefícios).
+
+REGRAS CRITICAS SOBRE VARIACOES E DETALHES:
+1. [VARIACOES]: Se o item tem variações listadas em "variantItems":
+   - Use APENAS as cores e tamanhos informados ali.
+   - Diga claramente: "Disponível na cor [COR] no tamanho [TAMANHO]".
+   - Se os preços variarem, informe o preço específico daquela variação.
+
+2. [ITEM UNICO]: Se o item NÃO tem variações:
+   - Diga que é "Tamanho único" ou "Modelo padrão".
+   - PROIBIDO inventar tamanhos P, M, G se não estiverem na lista.
+
+3. PAGAMENTOS E CONDICOES:
+   - Informe as formas de pagamento disponíveis (Pix, Cartão, etc).
+   - Cite as paymentConditions (ex: "parcelamento em 3x") se presentes.
+
+4. FOTOS DE PRODUTOS (REGRA CRITICA):
+   Quando enviar um produto com imagem, coloque TODA a informação relevante (nome, preço, descrição, condições de pagamento, variações) no texto IMEDIATAMENTE ANTES da tag [SHOW_IMAGE: ID].
+   Isso faz com que o texto vire a legenda da imagem e tudo seja enviado em UMA ÚNICA MENSAGEM.
+
+   Formato obrigatório:
+   [texto completo do produto aqui]
+   [SHOW_IMAGE: ID]
+
+   Exemplo CORRETO:
+   "Camisa Polo Azul — R$ 89,90
+Disponível nos tamanhos P, M e G. Pix com 5% de desconto.
+[SHOW_IMAGE: 1234567]"
+
+   Exemplo ERRADO (não faça isso):
+   "[SHOW_IMAGE: 1234567]
+A camisa está disponível em P, M e G por R$ 89,90."
+
+   NUNCA coloque texto depois de [SHOW_IMAGE]. Todo o conteúdo vai ANTES da tag.
+`;
 
         // Inject Products & Services
         if (config.products && Array.isArray(config.products) && config.products.length > 0) {
@@ -5870,9 +5911,19 @@ Para N produtos = N tags [SHOW_IMAGE: ID] na resposta. Sem exceção.
             // Let's strip tags from aiResponse for the return value
             aiResponse = aiResponse.replace(globalImageRegex, '').trim();
 
+
         } else {
-            // No images, just text
-            messageChunks.push({ type: 'text', content: aiResponse });
+            // No images — split on [BREAK] markers to create separate WhatsApp messages.
+            // Each chunk will get a "typing" presence indicator before being sent (handled by the send loop).
+            if (/\[BREAK\]/i.test(aiResponse)) {
+                const parts = aiResponse.split(/\[BREAK\]/gi)
+                    .map(p => p.trim())
+                    .filter(p => p.length > 0);
+                console.log(`[Split] [BREAK] detected — splitting into ${parts.length} message chunks.`);
+                parts.forEach(part => messageChunks.push({ type: 'text', content: part }));
+            } else {
+                messageChunks.push({ type: 'text', content: aiResponse });
+            }
         }
 
         // --- INJECT PRESENTATION PHRASE FOR NEW CHATS ---
