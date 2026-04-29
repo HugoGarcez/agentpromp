@@ -1430,15 +1430,39 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                     const uazapiCfgCatalog = getUazapiConfig(config);
                     if (uazapiCfgCatalog) {
                         console.log(`[Webhook] Catalog intent: ${allProducts.length} total, ${catalogProducts.length} products (${allProducts.length - catalogProducts.length} services filtered).`);
-                        catalogProducts.forEach(p => {
-                            const img = p.imageUrl || p.image || p.imagem || p.foto || null;
-                            const imgType = img
-                                ? (img.startsWith('data:') ? 'BASE64' : img.startsWith('http') ? 'URL' : 'UNKNOWN')
-                                : 'NONE';
-                            console.log(`[Carousel] Product "${p.name || p.title}" — image type: ${imgType} | value: ${img ? img.substring(0, 100) : 'NONE'}`);
-                        });
+
+                        // Convert base64 images to public URLs so Uazapi/WhatsApp can fetch them
+                        const serverPublicUrl = `${req.protocol}://${req.get('host')}`;
+                        const uploadsDir = path.join(__dirname, 'public', 'uploads');
+                        const productsWithPublicImages = await Promise.all(catalogProducts.map(async (p) => {
+                            const rawImg = p.imageUrl || p.image || p.imagem || p.foto || null;
+                            if (!rawImg) return p;
+                            if (rawImg.startsWith('https://') || rawImg.startsWith('http://')) {
+                                return p; // already public URL
+                            }
+                            if (rawImg.startsWith('data:image/')) {
+                                try {
+                                    // Extract mime + base64 data
+                                    const matches = rawImg.match(/^data:image\/(\w+);base64,(.+)$/);
+                                    if (!matches) return p;
+                                    const ext = matches[1] === 'webp' ? 'webp' : matches[1] === 'png' ? 'png' : 'jpg';
+                                    const b64 = matches[2];
+                                    const filename = `carousel_${p.id || Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+                                    const filePath = path.join(uploadsDir, filename);
+                                    await fs.writeFile(filePath, Buffer.from(b64, 'base64'));
+                                    const publicUrl = `${serverPublicUrl}/api/uploads/${filename}`;
+                                    console.log(`[Carousel] Converted base64 → public URL for "${p.name}": ${publicUrl}`);
+                                    return { ...p, image: publicUrl };
+                                } catch (imgErr) {
+                                    console.error(`[Carousel] Failed to convert base64 image for "${p.name}":`, imgErr.message);
+                                    return p;
+                                }
+                            }
+                            return p;
+                        }));
+
                         await new Promise(r => setTimeout(r, 1500));
-                        await sendCatalogCarousel(uazapiCfgCatalog.tokenAPI, cleanNumber, catalogProducts, config.name, cleanOwner);
+                        await sendCatalogCarousel(uazapiCfgCatalog.tokenAPI, cleanNumber, productsWithPublicImages, config.name, cleanOwner);
                     } else {
                         console.log('[Webhook] Catalog intent detected but no Uazapi/Promp credentials available.');
                     }
