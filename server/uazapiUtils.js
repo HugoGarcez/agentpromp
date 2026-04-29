@@ -204,9 +204,18 @@ export const buildCarouselChoices = (catalogItems, agentPhone = '') => {
         const name = item.name || item.title || item.nome || item.titulo || 'Produto';
         const desc = item.description || item.descricao || '';
         const price = item.price ?? item.preco ?? item.valor;
-        const imageUrl = item.imageUrl || item.image || item.imagem || item.foto || '';
+        const rawImageUrl = item.imageUrl || item.image || item.imagem || item.foto || '';
         const productUrl = item.productUrl || item.link || item.url || '';
         const id = item.id || item.productId || `prod_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+
+        // Only use publicly accessible HTTPS images (WhatsApp requires public URLs)
+        const imageUrl = (rawImageUrl && (rawImageUrl.startsWith('https://') || rawImageUrl.startsWith('http://')))
+            ? rawImageUrl
+            : '';
+
+        if (rawImageUrl && !imageUrl) {
+            console.warn(`[Carousel] Product "${name}" has non-public image URL, skipping: ${rawImageUrl.substring(0, 60)}`);
+        }
 
         // Build description with price
         const descParts = [];
@@ -219,33 +228,34 @@ export const buildCarouselChoices = (catalogItems, agentPhone = '') => {
         }
         const descLine = descParts.join('\n') || 'Toque para saber mais';
 
-        // 1. Card text: [Title\nDescription]
-        choices.push(`[${name}\n${descLine}]`);
-
-        // 2. Card image: {url}
-        if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
+        // 1. Card image: {url} — must come BEFORE card text per Uazapi format
+        if (imageUrl) {
             choices.push(`{${imageUrl}}`);
         }
 
-        // 3. Buttons (up to 3 per card)
-        
-        // Button 1: URL Button (if available)
+        // 2. Card text: [Title\nDescription]
+        choices.push(`[${name}\n${descLine}]`);
+
+        // 3. Buttons (up to 3 per card) — purchase-oriented flow
+
+        // Button 1: Primary CTA — buy intent
+        choices.push(`🛒 Quero esse!|buy_${id}`);
+
+        // Button 2: Details — URL if available, otherwise reply
         if (productUrl && (productUrl.startsWith('http://') || productUrl.startsWith('https://'))) {
-            choices.push(`Ver no site|${productUrl}`);
+            choices.push(`🔗 Ver no Site|${productUrl}`);
         } else {
-            // Fallback: Reply button
-            choices.push(`Saber mais|info_${id}`);
+            choices.push(`📋 Ver Detalhes|info_${id}`);
         }
 
-        // Button 2: Copy Button (Product ID)
-        choices.push(`Copiar Código|copy:${id}`);
-
-        // Button 3: Call Button (if agent phone is available)
+        // Button 3: Talk to agent — call if phone available, otherwise reply
         if (agentPhone) {
             const cleanAgentPhone = String(agentPhone).replace(/\D/g, '');
             if (cleanAgentPhone) {
-                choices.push(`Falar c/ Atendente|call:+${cleanAgentPhone}`);
+                choices.push(`💬 Falar c/ Vendedor|call:+${cleanAgentPhone}`);
             }
+        } else {
+            choices.push(`💬 Falar c/ Vendedor|atendente`);
         }
     }
 
