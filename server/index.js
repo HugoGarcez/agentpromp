@@ -1229,7 +1229,8 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
         if (isCatalogRequest) {
             console.log(`[Webhook] Catalog intent (calledCatalog=${calledCatalog}). Replacing AI response with carousel intro.`);
             aiResponse = 'Claro! Aqui estão nossos produtos disponíveis 👇';
-            chatResults.messageChunks = [{ type: 'text', content: aiResponse }];
+            messageChunks = [{ type: 'text', content: aiResponse }];
+            chatResults.messageChunks = messageChunks;
             productImageUrl = null;
             productCaption = null;
             audioBase64 = null;
@@ -1431,7 +1432,10 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                         console.log(`[Webhook] Catalog intent: ${allProducts.length} total, ${catalogProducts.length} products (${allProducts.length - catalogProducts.length} services filtered).`);
                         catalogProducts.forEach(p => {
                             const img = p.imageUrl || p.image || p.imagem || p.foto || null;
-                            console.log(`[Carousel] Product "${p.name || p.title}" — image: ${img ? img.substring(0, 80) : 'NONE'}`);
+                            const imgType = img
+                                ? (img.startsWith('data:') ? 'BASE64' : img.startsWith('http') ? 'URL' : 'UNKNOWN')
+                                : 'NONE';
+                            console.log(`[Carousel] Product "${p.name || p.title}" — image type: ${imgType} | value: ${img ? img.substring(0, 100) : 'NONE'}`);
                         });
                         await new Promise(r => setTimeout(r, 1500));
                         await sendCatalogCarousel(uazapiCfgCatalog.tokenAPI, cleanNumber, catalogProducts, config.name, cleanOwner);

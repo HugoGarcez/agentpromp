@@ -307,6 +307,7 @@ export const sendCatalogCarousel = async (tokenAPI, phone, products, agentName, 
         };
 
         console.log(`[Uazapi] Sending Carousel to ${phone} via POST /send/menu (${Math.min(products.length, 10)} cards, ${choices.length} choices)`);
+        console.log('[Uazapi] Choices preview:', JSON.stringify(choices.slice(0, 8)));
         console.log(`[Uazapi] Token used (start): ${tokenAPI.substring(0, 8)}...`);
         // console.log(`[Uazapi] Payload: ${JSON.stringify(payload, null, 2)}`);
 
