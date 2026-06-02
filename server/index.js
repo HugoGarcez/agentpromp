@@ -1435,8 +1435,21 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                         const serverPublicUrl = `${req.protocol}://${req.get('host')}`;
                         const uploadsDir = path.join(__dirname, 'public', 'uploads');
                         const productsWithPublicImages = await Promise.all(catalogProducts.map(async (p) => {
-                            const rawImg = p.imageUrl || p.image || p.imagem || p.foto || null;
+                            let rawImg = p.imageUrl || p.image || p.imagem || p.foto || null;
                             if (!rawImg) return p;
+                            if (typeof rawImg === 'string') {
+                                if (!rawImg.startsWith('http') && !rawImg.startsWith('data:')) {
+                                    if (rawImg.startsWith('//')) {
+                                        rawImg = `https:${rawImg}`;
+                                    } else if (rawImg.startsWith('/')) {
+                                        rawImg = `https://sistema.sistemawbuy.com.br${rawImg}`;
+                                    } else {
+                                        rawImg = `https://${rawImg}`;
+                                    }
+                                }
+                                p.image = rawImg;
+                                p.imageUrl = rawImg;
+                            }
                             if (rawImg.startsWith('https://') || rawImg.startsWith('http://')) {
                                 return p; // already public URL
                             }
@@ -1452,7 +1465,7 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
                                     await fs.writeFile(filePath, Buffer.from(b64, 'base64'));
                                     const publicUrl = `${serverPublicUrl}/api/uploads/${filename}`;
                                     console.log(`[Carousel] Converted base64 → public URL for "${p.name}": ${publicUrl}`);
-                                    return { ...p, image: publicUrl };
+                                    return { ...p, image: publicUrl, imageUrl: publicUrl };
                                 } catch (imgErr) {
                                     console.error(`[Carousel] Failed to convert base64 image for "${p.name}":`, imgErr.message);
                                     return p;
@@ -1732,13 +1745,36 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
                 }
             }
 
+            let productImage = null;
+            if (wp.fotos && wp.fotos.length > 0) {
+                const firstFoto = wp.fotos[0];
+                if (typeof firstFoto === 'string') {
+                    productImage = firstFoto;
+                } else if (firstFoto && typeof firstFoto === 'object') {
+                    productImage = firstFoto.foto || firstFoto.url || firstFoto.imagem || firstFoto.src || null;
+                }
+            }
+            if (!productImage) {
+                productImage = existing ? existing.image : null;
+            }
+
+            if (productImage && !productImage.startsWith('http')) {
+                if (productImage.startsWith('//')) {
+                    productImage = `https:${productImage}`;
+                } else if (productImage.startsWith('/')) {
+                    productImage = `https://sistema.sistemawbuy.com.br${productImage}`;
+                } else {
+                    productImage = `https://${productImage}`;
+                }
+            }
+
             let internalProduct = {
                 id: existing ? existing.id : `wbuy_${wbuyId}_${Date.now()}`,
                 type: 'product',
                 name: productName,
                 price: price.toFixed(2),
                 description: wp.descricao_completa || wp.descricao_longa || wp.descricao_detalhada || wp.descricao_html || wp.descricao || wp.caracteristicas || wp.resumo || '',
-                image: (wp.fotos && wp.fotos.length > 0) ? wp.fotos[0].foto : (existing ? existing.image : null),
+                image: productImage,
                 active: wp.ativo === "1" || wp.ativo === 1,
                 unit: 'Unidade',
                 stock: stock,
@@ -1781,11 +1817,21 @@ app.post('/api/integrations/wbuy/sync', authenticateToken, async (req, res) => {
                     // 3. Via colorPhotoMap (wp.fotos matched by id_cor)
                     // 4. Fallback to parent image
                     const colorId = v.cor?.id || v.id_cor || v.cor_id;
-                    const variantImage = 
+                    let variantImage = 
                         v.imagem || v.foto || v.image ||
                         v.cor?.img || v.cor?.foto || v.cor?.imagem || v.cor?.image || v.cor?.url ||
                         (colorId ? colorPhotoMap.get(String(colorId)) : null) ||
                         null;
+
+                    if (variantImage && !variantImage.startsWith('http')) {
+                        if (variantImage.startsWith('//')) {
+                            variantImage = `https:${variantImage}`;
+                        } else if (variantImage.startsWith('/')) {
+                            variantImage = `https://sistema.sistemawbuy.com.br${variantImage}`;
+                        } else {
+                            variantImage = `https://${variantImage}`;
+                        }
+                    }
 
                     return {
                         id: `var_${wbuyId}_${v.id}_${Date.now()}`,

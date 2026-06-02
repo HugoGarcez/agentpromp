@@ -204,9 +204,19 @@ export const buildCarouselChoices = (catalogItems, agentPhone = '') => {
         const name = item.name || item.title || item.nome || item.titulo || 'Produto';
         const desc = item.description || item.descricao || '';
         const price = item.price ?? item.preco ?? item.valor;
-        const rawImageUrl = item.imageUrl || item.image || item.imagem || item.foto || '';
+        let rawImageUrl = item.imageUrl || item.image || item.imagem || item.foto || '';
         const productUrl = item.productUrl || item.link || item.url || '';
         const id = item.id || item.productId || `prod_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+
+        if (rawImageUrl && typeof rawImageUrl === 'string' && !rawImageUrl.startsWith('http') && !rawImageUrl.startsWith('data:')) {
+            if (rawImageUrl.startsWith('//')) {
+                rawImageUrl = `https:${rawImageUrl}`;
+            } else if (rawImageUrl.startsWith('/')) {
+                rawImageUrl = `https://sistema.sistemawbuy.com.br${rawImageUrl}`;
+            } else {
+                rawImageUrl = `https://${rawImageUrl}`;
+            }
+        }
 
         // Only use publicly accessible HTTPS images (WhatsApp requires public URLs)
         const imageUrl = (rawImageUrl && (rawImageUrl.startsWith('https://') || rawImageUrl.startsWith('http://')))
