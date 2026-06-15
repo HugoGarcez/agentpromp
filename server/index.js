@@ -2473,6 +2473,20 @@ const processSingleFollowUp = async (state) => {
         return;
     }
 
+    // Resolve channel credentials if not present on agent config
+    if (!config.prompUuid || !config.prompToken) {
+        const matchedChannel = await prisma.prompChannel.findFirst({
+            where: {
+                agents: { some: { id: config.id } },
+                companyId: companyId
+            }
+        });
+        if (matchedChannel) {
+            config.prompUuid = matchedChannel.prompUuid;
+            config.prompToken = matchedChannel.prompToken;
+        }
+    }
+
     // --- 7. Send via Promp ---
     console.log(`[FollowUp] Enviando via Promp para ${cleanPhone}. prompUuid=${config.prompUuid ? 'ok' : 'AUSENTE'} | prompToken=${config.prompToken ? 'ok' : 'AUSENTE'}`);
     const sent = await sendPrompMessage(config, cleanPhone, followUpMsg, null, null, null);
@@ -3655,10 +3669,10 @@ const getCompanyConfig = async (companyId, agentId = null) => {
             specialists: config.company?.specialists || [],
             appointmentTypes: config.company?.appointmentTypes || [],
             googleConfig: config.company?.googleConfig || null,
-            // Fallback to Global Promp credentials if agent doesn't have them
-            prompIdentity: config.prompIdentity || config.company?.prompIdentity,
-            prompUuid: config.prompUuid || config.company?.prompUuid,
-            prompToken: config.prompToken || config.company?.prompToken
+            // Fallback to Global Promp credentials if agent doesn't have them - DEPRECATED / REMOVED as per channel-only credentials policy
+            prompIdentity: config.prompIdentity,
+            prompUuid: config.prompUuid,
+            prompToken: config.prompToken
         };
     } catch (error) {
         console.error(`[Config] Error fetching config for ${companyId}:`, error);
@@ -3852,7 +3866,23 @@ app.get('/api/promp/users', authenticateToken, async (req, res) => {
     const agentId = req.query.agentId;
     try {
         const config = await getCompanyConfig(companyId, agentId);
-        if (!config || (!config.prompUuid && !config.prompIdentity)) return res.status(404).json({ error: 'Configuração do Promp incompleta' });
+        if (!config) return res.status(404).json({ error: 'Configuração do agente não encontrada' });
+        
+        if (!config.prompUuid || !config.prompToken) {
+            const matchedChannel = await prisma.prompChannel.findFirst({
+                where: {
+                    agents: { some: { id: config.id } },
+                    companyId: companyId
+                }
+            });
+            if (matchedChannel) {
+                config.prompUuid = matchedChannel.prompUuid;
+                config.prompToken = matchedChannel.prompToken;
+            }
+        }
+        
+        if (!config.prompUuid) return res.status(400).json({ error: 'Configuração do Promp incompleta (sem credenciais de canal vinculadas)' });
+        
         const users = await getPrompUsers(config);
         res.json(users);
     } catch (error) {
@@ -3865,7 +3895,23 @@ app.get('/api/promp/queues', authenticateToken, async (req, res) => {
     const agentId = req.query.agentId;
     try {
         const config = await getCompanyConfig(companyId, agentId);
-        if (!config || (!config.prompUuid && !config.prompIdentity)) return res.status(404).json({ error: 'Configuração do Promp incompleta' });
+        if (!config) return res.status(404).json({ error: 'Configuração do agente não encontrada' });
+        
+        if (!config.prompUuid || !config.prompToken) {
+            const matchedChannel = await prisma.prompChannel.findFirst({
+                where: {
+                    agents: { some: { id: config.id } },
+                    companyId: companyId
+                }
+            });
+            if (matchedChannel) {
+                config.prompUuid = matchedChannel.prompUuid;
+                config.prompToken = matchedChannel.prompToken;
+            }
+        }
+        
+        if (!config.prompUuid) return res.status(400).json({ error: 'Configuração do Promp incompleta (sem credenciais de canal vinculadas)' });
+        
         const queues = await getPrompQueues(config);
         res.json(queues);
     } catch (error) {
@@ -6486,58 +6532,30 @@ app.get('/api/promp/channels', authenticateToken, async (req, res) => {
     try {
         const companyId = req.user.companyId;
 
-        // Fetch global promp integration from Company
-        const company = await prisma.company.findUnique({
-            where: { id: companyId },
-            select: { prompUuid: true, prompToken: true }
-        });
-
-        if (!company || !company.prompUuid || !company.prompToken) {
-            return res.json({ channels: [] }); // Not integrated globally yet
-        }
-
-        const url = `${PROMP_BASE_URL}/v2/api/external/${company.prompUuid}/listChannels`;
-        const response = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${company.prompToken}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            console.error('[Promp] Failed to list channels:', await response.text());
-            return res.status(response.status).json({ message: 'Erro ao buscar canais na Promp' });
-        }
-
-        const data = await response.json();
-        
-        // Also fetch from DB to see which are already linked to which agents
+        // Fetch channels from local DB
         const linkedChannels = await prisma.prompChannel.findMany({
             where: { companyId },
             include: { agents: { select: { id: true, name: true } } }
         });
 
-        // Map backend channels and embellish with DB links
-        let finalChannels = [];
-        const incomingChannels = Array.isArray(data) ? data : (data.channels || data.data || []);
-        
-        if (incomingChannels && Array.isArray(incomingChannels)) {
-            finalChannels = incomingChannels.map(ch => {
-                const dbMatch = linkedChannels.find(l => String(l.prompConnectionId) === String(ch.id) || String(l.prompConnectionId) === String(ch.wabaId) || String(l.name) === String(ch.name));
-                return {
-                    ...ch,
-                    dbId: dbMatch ? dbMatch.id : null,
-                    linkedAgents: dbMatch ? dbMatch.agents : [],
-                    hasSpecificCreds: dbMatch ? (!!dbMatch.prompUuid && !!dbMatch.prompToken && dbMatch.prompUuid !== company.prompUuid) : false,
-                    prompUuid: dbMatch ? dbMatch.prompUuid : null,
-                    prompToken: dbMatch ? dbMatch.prompToken : null
-                };
-            });
-        }
+        const finalChannels = linkedChannels.map(ch => {
+            return {
+                id: ch.prompConnectionId || ch.id,
+                name: ch.name,
+                type: 'whatsapp',
+                prompIdentity: ch.prompIdentity,
+                prompConnectionId: ch.prompConnectionId,
+                prompUuid: ch.prompUuid,
+                prompToken: ch.prompToken,
+                dbId: ch.id,
+                linkedAgents: ch.agents,
+                hasSpecificCreds: !!ch.prompUuid && !!ch.prompToken
+            };
+        });
 
         res.json({ channels: finalChannels });
     } catch (e) {
-        console.error('Error fetching global channels:', e);
+        console.error('Error fetching channels:', e);
         res.status(500).json({ error: e.message });
     }
 });

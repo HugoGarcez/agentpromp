@@ -233,7 +233,7 @@ const Integrations = () => {
     });
 
     const [webhookUrl, setWebhookUrl] = useState('');
-    const [isPrompConnected, setIsPrompConnected] = useState(false);
+    const [isPrompConnected, setIsPrompConnected] = useState(true);
     const [prompChannels, setPrompChannels] = useState([]);
     const [loadingChannels, setLoadingChannels] = useState(false);
     const [agents, setAgents] = useState([]);
@@ -540,90 +540,29 @@ const Integrations = () => {
                             <p style={{ margin: 0, fontSize: '12px', color: '#047857' }}>Omnichannel / Multi-agentes</p>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: isPrompConnected ? '#059669' : '#6B7280' }}>
-                            {isPrompConnected ? 'Conectado' : 'Desconectado'}
-                        </span>
-                        <div style={{ width: '10px', height: '10px', background: isPrompConnected ? '#059669' : '#D1D5DB', borderRadius: '50%' }}></div>
-                    </div>
                 </div>
 
                 {/* Body */}
                 <div style={{ padding: '20px' }}>
                     <p style={{ fontSize: '14px', color: '#047857', marginBottom: '20px' }}>
-                        Conecte sua conta Promp para vincular canais (WhatsApp, Webchat, E-mail) aos seus agentes de IA.
+                        Vincule e configure credenciais de API específicas para cada um de seus canais do Promp.
                     </p>
 
-                    {!isPrompConnected ? (
-                        <div style={{ display: "grid", gap: "16px" }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                <div>
-                                    <label style={{ display: "block", marginBottom: "8px", fontSize: "13px", fontWeight: 500, color: "#047857" }}>URL da API Promp</label>
-                                    <input
-                                        type="text"
-                                        placeholder="https://api.promp.com.br/v2/api/external/..."
-                                        id="prompApiUrlInput"
-                                        style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #10B981", fontSize: "14px" }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: "block", marginBottom: "8px", fontSize: "13px", fontWeight: 500, color: "#047857" }}>Bearer Token</label>
-                                    <input
-                                        type="password"
-                                        placeholder="Sua API Key"
-                                        id="prompApiTokenInput"
-                                        style={{ width: "100%", padding: "10px", borderRadius: "6px", border: "1px solid #10B981", fontSize: "14px" }}
-                                    />
-                                </div>
-                            </div>
-                            <button
-                                onClick={async () => {
-                                    const apiUrl = document.getElementById("prompApiUrlInput").value;
-                                    const apiToken = document.getElementById("prompApiTokenInput").value;
-                                    if (!apiUrl || !apiToken) return alert("URL e Token são obrigatórios.");
-                                    try {
-                                        const res = await fetch("/api/promp/connect", {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                                            body: JSON.stringify({ apiUrl, apiToken })
-                                        });
-                                        if (res.ok) {
-                                            alert("Promp conectada com sucesso!");
-                                            setIsPrompConnected(true);
-                                            fetchChannels();
-                                        } else {
-                                            const data = await res.json();
-                                            alert(data.message || "Erro ao conectar.");
-                                        }
-                                    } catch (e) { alert("Erro de conexão."); }
-                                }}
-                                style={{ background: "#10B981", color: "white", padding: "10px 16px", borderRadius: "6px", fontWeight: 600, cursor: "pointer", border: "none" }}
-                            >
-                                Validar e Conectar Promp
-                            </button>
-                        </div>
-                    ) : (
-                        <div>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", background: '#F9FAFB', padding: '12px', borderRadius: '8px' }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                                    <span style={{ fontSize: '14px', fontWeight: 600 }}>Agente:</span>
-                                    <select 
-                                        value={selectedAgentId} 
-                                        onChange={e => setSelectedAgentId(e.target.value)}
-                                        style={{ padding: '6px', borderRadius: '4px', border: '1px solid #D1D5DB', fontSize: '13px' }}
-                                    >
-                                        {agents.map(a => (
-                                            <option key={a.id} value={a.id}>{a.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <button
-                                    onClick={() => setIsPrompConnected(false)}
-                                    style={{ border: "1px solid #B91C1C", background: "transparent", color: "#B91C1C", padding: "6px 12px", borderRadius: "6px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+                    <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", background: '#F9FAFB', padding: '12px', borderRadius: '8px' }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                <span style={{ fontSize: '14px', fontWeight: 600 }}>Agente:</span>
+                                <select 
+                                    value={selectedAgentId} 
+                                    onChange={e => setSelectedAgentId(e.target.value)}
+                                    style={{ padding: '6px', borderRadius: '4px', border: '1px solid #D1D5DB', fontSize: '13px' }}
                                 >
-                                    Desconectar
-                                </button>
+                                    {agents.map(a => (
+                                        <option key={a.id} value={a.id}>{a.name}</option>
+                                    ))}
+                                </select>
                             </div>
+                        </div>
 
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                                 <h4 style={{ fontSize: "14px", fontWeight: 600, color: "#059669", margin: 0 }}>Canais Disponíveis</h4>
@@ -757,7 +696,30 @@ const Integrations = () => {
                                                                     onClick={() => toggleChannelLink(ch, isLinked)}
                                                                     style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "none", background: isLinked ? "#FEE2E2" : "#D1FAE5", color: isLinked ? "#B91C1C" : "#065F46" }}
                                                                 >
-                                                                    {isLinked ? "Remover" : "Vincular"}
+                                                                    {isLinked ? "Desvincular" : "Vincular"}
+                                                                </button>
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (window.confirm("Deseja realmente excluir este canal e suas credenciais permanentemente?")) {
+                                                                            try {
+                                                                                const res = await fetch(`/api/channels/${ch.dbId || ch.id}`, {
+                                                                                    method: 'DELETE',
+                                                                                    headers: { 'Authorization': `Bearer ${token}` }
+                                                                                });
+                                                                                if (res.ok) {
+                                                                                    fetchChannels();
+                                                                                } else {
+                                                                                    alert("Erro ao excluir canal.");
+                                                                                }
+                                                                            } catch (e) {
+                                                                                alert("Erro de conexão.");
+                                                                            }
+                                                                        }
+                                                                    }}
+                                                                    style={{ padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "none", background: "#FEE2E2", color: "#B91C1C" }}
+                                                                    title="Excluir canal"
+                                                                >
+                                                                    Excluir
                                                                 </button>
                                                             </div>
                                                         )}
@@ -828,7 +790,6 @@ const Integrations = () => {
                                 </div>
                             </div>
                         </div>
-                    )}
                 </div>
             </div>
 

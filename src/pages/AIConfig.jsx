@@ -171,7 +171,7 @@ const AIConfig = () => {
     // Channels
     const [prompChannels, setPrompChannels] = useState([]);
     const [loadingChannels, setLoadingChannels] = useState(false);
-    const [isPrompConnected, setIsPrompConnected] = useState(false);
+    const [isPrompConnected, setIsPrompConnected] = useState(true);
     const [configuringChannelId, setConfiguringChannelId] = useState(null);
     const [channelCreds, setChannelCreds] = useState({ url: '', token: '' });
 
@@ -226,7 +226,6 @@ const AIConfig = () => {
     useEffect(() => {
         if (!user || !user.companyId) return;
         fetchAgents();
-        fetchPrompStatus();
         fetchVoices();
     }, [user]);
 
@@ -282,16 +281,6 @@ const AIConfig = () => {
                     : [...active, sourceId]
             };
         });
-    };
-
-    const fetchPrompStatus = async () => {
-        try {
-            const res = await fetch('/api/config', { headers: { 'Authorization': `Bearer ${token}` } });
-            if (res.ok) {
-                const data = await res.json();
-                if (data.prompUuid) setIsPrompConnected(true);
-            }
-        } catch (e) {}
     };
 
     const fetchAgents = async () => {

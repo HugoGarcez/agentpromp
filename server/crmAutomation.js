@@ -672,8 +672,7 @@ export async function runCRMAutomationJob(prisma) {
     console.log('[CRM Job] Starting pipeline automation evaluation...');
 
     const automations = await prisma.pipelineAutomation.findMany({
-        where: { isActive: true },
-        include: { company: { select: { prompUuid: true, prompToken: true } } },
+        where: { isActive: true }
     });
 
     if (!automations.length) {
@@ -691,7 +690,15 @@ export async function runCRMAutomationJob(prisma) {
     const model = 'gpt-4o-mini';
 
     for (const automation of automations) {
-        const { prompUuid, prompToken } = automation.company;
+        const companyChannel = await prisma.prompChannel.findFirst({
+            where: {
+                companyId: automation.companyId,
+                prompUuid: { not: "" },
+                prompToken: { not: null }
+            }
+        });
+        const prompUuid = companyChannel?.prompUuid;
+        const prompToken = companyChannel?.prompToken;
         if (!prompUuid || !prompToken) {
             console.warn(`[CRM Job] Missing Promp credentials for automation ${automation.id}`);
             continue;
