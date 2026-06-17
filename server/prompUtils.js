@@ -5,6 +5,7 @@ import sharp from 'sharp';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { registerAiSentMessage } from './aiCache.js';
 
 // Helper for file logging (Local to this module)
 const logFlow = (msg) => {
@@ -134,6 +135,7 @@ export const sendPrompMessage = async (config, number, text, audioBase64, imageU
                 console.error('[Promp] Text Send Failed:', errText);
             } else {
                 console.log('[Promp] Text Sent Successfully');
+                registerAiSentMessage(number, text);
             }
         } catch (e) {
             console.error('[Promp] Text Exception:', e);
@@ -271,6 +273,9 @@ export const sendPrompMessage = async (config, number, text, audioBase64, imageU
             console.error('[Promp] Base64 Image Send Failed:', errRes);
         } else {
             console.log('[Promp] SUCCESS: Image sent via Base64 endpoint.');
+            if (caption) {
+                registerAiSentMessage(number, caption);
+            }
         }
     }
 

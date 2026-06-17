@@ -26,6 +26,7 @@ const logFlow = (msg) => {
     } catch (e) { /* ignore */ }
 };
 import { initScheduler } from './scheduler.js';
+import { isAiSentMessage } from './aiCache.js';
 import { appendConversationHistory, runCRMAutomationJob, listCrmPipelines, listCrmOpportunities, updateCrmOpportunity, deleteCrmOpportunity, createCrmOpportunity, evaluateOpportunityCreation, listCrmUsers } from './crmAutomation.js';
 import { extractFromUrl } from './extractor.js';
 import {
@@ -724,6 +725,12 @@ const handleWebhookRequest = async (req, res) => {
             : '';
     }
 
+    // --- LOOP AND ECHO PROTECTION (aiCache) ---
+    if (cleanSender && userMessage && isAiSentMessage(cleanSender, userMessage)) {
+        console.log(`[Webhook] Loop Protection: Ignored message matching recently sent AI message to ${cleanSender}.`);
+        return res.json({ status: 'ignored_ai_loop' });
+    }
+
     // --- AUDIO HANDLING ---
     // If text is "ptt" (Push To Talk) or "audio" AND we have media, it's an Audio Message.
     let isAudioInput = false;
@@ -1261,9 +1268,18 @@ NÃO fale com o cliente. Responda APENAS com o resumo.`
         let { aiResponse, audioBase64, productImageUrl, productCaption, pdfBase64, messageChunks, calledCatalog } = chatResults;
 
         // --- CATALOG SUPPRESSION ---
-        // When AI called list_available_products OR keyword matches, replace the AI text response with
-        // a brief intro. The carousel delivers the product list — no need for AI to also list in text.
-        const isCatalogRequest = calledCatalog || shouldShowCatalog(userMessage);
+        // Only trigger catalog replacement if the company actually has products in config
+        let hasProducts = false;
+        try {
+            const productsList = config.products ? (typeof config.products === 'string' ? JSON.parse(config.products) : config.products) : [];
+            if (Array.isArray(productsList) && productsList.length > 0) {
+                hasProducts = true;
+            }
+        } catch (e) {
+            // ignore
+        }
+
+        const isCatalogRequest = hasProducts && (calledCatalog || shouldShowCatalog(userMessage));
         if (isCatalogRequest) {
             console.log(`[Webhook] Catalog intent (calledCatalog=${calledCatalog}). Replacing AI response with carousel intro.`);
             aiResponse = 'Claro! Aqui estão nossos produtos disponíveis 👇';
@@ -4934,8 +4950,19 @@ const processChatResponse = async (config, message, history, sessionId = null, i
 
         let systemPrompt = config.systemPrompt || "Você é um assistente virtual útil.";
 
-        // ⚠️ CRITICAL: Product List Freshness - ALWAYS use current list
-        systemPrompt = `
+        // ⚠️ CRITICAL: Product List Freshness - ONLY use if products actually exist in config
+        let hasProducts = false;
+        try {
+            const productsList = config.products ? (typeof config.products === 'string' ? JSON.parse(config.products) : config.products) : [];
+            if (Array.isArray(productsList) && productsList.length > 0) {
+                hasProducts = true;
+            }
+        } catch (e) {
+            // ignore
+        }
+
+        if (hasProducts) {
+            systemPrompt = `
 🔴 REGRA CRÍTICA #1 - FUNCTION CALLING OBRIGATÓRIO:
 ═══════════════════════════════════════════════════════════════
 ⚠️⚠️⚠️ ATENÇÃO IMEDIATA ⚠️⚠️⚠️
@@ -4992,6 +5019,7 @@ Resposta ERRADA: "Temos 3 camisas: A, B e C" ❌
 ═══════════════════════════════════════════════════════════════
 
 ` + systemPrompt;
+        }
 
         // Inject Audio Context if applicable
         if (isAudioInput) {
