@@ -222,6 +222,10 @@ const handleWebhookRequest = async (req, res) => {
         return 0;
     });
 
+    const isWaba = payload.ticket?.channel === 'waba' || 
+                   payload.ticket?.whatsapp?.type === 'waba' ||
+                   payload.type === 'waba';
+
     try {
         // MULTIPLE AGENTS RESOLUTION
         // 1. CARREGAR CANAIS GLOBALMENTE (Com Cache)
@@ -240,6 +244,14 @@ const handleWebhookRequest = async (req, res) => {
         );
 
         matchedChannel = matchedByDest || matchedByOwner;
+
+        // Fallback: se nenhum canal foi casado, mas temos canais para esta empresa, usar o primeiro com agentes.
+        if (!matchedChannel && allChannels.length > 0) {
+            matchedChannel = allChannels.find(ch => ch.companyId === companyId && ch.agents.length > 0);
+            if (matchedChannel) {
+                console.log(`[Webhook] Fallback Match: Channel ${matchedChannel.name} selected for company ${companyId}`);
+            }
+        }
 
         // WhatsApp Test Mode: only respond to the configured test number
         if (matchedChannel?.whatsappTestMode) {
@@ -385,6 +397,19 @@ const handleWebhookRequest = async (req, res) => {
                 config.prompToken = agentToken;
             }
 
+            // Override para canais do tipo WABA
+            if (isWaba) {
+                const wabaUuid = payload.ticket?.whatsappId || payload.ticket?.whatsapp?.id;
+                const wabaToken = payload.ticket?.whatsapp?.tokenAPI;
+                if (wabaUuid) {
+                    config.prompUuid = String(wabaUuid);
+                }
+                if (wabaToken) {
+                    config.prompToken = wabaToken;
+                }
+                source = 'WABA Payload';
+            }
+
             console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: UUID=${config.prompUuid}, PrompToken=${config.prompToken?.substring(0, 5)}... (Source: ${source})`);
             const uazapiLog = getUazapiConfig(config);
             if (uazapiLog) {
@@ -461,10 +486,10 @@ const handleWebhookRequest = async (req, res) => {
 
     // IDENTITY CHECK (Secondary/Legacy check: "Consider ONLY what is sent TO the number that is in the AI")
     // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
-    // --- V7: BYPASS IF CONNECTION MATCHED ---
+    // --- V7: BYPASS IF CONNECTION MATCHED OR WABA ---
     if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
-        if (incomingConnectionIdArr.includes(dbConnectionId)) {
-            console.log(`[Webhook-V7] Identity Mismatch (Owner: ${cleanOwner}, Config: ${dbIdentity}), but BYPASSING because Connection ID ${dbConnectionId} matched.`);
+        if (incomingConnectionIdArr.includes(dbConnectionId) || isWaba) {
+            console.log(`[Webhook-V7] Identity Mismatch (Owner: ${cleanOwner}, Config: ${dbIdentity}), but BYPASSING because Connection ID ${dbConnectionId} matched or is WABA.`);
         } else {
             console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
             return res.json({ status: 'ignored_wrong_identity' });
@@ -473,10 +498,10 @@ const handleWebhookRequest = async (req, res) => {
 
     // --- PROMP SHOWCHANNEL API VALIDATION (Root Isolation) ---
     // Definitively check if the receiving number (cleanOwner) actually belongs to the configured Channel
-    // --- V8: BYPASS IF CONNECTION MATCHED ---
+    // --- V8: BYPASS IF CONNECTION MATCHED OR WABA ---
     if (cleanOwner && config && config.prompToken && config.prompConnectionId) {
-        if (incomingConnectionIdArr.includes(dbConnectionId)) {
-            console.log(`[Webhook-V8] Skipping showChannel validation because Connection ID ${dbConnectionId} already matched.`);
+        if (incomingConnectionIdArr.includes(dbConnectionId) || isWaba) {
+            console.log(`[Webhook-V8] Skipping showChannel validation because Connection ID ${dbConnectionId} already matched or is WABA.`);
         } else {
             const cacheKey = `${config.prompToken}_${cleanOwner}`;
 
