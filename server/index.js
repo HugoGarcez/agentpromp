@@ -154,6 +154,12 @@ const handleWebhookRequest = async (req, res) => {
         payload = payload[0];
     }
 
+    // Unpack body wrapping if present and doesn't conflict with direct payloads (common in WABA / proxy setups)
+    if (payload && payload.body && typeof payload.body === 'object' && !payload.msg) {
+        console.log(`[Webhook] Nesting body detected. Unpacking payload.body onto payload.`);
+        payload = { ...payload, ...payload.body };
+    }
+
     if (!payload || Object.keys(payload).length === 0) {
         console.error('[Webhook] Empty Payload! Check Content-Type.');
     } else {
@@ -672,6 +678,7 @@ const handleWebhookRequest = async (req, res) => {
         payload.message?.conversation ||
         payload.message?.extendedTextMessage?.text ||
         payload.message?.text ||
+        payload.msg?.text?.body ||
         payload.msg?.text ||
         payload.msg?.body ||
         payload.msg?.message ||
