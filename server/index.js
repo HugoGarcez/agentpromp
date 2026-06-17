@@ -172,6 +172,7 @@ const handleWebhookRequest = async (req, res) => {
     let config = null;
     let agentId = null;
     let matchedChannel = null;
+    let isCrossChannelSend = false;
 
     // 2. Identify Sender and Owner Early
     let rawSender = payload.key?.remoteJid || payload.contact?.number || payload.body?.contact?.number || 
@@ -263,7 +264,6 @@ const handleWebhookRequest = async (req, res) => {
         }
 
         // 4. BYPASS NATIVO (Se o canal for o DESTINATÁRIO)
-        let isCrossChannelSend = false;
         let targetChannel = null;
 
         if (matchedChannel && destNumber && String(matchedChannel.prompIdentity).replace(/\D/g, '') === destNumber) {
@@ -688,7 +688,7 @@ const handleWebhookRequest = async (req, res) => {
     }
 
     // Ignore ACKs (Delivery/Read Receipts)
-    if (payload.msg?.ack && payload.msg.ack > 1) {
+    if (payload.msg?.ack && payload.msg.ack > 1 && !isCrossChannelSend) {
         console.log(`[Webhook] Ignoring Message ACK (${payload.msg.ack}) from ${cleanSender}.`);
         return res.json({ status: 'ignored_ack' });
     }
