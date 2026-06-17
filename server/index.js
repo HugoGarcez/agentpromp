@@ -274,17 +274,21 @@ const handleWebhookRequest = async (req, res) => {
             // Forçar fromMe = false para responder em inbound
             if (payload.msg) payload.msg.fromMe = false;
 
-            // Inverter papéis: Encontrar o canal remetente (Canal A)
-            const senderChannel = allChannels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner);
-
+            // Inverter papéis: O remetente da mensagem simulada é quem enviou (dono original da sessão)
+            const originalOwner = cleanOwner;
             companyId = targetChannel.companyId; // Override Company ID!
 
+            const senderChannel = allChannels.find(ch => String(ch.prompIdentity).replace(/\D/g, '') === originalOwner);
             if (senderChannel && senderChannel.prompIdentity) {
                 rawSender = senderChannel.prompIdentity;
                 cleanSender = String(senderChannel.prompIdentity).replace(/\D/g, '');
+            } else if (originalOwner) {
+                rawSender = originalOwner;
+                cleanSender = String(originalOwner).replace(/\D/g, '');
             }
+
             rawOwner = targetChannel.prompIdentity;
-            cleanOwner = String(targetChannel.prompIdentity).replace(/\D/g, '');
+            cleanOwner = targetChannel.prompIdentity ? String(targetChannel.prompIdentity).replace(/\D/g, '') : '';
 
             console.log(`[Webhook] Flipped roles for Cross-Channel. New Company: ${companyId}, New Sender: ${cleanSender}, New Owner: ${cleanOwner}`);
         } else {
