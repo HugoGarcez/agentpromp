@@ -323,7 +323,9 @@ const handleWebhookRequest = async (req, res) => {
 
         // 3. MATCHING GLOBAL (Prioritize Destination for Cross-Channel Support)
         const matchedByDest = (destNumber && destNumber !== cleanOwner) ? allChannels.find(ch => ch.prompIdentity && String(ch.prompIdentity).replace(/\D/g, '') === destNumber) : null;
-        const matchedByOwner = allChannels.find(ch => {
+        
+        // Channel matching function - returns match score for sorting
+        const getChannelMatch = (ch) => {
             const hasIdentityMatch = ch.prompIdentity && String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner;
             
             // Flexible connection ID match
@@ -377,8 +379,20 @@ const handleWebhookRequest = async (req, res) => {
                 }
             }
 
-            return hasIdentityMatch || hasConnectionIdMatch || hasUuidMatch || hasWabaMatch;
-        });
+            const isMatch = hasIdentityMatch || hasConnectionIdMatch || hasUuidMatch || hasWabaMatch;
+            return isMatch ? ch : null;
+        };
+
+        // Find ALL matching channels, then prioritize ones WITH agents linked
+        const allMatchingOwner = allChannels.filter(ch => getChannelMatch(ch) !== null);
+        let matchedByOwner = null;
+        if (allMatchingOwner.length > 0) {
+            // Prefer channel WITH agents linked over orphaned channels
+            matchedByOwner = allMatchingOwner.find(ch => ch.agents && ch.agents.length > 0) || allMatchingOwner[0];
+            if (allMatchingOwner.length > 1) {
+                console.log(`[Webhook] Multiple channels matched owner ${cleanOwner}: ${allMatchingOwner.map(c => `${c.name}(agents:${c.agents?.length || 0})`).join(', ')}. Selected: ${matchedByOwner.name}`);
+            }
+        }
 
         matchedChannel = matchedByDest || matchedByOwner;
 
