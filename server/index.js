@@ -285,12 +285,12 @@ const handleWebhookRequest = async (req, res) => {
         return 0;
     });
 
-    const isWaba = payload.ticket?.channel === 'waba' || 
-                   payload.ticket?.whatsapp?.type === 'waba' ||
-                   payload.type === 'waba' ||
-                   String(payload.ticket?.whatsapp?.name).toLowerCase().includes('waba') ||
-                   String(payload.ticket?.channel).toLowerCase().includes('waba') ||
-                   String(payload.channel).toLowerCase().includes('waba');
+    const isWaba = (payload.ticket?.channel && String(payload.ticket.channel).toLowerCase() === 'waba') || 
+                   (payload.ticket?.whatsapp?.type && String(payload.ticket.whatsapp.type).toLowerCase() === 'waba') ||
+                   (payload.type && String(payload.type).toLowerCase() === 'waba') ||
+                   (payload.ticket?.whatsapp?.name && String(payload.ticket.whatsapp.name).toLowerCase().includes('waba')) ||
+                   (payload.channel && String(payload.channel).toLowerCase().includes('waba')) ||
+                   (payload.msg?.type && String(payload.msg.type).toLowerCase() === 'waba');
 
     try {
         // MULTIPLE AGENTS RESOLUTION
