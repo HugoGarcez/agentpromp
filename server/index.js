@@ -243,9 +243,29 @@ const handleWebhookRequest = async (req, res) => {
     let cleanSender = rawSender ? String(rawSender).replace(/\D/g, '') : '';
     
     let rawOwner = payload.msg?.owner || payload.owner || payload.to || payload.msg?.to || 
-                      payload.ticket?.owner || payload.ticket?.destination || payload.ticket?.whatsappId ||
+                      payload.ticket?.owner || payload.ticket?.destination ||
                       payload.data?.to || payload.data?.owner || payload.destination;
+
+    // WABA-specific: ticket.whatsappId is an internal numeric ID (e.g. 133), not useful for phone matching.
+    // Only use it as fallback if no better owner was found. Prefer WABA identifiers for channel matching.
+    if (!rawOwner && payload.ticket?.whatsappId) {
+        rawOwner = payload.ticket.whatsappId;
+    }
+
     let cleanOwner = rawOwner ? String(rawOwner).replace(/\D/g, '') : null;
+
+    // WABA Enhancement: Extract WABA-specific identifiers for better channel matching
+    const wabaIdentifiers = {
+        wabaId: payload.ticket?.whatsapp?.wabaId ? String(payload.ticket.whatsapp.wabaId).trim() : null,
+        tokenAPI: payload.ticket?.whatsapp?.tokenAPI ? String(payload.ticket.whatsapp.tokenAPI).trim() : null,
+        whatsappInternalId: payload.ticket?.whatsappId ? String(payload.ticket.whatsappId).trim() : null,
+        whatsappName: payload.ticket?.whatsapp?.name ? String(payload.ticket.whatsapp.name).trim() : null,
+        isWabaPayload: payload.ticket?.channel === 'waba' || payload.ticket?.whatsapp?.type === 'waba'
+    };
+    if (wabaIdentifiers.isWabaPayload) {
+        console.log(`[Webhook] WABA Payload Detected. wabaId=${wabaIdentifiers.wabaId}, tokenAPI=${wabaIdentifiers.tokenAPI}, internalId=${wabaIdentifiers.whatsappInternalId}`);
+    }
+
     console.log(`[Webhook] Identified Owner: ${cleanOwner} (Raw: ${rawOwner})`);
 
     // --- REAL-TIME DIAGNOSTIC RECURSIVE ID FINDER ---
@@ -320,7 +340,44 @@ const handleWebhookRequest = async (req, res) => {
                 return cleanDb === cleanInc || cleanDb.includes(cleanInc) || cleanInc.includes(cleanDb);
             });
 
-            return hasIdentityMatch || hasConnectionIdMatch || hasUuidMatch;
+            // WABA-specific: Match channel by wabaId or tokenAPI against prompConnectionId or prompUuid
+            let hasWabaMatch = false;
+            if (wabaIdentifiers.isWabaPayload && !hasIdentityMatch && !hasConnectionIdMatch && !hasUuidMatch) {
+                const chConnId = ch.prompConnectionId ? String(ch.prompConnectionId).trim().toLowerCase() : '';
+                const chUuid = ch.prompUuid ? String(ch.prompUuid).trim().toLowerCase() : '';
+                const chName = ch.name ? String(ch.name).trim().toLowerCase() : '';
+
+                if (wabaIdentifiers.wabaId) {
+                    const wId = wabaIdentifiers.wabaId.toLowerCase();
+                    if (chConnId === wId || chConnId.includes(wId) || chUuid === wId || chUuid.includes(wId)) {
+                        hasWabaMatch = true;
+                    }
+                }
+                if (!hasWabaMatch && wabaIdentifiers.tokenAPI) {
+                    const tApi = wabaIdentifiers.tokenAPI.toLowerCase();
+                    if (chConnId === tApi || chConnId.includes(tApi) || chUuid === tApi || chUuid.includes(tApi)) {
+                        hasWabaMatch = true;
+                    }
+                }
+                if (!hasWabaMatch && wabaIdentifiers.whatsappInternalId) {
+                    const intId = wabaIdentifiers.whatsappInternalId.toLowerCase();
+                    if (chConnId === intId || chUuid === intId) {
+                        hasWabaMatch = true;
+                    }
+                }
+                // Also try matching by channel name containing WABA identifiers
+                if (!hasWabaMatch && wabaIdentifiers.whatsappName) {
+                    const wName = wabaIdentifiers.whatsappName.toLowerCase();
+                    if (chName && (chName === wName || chName.includes(wName) || wName.includes(chName))) {
+                        hasWabaMatch = true;
+                    }
+                }
+                if (hasWabaMatch) {
+                    console.log(`[Webhook] WABA Channel Match: ${ch.name} matched via WABA identifiers (wabaId=${wabaIdentifiers.wabaId}, tokenAPI=${wabaIdentifiers.tokenAPI})`);
+                }
+            }
+
+            return hasIdentityMatch || hasConnectionIdMatch || hasUuidMatch || hasWabaMatch;
         });
 
         matchedChannel = matchedByDest || matchedByOwner;
@@ -492,24 +549,42 @@ const handleWebhookRequest = async (req, res) => {
 
             // Override para canais do tipo WABA
             if (isWaba) {
-                const wabaUuid = payload.ticket?.whatsappId || payload.ticket?.whatsapp?.id;
-                const wabaToken = payload.ticket?.whatsapp?.tokenAPI;
+                // For WABA: ticket.whatsappId is an internal ID (e.g. 133), NOT a UUID.
+                // ticket.whatsapp.tokenAPI is the Phone Number ID, NOT an auth token.
+                // ticket.whatsapp.bmToken is the actual bearer token for Meta/WABA API.
+                // PRIORITY: Channel DB credentials > WABA payload credentials
                 
-                const wabaUuidStr = wabaUuid ? String(wabaUuid) : null;
-                const parsedWabaUuid = extractUuid(wabaUuidStr);
-                const hasResolvedUuid = config.prompUuid && uuidRegex.test(config.prompUuid);
+                const hasChannelUuid = config.prompUuid && (uuidRegex.test(config.prompUuid) || String(config.prompUuid).length > 6);
+                const hasChannelToken = config.prompToken && config.prompToken.length > 10;
 
-                if (wabaUuidStr) {
+                // Only override UUID if channel doesn't have a valid one
+                if (!hasChannelUuid) {
+                    const wabaUuid = payload.ticket?.whatsapp?.id || payload.ticket?.whatsappId;
+                    const wabaUuidStr = wabaUuid ? String(wabaUuid) : null;
+                    const parsedWabaUuid = extractUuid(wabaUuidStr);
+                    
                     if (parsedWabaUuid) {
                         config.prompUuid = parsedWabaUuid;
-                    } else if (!hasResolvedUuid) {
+                    } else if (wabaUuidStr && !uuidRegex.test(config.prompUuid || '')) {
                         config.prompUuid = wabaUuidStr;
                     }
                 }
-                if (wabaToken) {
-                    config.prompToken = wabaToken;
+
+                // Only override Token if channel doesn't have a valid one
+                // Prefer bmToken (actual auth token) over tokenAPI (phone number ID)
+                if (!hasChannelToken) {
+                    const wabaBmToken = payload.ticket?.whatsapp?.bmToken;
+                    const wabaTokenAPI = payload.ticket?.whatsapp?.tokenAPI;
+                    
+                    if (wabaBmToken && wabaBmToken.length > 20) {
+                        config.prompToken = wabaBmToken;
+                    } else if (wabaTokenAPI) {
+                        config.prompToken = wabaTokenAPI;
+                    }
                 }
-                source = 'WABA Payload';
+
+                source = 'WABA (Channel Priority)';
+                console.log(`[Webhook] WABA Credentials: UUID=${config.prompUuid}, hasChannelUuid=${hasChannelUuid}, hasChannelToken=${hasChannelToken}`);
             }
 
             console.log(`[Webhook] Credentials Configured for ${matchedChannel.name}: UUID=${config.prompUuid}, PrompToken=${config.prompToken?.substring(0, 5)}... (Source: ${source})`);
