@@ -287,7 +287,10 @@ const handleWebhookRequest = async (req, res) => {
 
     const isWaba = payload.ticket?.channel === 'waba' || 
                    payload.ticket?.whatsapp?.type === 'waba' ||
-                   payload.type === 'waba';
+                   payload.type === 'waba' ||
+                   String(payload.ticket?.whatsapp?.name).toLowerCase().includes('waba') ||
+                   String(payload.ticket?.channel).toLowerCase().includes('waba') ||
+                   String(payload.channel).toLowerCase().includes('waba');
 
     try {
         // MULTIPLE AGENTS RESOLUTION
@@ -300,11 +303,25 @@ const handleWebhookRequest = async (req, res) => {
 
         // 3. MATCHING GLOBAL (Prioritize Destination for Cross-Channel Support)
         const matchedByDest = (destNumber && destNumber !== cleanOwner) ? allChannels.find(ch => ch.prompIdentity && String(ch.prompIdentity).replace(/\D/g, '') === destNumber) : null;
-        const matchedByOwner = allChannels.find(ch => 
-            (ch.prompIdentity && String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner) ||
-            incomingConnectionIdArr.includes(String(ch.prompConnectionId).trim()) ||
-            (ch.prompUuid && incomingConnectionIdArr.includes(String(ch.prompUuid).trim()))
-        );
+        const matchedByOwner = allChannels.find(ch => {
+            const hasIdentityMatch = ch.prompIdentity && String(ch.prompIdentity).replace(/\D/g, '') === cleanOwner;
+            
+            // Flexible connection ID match
+            const hasConnectionIdMatch = ch.prompConnectionId && incomingConnectionIdArr.some(incId => {
+                const cleanDb = String(ch.prompConnectionId).trim().toLowerCase();
+                const cleanInc = String(incId).trim().toLowerCase();
+                return cleanDb === cleanInc || cleanDb.includes(cleanInc) || cleanInc.includes(cleanDb);
+            });
+
+            // Flexible UUID match
+            const hasUuidMatch = ch.prompUuid && incomingConnectionIdArr.some(incId => {
+                const cleanDb = String(ch.prompUuid).trim().toLowerCase();
+                const cleanInc = String(incId).trim().toLowerCase();
+                return cleanDb === cleanInc || cleanDb.includes(cleanInc) || cleanInc.includes(cleanDb);
+            });
+
+            return hasIdentityMatch || hasConnectionIdMatch || hasUuidMatch;
+        });
 
         matchedChannel = matchedByDest || matchedByOwner;
 
@@ -572,8 +589,21 @@ const handleWebhookRequest = async (req, res) => {
     // IDENTITY CHECK (Secondary/Legacy check: "Consider ONLY what is sent TO the number that is in the AI")
     // If the payload says the owner is X, but the DB config says Identity is Y, IGNORE.
     // --- V7: BYPASS IF CONNECTION MATCHED OR WABA ---
+    const isWabaChannel = isWaba || 
+                          (matchedChannel && (
+                              String(matchedChannel.name).toLowerCase().includes('waba') ||
+                              String(matchedChannel.prompConnectionId).toLowerCase().includes('waba') ||
+                              String(matchedChannel.prompUuid).toLowerCase().includes('waba')
+                          ));
+
     if (dbIdentity && cleanOwner && dbIdentity !== cleanOwner) {
-        if (incomingConnectionIdArr.includes(dbConnectionId) || isWaba) {
+        const connectionMatched = dbConnectionId && incomingConnectionIdArr.some(incId => {
+            const cleanDb = String(dbConnectionId).trim().toLowerCase();
+            const cleanInc = String(incId).trim().toLowerCase();
+            return cleanDb === cleanInc || cleanDb.includes(cleanInc) || cleanInc.includes(cleanDb);
+        });
+
+        if (connectionMatched || isWaba || isWabaChannel) {
             console.log(`[Webhook-V7] Identity Mismatch (Owner: ${cleanOwner}, Config: ${dbIdentity}), but BYPASSING because Connection ID ${dbConnectionId} matched or is WABA.`);
         } else {
             console.log(`[Webhook] Identity Mismatch. Payload Owner: ${cleanOwner}, Config Identity: ${dbIdentity}. Ignoring.`);
@@ -585,7 +615,13 @@ const handleWebhookRequest = async (req, res) => {
     // Definitively check if the receiving number (cleanOwner) actually belongs to the configured Channel
     // --- V8: BYPASS IF CONNECTION MATCHED OR WABA ---
     if (cleanOwner && config && config.prompToken && config.prompConnectionId) {
-        if (incomingConnectionIdArr.includes(dbConnectionId) || isWaba) {
+        const connectionMatched = dbConnectionId && incomingConnectionIdArr.some(incId => {
+            const cleanDb = String(dbConnectionId).trim().toLowerCase();
+            const cleanInc = String(incId).trim().toLowerCase();
+            return cleanDb === cleanInc || cleanDb.includes(cleanInc) || cleanInc.includes(cleanDb);
+        });
+
+        if (connectionMatched || isWaba || isWabaChannel) {
             console.log(`[Webhook-V8] Skipping showChannel validation because Connection ID ${dbConnectionId} already matched or is WABA.`);
         } else {
             const cacheKey = `${config.prompToken}_${cleanOwner}`;
