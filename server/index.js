@@ -100,32 +100,58 @@ const prisma = new PrismaClient();
 
 // Helper to resolve Promp credentials from channel or company
 async function getPrompCredentials(companyId) {
-    // 1. Tentar buscar a partir de PrompChannel
-    const channel = await prisma.prompChannel.findFirst({
+    const uuidRegex = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+    // 1. Tentar buscar canal ativo (vinculado a algum agente) com credenciais válidas
+    let channel = await prisma.prompChannel.findFirst({
         where: {
             companyId: companyId,
             prompUuid: { not: "" },
-            prompToken: { not: null }
+            prompToken: { not: null, not: "" },
+            agents: { some: {} }
         }
     });
 
-    if (channel && channel.prompUuid) {
+    // 2. Se não encontrar canal com agente, busca qualquer canal com credenciais válidas
+    if (!channel) {
+        channel = await prisma.prompChannel.findFirst({
+            where: {
+                companyId: companyId,
+                prompUuid: { not: "" },
+                prompToken: { not: null, not: "" }
+            }
+        });
+    }
+
+    if (channel && channel.prompUuid && channel.prompToken) {
+        let prompUuid = channel.prompUuid.trim();
+        const uuidMatch = prompUuid.match(uuidRegex);
+        if (uuidMatch) {
+            prompUuid = uuidMatch[0];
+        }
+
         return {
-            prompUuid: channel.prompUuid,
-            prompToken: channel.prompToken
+            prompUuid: prompUuid,
+            prompToken: channel.prompToken.trim()
         };
     }
 
-    // 2. Fallback para Company
+    // 3. Fallback para Company
     const company = await prisma.company.findUnique({
         where: { id: companyId },
         select: { prompUuid: true, prompToken: true }
     });
 
-    if (company && company.prompUuid) {
+    if (company && company.prompUuid && company.prompToken) {
+        let prompUuid = company.prompUuid.trim();
+        const uuidMatch = prompUuid.match(uuidRegex);
+        if (uuidMatch) {
+            prompUuid = uuidMatch[0];
+        }
+
         return {
-            prompUuid: company.prompUuid,
-            prompToken: company.prompToken
+            prompUuid: prompUuid,
+            prompToken: company.prompToken.trim()
         };
     }
 
