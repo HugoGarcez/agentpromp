@@ -394,7 +394,13 @@ const handleWebhookRequest = async (req, res) => {
             }
         }
 
-        matchedChannel = matchedByDest || matchedByOwner;
+        // Determine if this is an outbound message
+        const isFromMeMsg = payload.key?.fromMe || payload.fromMe || payload.data?.key?.fromMe || payload.msg?.fromMe || payload.ticket?.fromMe;
+
+        // For cross-channel to work correctly:
+        // - OUTBOUND (fromMe=true): AI A sends to AI B. Prioritize matchedByDest (AI B) to trigger cross-channel inversion.
+        // - INBOUND (fromMe=false): Customer (or AI A) sends to AI B. Prioritize matchedByOwner (AI B) so AI B responds normally.
+        matchedChannel = (isFromMeMsg ? matchedByDest : null) || matchedByOwner;
 
         // Fallback: se nenhum canal foi casado, mas temos canais para esta empresa, usar o primeiro com agentes.
         if (!matchedChannel && allChannels.length > 0) {
