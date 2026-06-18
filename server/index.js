@@ -98,6 +98,41 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey'; // In production 
 
 const prisma = new PrismaClient();
 
+// Helper to resolve Promp credentials from channel or company
+async function getPrompCredentials(companyId) {
+    // 1. Tentar buscar a partir de PrompChannel
+    const channel = await prisma.prompChannel.findFirst({
+        where: {
+            companyId: companyId,
+            prompUuid: { not: "" },
+            prompToken: { not: null }
+        }
+    });
+
+    if (channel && channel.prompUuid) {
+        return {
+            prompUuid: channel.prompUuid,
+            prompToken: channel.prompToken
+        };
+    }
+
+    // 2. Fallback para Company
+    const company = await prisma.company.findUnique({
+        where: { id: companyId },
+        select: { prompUuid: true, prompToken: true }
+    });
+
+    if (company && company.prompUuid) {
+        return {
+            prompUuid: company.prompUuid,
+            prompToken: company.prompToken
+        };
+    }
+
+    return null;
+}
+
+
 // --- MIDDLEWARE ---
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -2968,10 +3003,7 @@ app.post('/api/products/batch-category', authenticateToken, async (req, res) => 
 // List tags directly from Promp API
 app.get('/api/tags/promp', authenticateToken, async (req, res) => {
     try {
-        const config = await prisma.company.findUnique({
-            where: { id: req.user.companyId },
-            select: { prompUuid: true, prompToken: true }
-        });
+        const config = await getPrompCredentials(req.user.companyId);
 
         if (!config || !config.prompUuid || !config.prompToken) {
             return res.status(400).json({ message: 'Integração com Promp não configurada.' });
@@ -2987,10 +3019,7 @@ app.get('/api/tags/promp', authenticateToken, async (req, res) => {
 
 app.post('/api/tags/promp/create', authenticateToken, async (req, res) => {
     try {
-        const config = await prisma.company.findUnique({
-            where: { id: req.user.companyId },
-            select: { prompUuid: true, prompToken: true }
-        });
+        const config = await getPrompCredentials(req.user.companyId);
 
         if (!config || !config.prompUuid || !config.prompToken) {
             return res.status(400).json({ message: 'Integração com Promp não configurada.' });
@@ -3012,10 +3041,7 @@ app.post('/api/tags/promp/create', authenticateToken, async (req, res) => {
 
 app.put('/api/tags/promp/:id', authenticateToken, async (req, res) => {
     try {
-        const config = await prisma.company.findUnique({
-            where: { id: req.user.companyId },
-            select: { prompUuid: true, prompToken: true }
-        });
+        const config = await getPrompCredentials(req.user.companyId);
 
         if (!config || !config.prompUuid || !config.prompToken) {
             return res.status(400).json({ message: 'Integração com Promp não configurada.' });
@@ -3038,10 +3064,7 @@ app.put('/api/tags/promp/:id', authenticateToken, async (req, res) => {
 
 app.delete('/api/tags/promp/:id', authenticateToken, async (req, res) => {
     try {
-        const config = await prisma.company.findUnique({
-            where: { id: req.user.companyId },
-            select: { prompUuid: true, prompToken: true }
-        });
+        const config = await getPrompCredentials(req.user.companyId);
 
         if (!config || !config.prompUuid || !config.prompToken) {
             return res.status(400).json({ message: 'Integração com Promp não configurada.' });
@@ -6970,10 +6993,7 @@ app.put('/api/channels/:id/whatsapp-test', authenticateToken, async (req, res) =
 // GET /api/crm-automation/pipelines — lista pipelines do tenant
 app.get('/api/crm-automation/pipelines', authenticateToken, async (req, res) => {
     try {
-        const company = await prisma.company.findUnique({
-            where: { id: req.user.companyId },
-            select: { prompUuid: true, prompToken: true },
-        });
+        const company = await getPrompCredentials(req.user.companyId);
         if (!company?.prompUuid || !company?.prompToken) {
             return res.status(400).json({ success: false, message: 'Credenciais Promp não configuradas para esta empresa.' });
         }
@@ -6988,10 +7008,7 @@ app.get('/api/crm-automation/pipelines', authenticateToken, async (req, res) => 
 // GET /api/crm-automation/users — lista atendentes do tenant no Promp
 app.get('/api/crm-automation/users', authenticateToken, async (req, res) => {
     try {
-        const company = await prisma.company.findUnique({
-            where: { id: req.user.companyId },
-            select: { prompUuid: true, prompToken: true },
-        });
+        const company = await getPrompCredentials(req.user.companyId);
         if (!company?.prompUuid || !company?.prompToken) {
             return res.status(400).json({ success: false, message: 'Credenciais Promp não configuradas.' });
         }
@@ -7007,10 +7024,7 @@ app.get('/api/crm-automation/users', authenticateToken, async (req, res) => {
 
 app.get('/api/crm-automation/opportunities', authenticateToken, async (req, res) => {
     try {
-        const company = await prisma.company.findUnique({
-            where: { id: req.user.companyId },
-            select: { prompUuid: true, prompToken: true },
-        });
+        const company = await getPrompCredentials(req.user.companyId);
         if (!company?.prompUuid || !company?.prompToken) {
             return res.status(400).json({ success: false, message: 'Credenciais Promp não configuradas.' });
         }
@@ -7126,10 +7140,7 @@ app.post('/api/crm-automation/evaluate/:opportunityId', authenticateToken, async
         });
         if (!opp) return res.status(404).json({ success: false, message: 'Oportunidade não encontrada.' });
 
-        const company = await prisma.company.findUnique({
-            where: { id: req.user.companyId },
-            select: { prompUuid: true, prompToken: true },
-        });
+        const company = await getPrompCredentials(req.user.companyId);
 
         const { evaluateLeadProgression } = await import('./crmAutomation.js');
         const globalConfig = await prisma.globalConfig.findFirst();
