@@ -444,14 +444,24 @@ const handleWebhookRequest = async (req, res) => {
             const agentToken = config.prompToken;
 
             // 1. UUID Priority: Channel (Specific) > Agent/Company > Webhook URL
-            if (matchedChannel.prompUuid && uuidRegex.test(matchedChannel.prompUuid)) {
-                config.prompUuid = matchedChannel.prompUuid;
+            const extractUuid = (str) => {
+                if (!str) return null;
+                const match = String(str).match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+                return match ? match[0] : null;
+            };
+
+            const channelUuid = extractUuid(matchedChannel.prompUuid);
+            const dbAgentUuid = extractUuid(agentUuid);
+            const urlUuid = extractUuid(companyId);
+
+            if (channelUuid) {
+                config.prompUuid = channelUuid;
                 source = 'Channel (Specific)';
-            } else if (agentUuid && uuidRegex.test(agentUuid)) {
-                config.prompUuid = agentUuid;
+            } else if (dbAgentUuid) {
+                config.prompUuid = dbAgentUuid;
                 source = 'Agent/Global Config (DB)';
-            } else if (uuidRegex.test(companyId)) {
-                config.prompUuid = companyId;
+            } else if (urlUuid) {
+                config.prompUuid = urlUuid;
                 source = 'Webhook URL fallback';
             }
 
@@ -467,8 +477,17 @@ const handleWebhookRequest = async (req, res) => {
             if (isWaba) {
                 const wabaUuid = payload.ticket?.whatsappId || payload.ticket?.whatsapp?.id;
                 const wabaToken = payload.ticket?.whatsapp?.tokenAPI;
-                if (wabaUuid) {
-                    config.prompUuid = String(wabaUuid);
+                
+                const wabaUuidStr = wabaUuid ? String(wabaUuid) : null;
+                const parsedWabaUuid = extractUuid(wabaUuidStr);
+                const hasResolvedUuid = config.prompUuid && uuidRegex.test(config.prompUuid);
+
+                if (wabaUuidStr) {
+                    if (parsedWabaUuid) {
+                        config.prompUuid = parsedWabaUuid;
+                    } else if (!hasResolvedUuid) {
+                        config.prompUuid = wabaUuidStr;
+                    }
                 }
                 if (wabaToken) {
                     config.prompToken = wabaToken;
