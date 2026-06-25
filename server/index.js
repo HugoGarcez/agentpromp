@@ -1024,9 +1024,9 @@ const handleWebhookRequest = async (req, res) => {
 
     // --- EMOJI REACTION (fire-and-forget, before AI processing) ---
     if (config && msgId) {
-        // Inject Uazapi token from webhook payload if agent config doesn't have one
+        const whatsappType = payload.ticket?.whatsapp?.type;
         const webhookUazapiToken = payload.ticket?.whatsapp?.tokenAPI;
-        if (webhookUazapiToken && !getUazapiConfig(config)) {
+        if (whatsappType === 'uazapi' && webhookUazapiToken && !getUazapiConfig(config)) {
             if (!config.integrations) config.integrations = {};
             if (!config.integrations.whatsapp) config.integrations.whatsapp = {};
             config.integrations.whatsapp.tokenAPI = webhookUazapiToken;
